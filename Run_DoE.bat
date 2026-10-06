@@ -76,7 +76,7 @@ IF EXIST "%~dp0build\sysimage.dll" (
     echo %ESC%[97m[%t%] BOOT          : Sysimage        No sysimage found. Standard JIT execution active.%ESC%[0m
 )
 echo %ESC%[93m[%t%] BOOT          : Setup           Initializing Core Architecture...%ESC%[0m
-call "%~dp0system\run_set.bat"
+call "%~dp0system\Run_Std.bat"
 EXIT /B
 
 :MODE2
@@ -92,7 +92,7 @@ IF EXIST "%~dp0build\sysimage.dll" (
     echo %ESC%[97m[%t%] BOOT          : Sysimage        No sysimage found. Standard JIT execution active.%ESC%[0m
 )
 echo %ESC%[94m[%t%] BOOT          : Setup           Initializing Core Architecture...%ESC%[0m
-call "%~dp0system\run_dev.bat"
+call "%~dp0system\Run_Dev.bat"
 EXIT /B
 
 :MODE3
@@ -120,7 +120,7 @@ set "t=%TIME: =0%"
 set "t=%t:,=.%0"
 echo [%t%] GATEWAY       : Routing         Launching Sysimage Compiler...
 echo.
-call "%~dp0build\compiler.bat"
+call "%~dp0build\Compiler.bat"
 echo.
 set "t=%TIME: =0%"
 set "t=%t:,=.%0"
@@ -136,7 +136,7 @@ set "t=%TIME: =0%"
 set "t=%t:,=.%0"
 echo [%t%] GATEWAY       : Routing         Executing Automated Test Suite...
 echo.
-julia --depwarn=no --threads auto --project=. test/coverage.jl
+julia --depwarn=no --threads auto --project=. test/Coverage.jl
 echo.
 set "t=%TIME: =0%"
 set "t=%t:,=.%0"

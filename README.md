@@ -99,7 +99,7 @@ cd DoECISORY.jl
   - **Standard Mode [1]**: Default execution profile. Utilises a precompiled system image (`build/sysimage.dll` or `sysimage.so`) if present, or proceeds with standard JIT compilation.
   - **Developer Mode [2]**: Environment for code modification without restarting the session (via Revise.jl)
   - **Clean JIT Mode [3]**: JIT execution with basic compiler optimisations (`-O1`), bypassing any system image.
-  - **Build Sysimage [4]**: Compiles a local system image via `build/compiler.jl` to eliminate JIT latency.
+  - **Build Sysimage [4]**: Compiles a local system image via `build/Compiler.jl` to eliminate JIT latency.
   - **Run Test Suite [5]**: Executes the automated test suite (100 verifications) directly from the gateway menu.
 
 * **Sysimage Compilation Workflow**  
@@ -109,7 +109,7 @@ cd DoECISORY.jl
   ```
   Then build the precompiled sysimage via command-line or `Run_DoE.bat`:
   ```bash
-  julia --project=. build/compiler.jl
+  julia --project=. build/Compiler.jl
   ```
   Once compiled, the application launches with prewarmed Plotly and Dash caches.
 
@@ -214,7 +214,7 @@ julia --project=. -e "using Pkg; Pkg.test()"
 To run the test suite with comprehensive line-by-line code coverage analysis (identical to Gateway Mode [5]):
 
 ```bash
-julia --project=. test/coverage.jl
+julia --project=. test/Coverage.jl
 ```
 
 ---

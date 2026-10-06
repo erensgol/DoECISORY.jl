@@ -577,7 +577,7 @@ const SUITE_START_TIME = time()
             lab_def  = Sys_Fast.FAST_GetLabDefaults_DDEF(),
             cfg_nil  = Sys_Fast.FAST_ReadConfig_DDEF(nothing),
             upd_nil  = Sys_Fast.FAST_UpdateConfig_DDEF(nothing, Dict()),
-            memo_real = Sys_Fast.FAST_LoadMemoFile_DDEF(normpath(joinpath(@__DIR__, "..", "Memo_DDE.json"))),
+            memo_real = Sys_Fast.FAST_LoadMemoFile_DDEF(normpath(joinpath(@__DIR__, "..", "assets", "Memo_DDE.json"))),
             memo_nil = Sys_Fast.FAST_LoadMemoFile_DDEF("missing_memo.json"),
             safe_sym = Sys_Fast.FAST_GetSafe_DDEF(Dict("key" => 123), :key),
             safe_nil = Sys_Fast.FAST_GetSafe_DDEF(nothing, "k", 999),

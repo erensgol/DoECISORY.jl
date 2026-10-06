@@ -40,7 +40,7 @@ DoECISORY provides two operational interfaces:
 ### [Scripting and Batch Pipeline](scripting.md)
 * **Users:** Biostatisticians, data scientists, chemical engineers, and automation specialists.
 * **Interface:** Julia REPL, Jupyter/Pluto notebooks, or automated batch scripts.
-* **Workflow:** Direct API dispatch, multi-threaded high-density grid evaluations (`--threads=auto`), and ahead-of-time sysimage compilation (`system/compiler.jl`).
+* **Workflow:** Direct API dispatch, multi-threaded high-density grid evaluations (`--threads=auto`), and ahead-of-time sysimage compilation (`build/Compiler.jl`).
 
 ---
 

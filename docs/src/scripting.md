@@ -124,17 +124,17 @@ When thread counts exceed 4, `VISE_GridSearch_DDEF` dynamically upgrades evaluat
 
 To reduce Just-In-Time (JIT) latency and achieve fast startup, compile a local system image using `PackageCompiler.jl`:
 
-### 3.1. Compilation via `system/compiler.jl`
+### 3.1. Compilation via `build/Compiler.jl`
 
-A pre-configured compiler harness is located at `system/compiler.jl`:
+A pre-configured compiler harness is located at `build/Compiler.jl`:
 
 ```julia
 using PackageCompiler
 
 PackageCompiler.create_sysimage(
     [:DoECISORY, :Dash, :PlotlyJS, :DataFrames, :XLSX];
-    sysimage_path = "system/DoECISORY_sysimage.so", # or .dll on Windows
-    precompile_execution_file = "system/precompile_workload.jl"
+    sysimage_path = "build/sysimage.so", # or .dll on Windows
+    precompile_execution_file = "build/Workload.jl"
 )
 ```
 
@@ -142,10 +142,10 @@ PackageCompiler.create_sysimage(
 
 On Linux / macOS:
 ```bash
-julia -J system/DoECISORY_sysimage.so -e "using DoECISORY; run_app()"
+julia -J build/sysimage.so -e "using DoECISORY; run_app()"
 ```
 
 On Windows (PowerShell):
 ```powershell
-julia -J system\DoECISORY_sysimage.dll -e "using DoECISORY; run_app()"
+julia -J build\sysimage.dll -e "using DoECISORY; run_app()"
 ```

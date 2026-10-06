@@ -1346,10 +1346,11 @@ function DECK_RegisterCallbacks_DDEF(app)
 
             # Component template restoration from standardised DDE vault records.
             elseif trig == "deck-btn-template"
-                memo = Sys_Fast.FAST_LoadMemoFile_DDEF("Memo_DDE.json")
+                memo_path = normpath(joinpath(@__DIR__, "..", "assets", "Memo_DDE.json"))
+                memo = Sys_Fast.FAST_LoadMemoFile_DDEF(memo_path)
                 
                 if isempty(memo)
-                    lbl = html_div([html_i(className="fas fa-exclamation-circle me-2"), "Error: Memo_DDE.json not found"],
+                    lbl = html_div([html_i(className="fas fa-exclamation-circle me-2"), "Error: assets/Memo_DDE.json not found"],
                                    className="badge p-2 w-100", style=Dict("color" => "var(--colour-val0-purwhi)", "backgroundColor" => "var(--colour-chr0-huered)", "fontSize" =>"0.85rem"))
                     return DECK_Return_DDEF(NO, NO, NO, NO, NO, NO, NO, lbl, NO, NO, NO, NO, fill(NO, 6))
                 end
