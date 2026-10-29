@@ -16,20 +16,25 @@ using DataFrames
 using JSON3
 using Base64
 
-export FAST_Log_DDEF, FAST_ReadExcel_DDEF, FAST_Constants_DDES, FAST_SafeNum_DDEF,
-       FAST_GetLabDefaults_DDEF, FAST_InitialiseMaster_DDEF, FAST_NormaliseCols_DDEF!,
-       FAST_SanitiseJson_DDEF, FAST_PrepareDownload_DDEF, FAST_GenerateSmartName_DDEF,
-       FAST_ExtractProjectFromFilename_DDEF, FAST_GetTransientPath_DDEF, FAST_ReadToStore_DDEF,
-       FAST_UpdateConfig_DDEF, FAST_GetThreadInfo_DDEF, FAST_ClearConfigCache_DDEF,
+export FAST_Log_DDEF, FAST_ReadExcel_DDEF, FAST_Catalogue_DDES, FAST_SafeNum_DDEF,
+       FAST_GetLabDefaults_DDEF, FAST_InitialiseMaster_DDEF, FAST_SanitiseColumnNames_DDEF!,
+       FAST_SanitiseJSON_DDEF, FAST_PrepareDownload_DDEF, FAST_GenSmartName_DDEF,
+       FAST_ExtractProjectName_DDEF, FAST_GetTransientPath_DDEF, FAST_ReadToStore_DDEF,
+       FAST_UpdateConfig_DDEF, FAST_GetThreadInfo_DDEF, FAST_ResetConfigCache_DDEF,
        FAST_SanitiseInput_DDEF, FAST_AcquireLock_DDEF, FAST_ReleaseLock_DDEF, FAST_ForceReleaseAll_DDEF,
-       FAST_CacheRead_DDEF, FAST_CacheWrite_DDEF, FAST_CacheEvict_DDEF, FAST_VaultWrite_DDEF,
-       FAST_VaultRead_DDEF, FAST_GetComputeThreads_DDEF, FAST_SafeExcelWrite_DDEF, FAST_CleanTransient_DDEF, 
+       FAST_ReadCache_DDEF, FAST_WriteCache_DDEF, FAST_ResetCache_DDEF, FAST_WriteVault_DDEF,
+       FAST_ReadVault_DDEF, FAST_GetComputeThreads_DDEF, FAST_WriteExcel_DDEF, FAST_CleanTransient_DDEF, 
        FAST_FormatDuration_DDEF, FAST_ValidateDataFrame_DDEF, FAST_GetSystemQuote_DDEF, 
-       FAST_RoundCols_DDEF!, FAST_GetCol_DDEF, FAST_CleanHeader_DDEF, FAST_DisplayHeader_DDEF, 
+       FAST_RoundColumns_DDEF!, FAST_GetColumn_DDEF, FAST_SanitiseHeader_DDEF, FAST_FormatDisplayHeader_DDEF, 
        FAST_InitialiseWorkforce_DDEF, FAST_CleanWorkforce_DDEF, FAST_Data_DDEC, FAST_SanitiseFilename_DDEF,
-       FAST_LoadMemoFile_DDEF, FAST_ExtractDataID_DDEF, FAST_ValidateSheetStructure_DDEF, 
+       FAST_ReadMemoFile_DDEF, FAST_ExtractDataID_DDEF, FAST_ValidateSheetStructure_DDEF, 
        FAST_FinaliseMasterWrite_DDEF, FAST_ActiveGroup_DDEC, FAST_ApplyExcelStyle_DDEF, 
-       FAST_FormatConditionNumber_DDEF, FAST_SortColumns_DDEF, FAST_ExtractPhaseNum_DDEF
+       FAST_FormatConditionNumber_DDEF, FAST_SortColumns_DDEF, FAST_ExtractPhaseNumber_DDEF,
+       FAST_ParseDirection_DDEF, FAST_FormatColumn_DDEF, FAST_ReadConfig_DDEF, FAST_SafeGet_DDEF,
+       FAST_CacheLock_DDEC, FAST_CacheStore_DDEC, FAST_LockGuard_DDEC, FAST_OperationLocks_DDEC,
+       FAST_ExtractDirections_DDEF, FAST_DecodeDirections_DDEF, FAST_TempRoot_DDEC, FAST_IsNumericInput_DDEF,
+       FAST_IsPopulatedInput_DDEF, FAST_WrapDetail_DDEF, FAST_AssembleSvgPlate_DDEF,
+       FAST_DetectPhaseMethod_DDEF, FAST_DetectActivePhase_DDEF, FAST_ResolveModelOptions_DDEF
 
 # ==============================================================================
 # PART A: TRANSIENT WORKFORCE
@@ -40,11 +45,11 @@ export FAST_Log_DDEF, FAST_ReadExcel_DDEF, FAST_Constants_DDES, FAST_SafeNum_DDE
 # ------------------------------------------------------------------------------
 
 """
-    FAST_Constants_DDES
+    FAST_Catalogue_DDES
 System-wide configuration, metadata structure, and primary colour palettes.
 """
-Base.@kwdef struct FAST_Constants_DDES
-    VERSION::String        = "v0.1.0"
+Base.@kwdef struct FAST_Catalogue_DDES
+    VERSION::String        = "v0.2.0"
     COLOUR_PURWHI::String  = "#FFFFFF"
     COLOUR_LIGHIG::String  = "#E6E6E6"
     COLOUR_LIGLOW::String  = "#DCDCDC"
@@ -57,10 +62,10 @@ Base.@kwdef struct FAST_Constants_DDES
     COLOUR_TONCYA::String  = "#21918C"
     COLOUR_TONGRE::String  = "#5EC962"
     COLOUR_HUEYEL::String  = "#FDE725"
+    COLOUR_INFORG::String  = "#BB4722"
     FONT_DEFAULT::String   = "Inter, sans-serif"
     SHEET_DATA::String     = "DATA"
     SHEET_CONFIG::String   = "CONFIG"
-    PRE_INPUT::String      = "VARIA_"
     PRE_VAR::String        = "VARIA_"
     PRE_FIXED::String      = "FIXED_"
     PRE_FILL::String       = "FILL_"
@@ -92,10 +97,10 @@ end
 """
     FAST_Data_DDEC
 
-Global constant instance of `FAST_Constants_DDES` providing system-wide sheet names,
+Global constant instance of `FAST_Catalogue_DDES` providing system-wide sheet names,
 column headers, status indicators, and design topology identifiers.
 """
-const FAST_Data_DDEC = FAST_Constants_DDES()
+const FAST_Data_DDEC = FAST_Catalogue_DDES()
 
 # ------------------------------------------------------------------------------
 # SECTION 2: TRANSIENT STORAGE MANAGEMENT
@@ -115,14 +120,10 @@ end
 Standardised extraction of the Data Identity (DataID) from multi-source binary stores.
 Prioritises 'dataid' (lowercase) for internal consistency, with failover to 'DataID' and 'content'.
 """
-function FAST_ExtractDataID_DDEF(vault)
-    (isnothing(vault) || isempty(vault)) && return ""
-    vault isa String && return vault
-    if vault isa AbstractDict || vault isa Dict
-        return string(get(vault, "dataid", get(vault, "DataID", get(vault, "content", ""))))
-    end
-    return ""
-end
+FAST_ExtractDataID_DDEF(::Nothing)          = ""
+FAST_ExtractDataID_DDEF(v::AbstractString)  = v
+FAST_ExtractDataID_DDEF(v::AbstractDict)    = string(get(v, "dataid", get(v, "DataID", get(v, "content", ""))))
+FAST_ExtractDataID_DDEF(::Any)              = ""
 
 """
     FAST_InitialiseWorkforce_DDEF()
@@ -132,15 +133,15 @@ function FAST_InitialiseWorkforce_DDEF()
     ENV["TMP"]    = FAST_TempRoot_DDEC
     ENV["TEMP"]   = FAST_TempRoot_DDEC
     ENV["TMPDIR"] = FAST_TempRoot_DDEC
-    
-    FAST_Log_DDEF("SYS", "Initialise", "Synchronising workforce directories...", "INFO")
+
+    FAST_Log_DDEF("FAST", "WORKFORCE", "Initialising workforce directories...", "WAIT")
     try
         if !isdir(FAST_TempRoot_DDEC)
             mkpath(FAST_TempRoot_DDEC)
             FAST_Log_DDEF("FAST", "WORKFORCE", "Created transient directory: $FAST_TempRoot_DDEC", "OK")
         else
             FAST_CleanWorkforce_DDEF()
-            FAST_Log_DDEF("FAST", "WORKFORCE", "Transient directory prepared for execution.", "OK")
+            FAST_Log_DDEF("FAST", "WORKFORCE", "Transient directory prepared.", "OK")
         end
     catch e
         FAST_Log_DDEF("FAST", "WORKFORCE_FAIL", "Could not initialise temp directory: $e", "FAIL")
@@ -218,10 +219,49 @@ const FAST_LogColours_DDEC = Dict{Symbol, String}(
     :OK   => "\e[32m",
     :WARN => "\e[33m",
     :FAIL => "\e[31m",
-    :WAIT => "\e[36m",
+    :WAIT => "\e[90m",
     :LIST => "\e[37m",
 )
 const FAST_LogReset_DDEC = "\e[0m"
+
+"""
+    FAST_WrapDetail_DDEF(Detail::AbstractString, MaxWidth::Int=45, Indent::Int=45) -> String
+Format multi-line or long telemetry payloads with word-wrapping and hanging indentation.
+"""
+function FAST_WrapDetail_DDEF(Detail::AbstractString, MaxWidth::Int=45, Indent::Int=45)::String
+    (length(Detail) <= MaxWidth && !occursin('\n', Detail)) && return String(Detail)
+    lines = String[]
+    for para in split(Detail, '\n')
+        if length(para) <= MaxWidth
+            push!(lines, String(para))
+        else
+            words = split(para, ' ')
+            cur = ""
+            for w_sub in words
+                w = String(w_sub)
+                while length(w) > MaxWidth
+                    if !isempty(cur)
+                        push!(lines, cur)
+                        cur = ""
+                    end
+                    push!(lines, String(first(w, MaxWidth)))
+                    w = String(w[(MaxWidth + 1):end])
+                end
+                if isempty(cur)
+                    cur = w
+                elseif length(cur) + 1 + length(w) <= MaxWidth
+                    cur *= " " * w
+                else
+                    push!(lines, cur)
+                    cur = w
+                end
+            end
+            !isempty(cur) && push!(lines, cur)
+        end
+    end
+    pad = " "^Indent
+    return join(lines, "\n" * pad)
+end
 
 """
     FAST_Log_DDEF(Source, Event, [Detail], [Type])
@@ -233,9 +273,10 @@ function FAST_Log_DDEF(::Val{Type}, Source, Event, Detail) where {Type}
     det_str = isnothing(Detail) ? "null" : string(Detail)
     grp_pfx = isempty(FAST_ActiveGroup_DDEC[]) ? "" : "[$(FAST_ActiveGroup_DDEC[])] "
     src_fmt = grp_pfx * string(Source)
+    det_fmt = FAST_WrapDetail_DDEF(det_str, 45, 45)
     
-    @printf("\e[34m[%s]%s \e[32m%-14s%s: %s%-15s%s %s%s%s\n",
-        ts, FAST_LogReset_DDEC, src_fmt, FAST_LogReset_DDEC, c, string(Event), FAST_LogReset_DDEC, c, det_str, FAST_LogReset_DDEC)
+    @printf("\e[34m[%s]%s \e[32m%-11s%s: %s%-16s%s %s%s%s\n",
+        ts, FAST_LogReset_DDEC, src_fmt, FAST_LogReset_DDEC, c, string(Event), FAST_LogReset_DDEC, c, det_fmt, FAST_LogReset_DDEC)
     flush(stdout)
 end
 
@@ -293,11 +334,11 @@ end
 # ------------------------------------------------------------------------------
 
 """
-    FAST_NormaliseCols_DDEF!(df::DataFrame)::DataFrame
+    FAST_SanitiseColumnNames_DDEF!(df::DataFrame)::DataFrame
 Standardises DataFrame column names: Strips whitespace and forces Uppercase.
 Mutates the DataFrame in-place for performance. Supports unique naming for collisions.
 """
-function FAST_NormaliseCols_DDEF!(df::DataFrame; force_upper::Bool=false)::DataFrame
+function FAST_SanitiseColumnNames_DDEF!(df::DataFrame; force_upper::Bool=false)::DataFrame
     isempty(df) && return df
     
     f = n -> begin
@@ -360,7 +401,7 @@ function FAST_ReadExcel_DDEF(FilePath::AbstractString, SheetName::AbstractString
             isnothing(final_df) && return DataFrame()
             
             FAST_Log_DDEF("FAST", "IO_READ", "$(nrow(final_df)) rows extracted from [$SheetName].", "OK")
-            return FAST_NormaliseCols_DDEF!(final_df)
+            return FAST_SanitiseColumnNames_DDEF!(final_df)
 
         catch e
             # Exit immediately for structural/logical errors.
@@ -378,7 +419,7 @@ function FAST_ReadExcel_DDEF(FilePath::AbstractString, SheetName::AbstractString
 end
 
 # Internal structural validator for sheets.
-function FAST_ValidateSheetStructure_DDEF(df::DataFrame, SheetName::String)::Bool
+function FAST_ValidateSheetStructure_DDEF(df::DataFrame, SheetName::AbstractString)::Bool
     cols = uppercase.(strip.(string.(names(df))))
     has_id = any(x -> x == "EXP_ID" || x == "ID", cols)
     has_ph = any(x -> x == "PHASE", cols)
@@ -601,7 +642,7 @@ FAST_ApplyExcelStyle_DDEF(File::AbstractString, Updates::Dict{<:AbstractString,D
 FAST_ApplyExcelStyle_DDEF(sheet, df::DataFrame) = nothing
 
 """
-    FAST_SafeExcelWrite_DDEF(File::AbstractString, Updates::Dict{<:AbstractString, DataFrame}) -> Nothing
+    FAST_WriteExcel_DDEF(File::AbstractString, Updates::Dict{<:AbstractString, DataFrame}) -> Nothing
 Atomically write or update sheets in an Excel workbook with transient backup and file-lock retry handling.
 Merges existing sheets, sanitises IEEE 754 numeric tokens, and auto-fits column widths via OpenXML repackaging.
 
@@ -612,7 +653,7 @@ Merges existing sheets, sanitises IEEE 754 numeric tokens, and auto-fits column 
 # Returns
 - `Nothing`.
 """
-function FAST_SafeExcelWrite_DDEF(File::AbstractString, Updates::Dict{<:AbstractString,DataFrame})::Nothing
+function FAST_WriteExcel_DDEF(File::AbstractString, Updates::Dict{<:AbstractString,DataFrame})::Nothing
     isempty(File) && return nothing
     
     all_data    = Dict{String,DataFrame}()
@@ -717,23 +758,23 @@ function FAST_SafeExcelWrite_DDEF(File::AbstractString, Updates::Dict{<:Abstract
     return nothing
 end
 
-FAST_SafeExcelWrite_DDEF(::Nothing, ::Dict{<:AbstractString,DataFrame}) = nothing
+FAST_WriteExcel_DDEF(::Nothing, ::Dict{<:AbstractString,DataFrame}) = nothing
+FAST_WriteExcel_DDEF(File::AbstractString, Sheet::AbstractString, df::DataFrame)::Nothing = 
+    FAST_WriteExcel_DDEF(File, Dict(String(Sheet) => df))
+FAST_WriteExcel_DDEF(::Nothing, ::AbstractString, ::DataFrame) = nothing
 
 """
-    FAST_RoundCols_DDEF!(df::DataFrame)::DataFrame
+    FAST_RoundColumns_DDEF!(df::DataFrame)::DataFrame
 Rounds float columns to academic standard (3 decimal places).
 Mutates input for memory efficiency.
 """
-function FAST_RoundCols_DDEF!(df::DataFrame)::DataFrame
-    mapcols!(df) do col
-        if eltype(col) <: Union{Missing,AbstractFloat}
-            return passmissing(x -> round(x; digits=3)).(col)
-        end
-        return col
-    end
-    
+function FAST_RoundColumns_DDEF!(df::DataFrame)::DataFrame
+    mapcols!(FAST_RoundColumn_DDEF, df)
     return df
 end
+
+FAST_RoundColumn_DDEF(col::AbstractVector{<:Union{Missing,AbstractFloat}}) = passmissing(x -> round(x; digits=3)).(col)
+FAST_RoundColumn_DDEF(col::AbstractVector)                                 = col
 
 # ------------------------------------------------------------------------------
 # SECTION 7: DOWNLOAD PREPARATION & BINARY EXTRACTION
@@ -744,7 +785,7 @@ end
 Reads file contents for web download action.
 """
 FAST_PrepareDownload_DDEF(::Nothing) = (false, UInt8[])
-function FAST_PrepareDownload_DDEF(FilePath::String)
+function FAST_PrepareDownload_DDEF(FilePath::AbstractString)
     try
         (isempty(FilePath) || !isfile(FilePath)) && return (false, UInt8[])
         return (true, read(FilePath))
@@ -793,15 +834,12 @@ FAST_SafeNum_DDEF(x::Any) = FAST_SafeNum_DDEF(string(x))
 Scientific condition number formatter: Translates raw condition number (κ) into human-readable numeric scale,
 descriptive academic status label, and standard theme colour token.
 """
-function FAST_FormatConditionNumber_DDEF(c::Any)::Tuple{String, String, String}
-    if ismissing(c) || isnothing(c)
-        return ("N/A", "Unknown", "var(--colour-val3-darlow)")
-    end
-    c_f = try
-        Float64(c)
-    catch
-        return ("N/A", "Unknown", "var(--colour-val3-darlow)")
-    end
+FAST_FormatConditionNumber_DDEF(::Nothing) = ("N/A", "Unknown", "var(--colour-val3-darlow)")
+FAST_FormatConditionNumber_DDEF(::Missing) = ("N/A", "Unknown", "var(--colour-val3-darlow)")
+FAST_FormatConditionNumber_DDEF(c::Any)    = FAST_FormatConditionNumber_DDEF(FAST_SafeNum_DDEF(c))
+
+function FAST_FormatConditionNumber_DDEF(c::Real)::Tuple{String, String, String}
+    c_f = Float64(c)
     if isnan(c_f)
         return ("N/A", "Unknown", "var(--colour-val3-darlow)")
     elseif isinf(c_f) || c_f > 1e12
@@ -837,7 +875,11 @@ Architectural guard: Validates if a UI input contains substantial content.
 """
 FAST_IsPopulatedInput_DDEF(::Nothing) = false
 FAST_IsPopulatedInput_DDEF(::Missing) = false
-FAST_IsPopulatedInput_DDEF(v::AbstractString) = !isempty(strip(v))
+FAST_IsPopulatedInput_DDEF(v::Number)  = !isnan(v)
+function FAST_IsPopulatedInput_DDEF(v::AbstractString)::Bool
+    s = strip(v)
+    return !isempty(s) && s != "-" && lowercase(s) != "nan"
+end
 FAST_IsPopulatedInput_DDEF(::Any) = true
 
 # ------------------------------------------------------------------------------
@@ -868,7 +910,7 @@ function FAST_SanitiseInput_DDEF(TableData::AbstractVector)::Tuple{Vector{Dict{S
             val = get(r, key, nothing)
             clean_val = FAST_SafeNum_DDEF(val)
 
-            if isnan(clean_val) && !isnothing(val) && val !== missing && string(val) != ""
+            if isnan(clean_val) && FAST_IsPopulatedInput_DDEF(val)
                 push!(warnings, "Item '$row_name': Invalid input for '$key' ($val) coerced to 0.0")
             end
             r[key] = isnan(clean_val) ? 0.0 : clean_val
@@ -914,31 +956,31 @@ end
 # ------------------------------------------------------------------------------
 
 """
-    FAST_SanitiseJson_DDEF(x::Any)::Any
+    FAST_SanitiseJSON_DDEF(x::Any)::Any
 Recursively filters Julia objects into JSON-compliant structures.
 Converts DataFrames to row-dicts and ensures NaNs/Missings map to 'null'.
 """
-FAST_SanitiseJson_DDEF(::Nothing) = nothing
-FAST_SanitiseJson_DDEF(::Missing) = nothing
-function FAST_SanitiseJson_DDEF(x::AbstractFloat)
+FAST_SanitiseJSON_DDEF(::Nothing) = nothing
+FAST_SanitiseJSON_DDEF(::Missing) = nothing
+function FAST_SanitiseJSON_DDEF(x::AbstractFloat)
     isnan(x) ? nothing : x
 end
-function FAST_SanitiseJson_DDEF(x::DataFrame)
-    [FAST_SanitiseJson_DDEF(Dict(string(k) => v for (k, v) in zip(keys(r), values(r)))) for r in eachrow(x)]
+function FAST_SanitiseJSON_DDEF(x::DataFrame)
+    [FAST_SanitiseJSON_DDEF(Dict(string(k) => v for (k, v) in zip(keys(r), values(r)))) for r in eachrow(x)]
 end
-function FAST_SanitiseJson_DDEF(x::AbstractDict)
-    Dict(string(k) => FAST_SanitiseJson_DDEF(v) for (k, v) in x)
+function FAST_SanitiseJSON_DDEF(x::AbstractDict)
+    Dict(string(k) => FAST_SanitiseJSON_DDEF(v) for (k, v) in x)
 end
-function FAST_SanitiseJson_DDEF(x::AbstractMatrix)
-    [FAST_SanitiseJson_DDEF(x[i, :]) for i in axes(x, 1)]
+function FAST_SanitiseJSON_DDEF(x::AbstractMatrix)
+    [FAST_SanitiseJSON_DDEF(x[i, :]) for i in axes(x, 1)]
 end
-function FAST_SanitiseJson_DDEF(x::AbstractVector)
-    map(FAST_SanitiseJson_DDEF, x)
+function FAST_SanitiseJSON_DDEF(x::AbstractVector)
+    map(FAST_SanitiseJSON_DDEF, x)
 end
-function FAST_SanitiseJson_DDEF(x::Union{Tuple,NamedTuple,Pair})
-    FAST_SanitiseJson_DDEF(collect(x))
+function FAST_SanitiseJSON_DDEF(x::Union{Tuple,NamedTuple,Pair})
+    FAST_SanitiseJSON_DDEF(collect(x))
 end
-FAST_SanitiseJson_DDEF(x::Any) = x
+FAST_SanitiseJSON_DDEF(x::Any) = x
 
 # ==============================================================================
 # PART E: CONFIGURATION SYNC & VAULT OPS
@@ -963,26 +1005,26 @@ Merges incoming experimental topologies with existing historical phases and pres
 # Returns
 - `Bool`: `true` if initialisation succeeded, `false` otherwise.
 """
-function FAST_InitialiseMaster_DDEF(File::String, InNames::Vector{String}, OutNames::Vector{String}, 
+function FAST_InitialiseMaster_DDEF(File::AbstractString, InNames::Vector{String}, OutNames::Vector{String}, 
     DesignData::DataFrame, Config::Dict{String,Any}=Dict{String,Any}())::Bool
     try
         C = FAST_Data_DDEC
-        FAST_Log_DDEF("FAST", "Init Master", "Syncing with DesignData: $File", "WAIT")
+        FAST_Log_DDEF("FAST", "INIT_MASTER", "Syncing with DesignData: $File", "WAIT")
 
         # 1. Normalise input data columns and build comprehensive headers
-        FAST_NormaliseCols_DDEF!(DesignData)
+        FAST_SanitiseColumnNames_DDEF!(DesignData)
         headers = [C.COL_EXP_ID, C.COL_PHASE, C.COL_STATUS, C.COL_NOTES]
         data_cols = names(DesignData)
         
         for col in data_cols
-            if startswith(col, C.PRE_MASS) && col ∉ headers
+            if (startswith(col, C.PRE_MASS) || startswith(col, C.PRE_FILL)) && col ∉ headers
                 push!(headers, col)
             end
         end
 
         for name in InNames
             n_clean = replace(strip(string(name)), " " => "_")
-            for pfx in (C.PRE_INPUT, C.PRE_FIXED, C.PRE_FILL)
+            for pfx in (C.PRE_VAR, C.PRE_FIXED, C.PRE_FILL)
                 target_pfx = pfx * n_clean
                 for col in data_cols
                     if (startswith(col, target_pfx) || startswith(col, pfx * name)) && col ∉ headers
@@ -1019,8 +1061,8 @@ function FAST_InitialiseMaster_DDEF(File::String, InNames::Vector{String}, OutNa
         C.COL_SCORE ∉ headers && push!(headers, C.COL_SCORE)
 
         for col in data_cols
-            if (startswith(col, "TIME_FORW_MINS_") || startswith(col, "TIME_DCYP_MINS_") ||
-                startswith(col, "TIME_REVE_MINS_") || startswith(col, "ACTUAL_")) && col ∉ headers
+            if (startswith(col, C.PRE_TIME_FORW) || startswith(col, C.PRE_TIME_DCYP) ||
+                startswith(col, C.PRE_TIME_REVE) || startswith(col, C.PRE_ACTUAL)) && col ∉ headers
                 push!(headers, col)
             end
         end
@@ -1042,7 +1084,7 @@ function FAST_InitialiseMaster_DDEF(File::String, InNames::Vector{String}, OutNa
                             old_statuses = (C.COL_STATUS in names(df_old)) ? collect(df_old[!, C.COL_STATUS]) : fill("", nrow(df_old))
                             mask_keep = .!(in.(df_old[!, C.COL_PHASE], Ref(target_phases)) .& (coalesce.(old_statuses .== "Pending", false)))
                             if any(.!mask_keep)
-                                FAST_Log_DDEF("FAST", "Init Master", "Replacing $(count(.!mask_keep)) existing pending run(s) for phase $(join(target_phases, ", ")).", "INFO")
+                                FAST_Log_DDEF("FAST", "INIT_MASTER", "Replacing $(count(.!mask_keep)) existing pending run(s) for phase $(join(target_phases, ", ")).", "INFO")
                                 df_old = df_old[mask_keep, :]
                             end
                         end
@@ -1050,7 +1092,33 @@ function FAST_InitialiseMaster_DDEF(File::String, InNames::Vector{String}, OutNa
 
                     all_headers = FAST_SortColumns_DDEF(unique(vcat(names(df_old), headers)))
                     for h in setdiff(all_headers, names(df_old))
-                        df_old[!, h] = fill(missing, nrow(df_old))
+                        if startswith(h, C.PRE_FILL)
+                            backfilled = false
+                            try
+                                f_ing = replace(h, C.PRE_FILL => "")
+                                m_u = match(r"^(.*)_[^_]+$", f_ing)
+                                base_ing = !isnothing(m_u) ? m_u.captures[1] : f_ing
+                                mass_col = C.PRE_MASS * base_ing * "_mg"
+                                g_cfg = get(Config, "Global", Dict{String,Any}())
+                                c_vol = FAST_SafeNum_DDEF(get(g_cfg, "Volume", 0.0))
+                                c_conc = FAST_SafeNum_DDEF(get(g_cfg, "Conc", 0.0))
+                                budget = (c_vol / 1000.0) * c_conc
+                                
+                                ings = get(Config, "Ingredients", [])
+                                f_match = findfirst(r -> string(get(r, "Name", "")) == base_ing || replace(string(get(r, "Name", "")), " " => "_") == base_ing, ings)
+                                f_mw = !isnothing(f_match) ? FAST_SafeNum_DDEF(get(ings[f_match], "MW", 0.0)) : 0.0
+                                
+                                if hasproperty(df_old, Symbol(mass_col)) && budget > 0.0 && f_mw > 0.0
+                                    m_vals = [FAST_SafeNum_DDEF(v) for v in df_old[!, Symbol(mass_col)]]
+                                    df_old[!, h] = [round((m / f_mw / budget) * 100.0, digits=3) for m in m_vals]
+                                    backfilled = true
+                                end
+                            catch
+                            end
+                            !backfilled && (df_old[!, h] = fill(missing, nrow(df_old)))
+                        else
+                            df_old[!, h] = fill(missing, nrow(df_old))
+                        end
                     end
                     for h in setdiff(all_headers, names(df_final_data))
                         df_final_data[!, h] = fill(missing, nrow(df_final_data))
@@ -1058,7 +1126,7 @@ function FAST_InitialiseMaster_DDEF(File::String, InNames::Vector{String}, OutNa
                     df_final_data = vcat(df_old[:, all_headers], df_final_data[:, all_headers])
                 end
             catch e
-                FAST_Log_DDEF("FAST", "Merge Warning", "Structural merge failed: $e", "WARN")
+                FAST_Log_DDEF("FAST", "MERGE_WARN", "Structural merge failed: $e", "WARN")
             end
         else
             all_headers = FAST_SortColumns_DDEF(headers)
@@ -1073,25 +1141,38 @@ function FAST_InitialiseMaster_DDEF(File::String, InNames::Vector{String}, OutNa
     end
 end
 
-function FAST_InitialiseMaster_DDEF(File::String, InNames::Vector{String}, OutNames::Vector{String}, 
+"""
+    FAST_FormatColumn_DDEF(::Val{Role}, name::AbstractString) -> String
+Construct standardised DataFrame column headers prefixed by scientific role tag.
+"""
+FAST_FormatColumn_DDEF(::Val{:Mass}, name::AbstractString)      = FAST_Data_DDEC.PRE_MASS * name * "_mg"
+FAST_FormatColumn_DDEF(::Val{:Variable}, name::AbstractString)  = FAST_Data_DDEC.PRE_VAR * name
+FAST_FormatColumn_DDEF(::Val{:Result}, name::AbstractString)    = FAST_Data_DDEC.PRE_RESULT * name
+FAST_FormatColumn_DDEF(::Val{:Predicted}, name::AbstractString) = FAST_Data_DDEC.PRE_PRED * name
+FAST_FormatColumn_DDEF(::Val{:Fixed}, name::AbstractString)     = FAST_Data_DDEC.PRE_FIXED * name
+FAST_FormatColumn_DDEF(::Val{:Filler}, name::AbstractString)    = FAST_Data_DDEC.PRE_FILL * name
+FAST_FormatColumn_DDEF(::Val{:Actual}, name::AbstractString)    = FAST_Data_DDEC.PRE_ACTUAL * name
+FAST_FormatColumn_DDEF(::Val{T}, name::AbstractString) where {T} = name
+
+function FAST_InitialiseMaster_DDEF(File::AbstractString, InNames::Vector{String}, OutNames::Vector{String}, 
     ::Nothing=nothing, Config::Dict{String,Any}=Dict{String,Any}())::Bool
     try
         C = FAST_Data_DDEC
-        FAST_Log_DDEF("FAST", "Init Master", "Baseline Initialisation: $File", "WAIT")
+        FAST_Log_DDEF("FAST", "INIT_MASTER", "Baseline Initialisation: $File", "WAIT")
 
         headers = [C.COL_EXP_ID, C.COL_PHASE, C.COL_STATUS, C.COL_NOTES]
         for n in InNames
-            col_mass = C.PRE_MASS * n * "_mg"
+            col_mass = FAST_FormatColumn_DDEF(Val(:Mass), n)
             col_mass ∉ headers && push!(headers, col_mass)
-            col_in = C.PRE_INPUT * n
+            col_in = FAST_FormatColumn_DDEF(Val(:Variable), n)
             col_in ∉ headers && push!(headers, col_in)
         end
         for n in OutNames
-            col_res = C.PRE_RESULT * n
+            col_res = FAST_FormatColumn_DDEF(Val(:Result), n)
             col_res ∉ headers && push!(headers, col_res)
         end
         for n in OutNames
-            col_pred = C.PRE_PRED * n
+            col_pred = FAST_FormatColumn_DDEF(Val(:Predicted), n)
             col_pred ∉ headers && push!(headers, col_pred)
         end
         C.COL_SCORE ∉ headers && push!(headers, C.COL_SCORE)
@@ -1107,11 +1188,11 @@ function FAST_InitialiseMaster_DDEF(File::String, InNames::Vector{String}, OutNa
 end
 
 # Internal utility to handle the atomicity of Master write operations.
-function FAST_FinaliseMasterWrite_DDEF(File::String, df::DataFrame, Config::Dict)
+function FAST_FinaliseMasterWrite_DDEF(File::AbstractString, df::DataFrame, Config::Dict)
     C = FAST_Data_DDEC
-    FAST_RoundCols_DDEF!(df)
+    FAST_RoundColumns_DDEF!(df)
     
-    clean_config = FAST_SanitiseJson_DDEF(Config)
+    clean_config = FAST_SanitiseJSON_DDEF(Config)
     json_str     = isempty(Config) ? "{}" : JSON3.write(clean_config)
     config_df    = DataFrame(
         "PARAMETER"  => ["MasterConfig"],
@@ -1124,7 +1205,7 @@ function FAST_FinaliseMasterWrite_DDEF(File::String, df::DataFrame, Config::Dict
         C.SHEET_CONFIG => config_df
     )
 
-    FAST_SafeExcelWrite_DDEF(File, updates)
+    FAST_WriteExcel_DDEF(File, updates)
 end
 
 # Bridge for nothing/empty calls
@@ -1135,7 +1216,7 @@ FAST_InitialiseMaster_DDEF(::Nothing, args...) = false
 # ------------------------------------------------------------------------------
 
 """
-    FAST_GenerateSmartName_DDEF(Project::AbstractString, Phase::AbstractString, Tag::AbstractString, Ext::AbstractString="xlsx") -> String
+    FAST_GenSmartName_DDEF(Project::AbstractString, Phase::AbstractString, Tag::AbstractString, Ext::AbstractString="xlsx") -> String
 Generate a standardised, timestamped filename for protocol workbooks and reports.
 Sanitises non-ASCII characters, encodes phase and subproject tags, and appends chronological timestamps.
 
@@ -1148,7 +1229,7 @@ Sanitises non-ASCII characters, encodes phase and subproject tags, and appends c
 # Returns
 - `String`: Formatted filename matching `DoECISORY_<Project>_<Phase>_<Tag>_<Timestamp>.<Ext>`.
 """
-function FAST_GenerateSmartName_DDEF(Project::AbstractString, Phase::AbstractString, Tag::AbstractString, Ext::AbstractString="xlsx")::String
+function FAST_GenSmartName_DDEF(Project::AbstractString, Phase::AbstractString, Tag::AbstractString, Ext::AbstractString="xlsx")::String
     p_raw    = strip(Project)
     p_clean  = (isempty(p_raw) || lowercase(p_raw) == "doecisory") ? "DoECISORY" : FAST_SanitiseFilename_DDEF(p_raw)
     ph_clean = replace(Phase, "Phase" => "P")
@@ -1158,11 +1239,11 @@ function FAST_GenerateSmartName_DDEF(Project::AbstractString, Phase::AbstractStr
 end
 
 """
-    FAST_ExtractProjectFromFilename_DDEF(Filename::AbstractString) -> String
+    FAST_ExtractProjectName_DDEF(Filename::AbstractString) -> String
 Extracts the project name from a DoECISORY standard filename.
 Returns empty string if the pattern doesn't match. Supports both DoECISORY_ and legacy DDE_ prefixes.
 """
-function FAST_ExtractProjectFromFilename_DDEF(Filename::AbstractString)::String
+function FAST_ExtractProjectName_DDEF(Filename::AbstractString)::String
     # Formulation of the extraction pattern: (DoECISORY|DDE)_ProjectName_Phase_Tag_TS.ext.
     m = match(r"^(?:DoECISORY|DDE)_(.*?)_P\d+_", Filename)
     !isnothing(m) && return string(m.captures[1])
@@ -1193,11 +1274,11 @@ FAST_GetTransientPath_DDEF(::Nothing) = FAST_GetTransientPath_DDEF()
 FAST_GetTransientPath_DDEF(vault::AbstractDict) = FAST_GetTransientPath_DDEF(FAST_ExtractDataID_DDEF(vault))
 
 # Specialised handling for Data Handles (Vault vs Base64 vs Empty)
-function FAST_GetTransientPath_DDEF(DataHandle::String)::String
+function FAST_GetTransientPath_DDEF(DataHandle::AbstractString)::String
     isempty(DataHandle) && return FAST_GetTransientPath_DDEF()
     
     # 1. Check Vault for Hash Reference
-    vault_binary = FAST_VaultRead_DDEF(DataHandle)
+    vault_binary = FAST_ReadVault_DDEF(DataHandle)
     if !isnothing(vault_binary)
         tmp_path = FAST_GetTransientPath_DDEF()
         write(tmp_path, vault_binary)
@@ -1230,14 +1311,14 @@ Reads a file, persists it to Server Vault, and returns its Hash handle for front
 """
 FAST_ReadToStore_DDEF(::Nothing) = ""
 
-function FAST_ReadToStore_DDEF(Path::String)::String
+function FAST_ReadToStore_DDEF(Path::AbstractString)::String
     isdir(Path) && return ""
     !isfile(Path) && return ""
     
     try
         binary = read(Path)
         h_val = string(hash(binary))
-        FAST_VaultWrite_DDEF(h_val, binary)
+        FAST_WriteVault_DDEF(h_val, binary)
         return h_val
     catch
         return ""
@@ -1249,10 +1330,10 @@ const FAST_ConfigCache_DDEC = Dict{String, Any}()
 const FAST_ConfigCacheLock_DDEC = ReentrantLock()
 
 """
-    FAST_ClearConfigCache_DDEF() 
+    FAST_ResetConfigCache_DDEF() 
 Manually invalidates the MasterConfig cache.
 """
-function FAST_ClearConfigCache_DDEF()
+function FAST_ResetConfigCache_DDEF()
     lock(FAST_ConfigCacheLock_DDEC) do
         empty!(FAST_ConfigCache_DDEC)
     end
@@ -1264,6 +1345,8 @@ end
 Reads the MasterConfig from an existing Excel file's CONFIG sheet with transparent RAM caching.
 """
 FAST_ReadConfig_DDEF(::Nothing) = Dict{String,Any}()
+FAST_ReadConfig_DDEF(cfg::AbstractDict) = deepcopy(cfg)
+FAST_ReadConfig_DDEF(::Any) = Dict{String,Any}()
 
 function FAST_ReadConfig_DDEF(File::AbstractString)::Dict{String,Any}
     isempty(File) && return Dict{String,Any}()
@@ -1322,7 +1405,7 @@ function FAST_UpdateConfig_DDEF(File::AbstractString, Updates::Dict)::Bool
             current_config[string(k)] = v
         end
 
-        clean_config = FAST_SanitiseJson_DDEF(current_config)
+        clean_config = FAST_SanitiseJSON_DDEF(current_config)
         json_str = JSON3.write(clean_config)
 
         config_df = DataFrame(
@@ -1331,11 +1414,11 @@ function FAST_UpdateConfig_DDEF(File::AbstractString, Updates::Dict)::Bool
             "UPDATED_AT" => [string(now())],
         )
 
-        FAST_SafeExcelWrite_DDEF(File, Dict(C.SHEET_CONFIG => config_df))
+        FAST_WriteExcel_DDEF(File, C.SHEET_CONFIG, config_df)
         FAST_Log_DDEF("FAST", "CONFIG_UPDATED", "Updated $(length(Updates)) keys in MasterConfig", "OK")
         return true
     catch e
-        FAST_Log_DDEF("FAST", "UPDATE_CONFIG_FAIL", sprint(showerror, e, catch_backtrace()), "FAIL")
+        FAST_Log_DDEF("FAST", "UPDATE_CFG_FAIL", sprint(showerror, e, catch_backtrace()), "FAIL")
         return false
     end
 end
@@ -1345,47 +1428,80 @@ end
 # ------------------------------------------------------------------------------
 
 """
-    FAST_GetSafe_DDEF(o, k, d=nothing)
-Safely extracts key `k` from dict or object regardless of whether key is String or Symbol.
+    FAST_SafeGet_DDEF(o, k, d=nothing)
+Safely extracts key `k` from dict, named tuple, or struct via multiple dispatch.
 """
-function FAST_GetSafe_DDEF(o::Any, k, d=nothing)
-    isnothing(o) && return d
+FAST_SafeGet_DDEF(::Nothing, k, d=nothing) = d
+
+function FAST_SafeGet_DDEF(d::AbstractDict, k::AbstractString, default=nothing)
+    haskey(d, k) && return d[k]
+    sy = Symbol(k)
+    return haskey(d, sy) ? d[sy] : default
+end
+
+function FAST_SafeGet_DDEF(d::AbstractDict, k::Symbol, default=nothing)
+    haskey(d, k) && return d[k]
+    sk = string(k)
+    return haskey(d, sk) ? d[sk] : default
+end
+
+function FAST_SafeGet_DDEF(nt::NamedTuple, k::Symbol, default=nothing)
+    return hasproperty(nt, k) ? getproperty(nt, k) : default
+end
+
+function FAST_SafeGet_DDEF(nt::NamedTuple, k::AbstractString, default=nothing)
+    sy = Symbol(k)
+    return hasproperty(nt, sy) ? getproperty(nt, sy) : default
+end
+
+function FAST_SafeGet_DDEF(o::Any, k, default=nothing)
     try
-        sk = string(k)
         sy = Symbol(k)
-        if o isa AbstractDict
-            return haskey(o, sk) ? o[sk] : (haskey(o, sy) ? o[sy] : d)
-        elseif haskey(o, sy)
-            return o[sy]
-        elseif haskey(o, sk)
-            return o[sk]
-        elseif hasproperty(o, sy)
-            return getproperty(o, sy)
-        end
+        hasproperty(o, sy) && return getproperty(o, sy)
     catch
     end
-    return d
+    return default
 end
+
+"""
+    FAST_ParseDirection_DDEF(v) -> Int
+Normalises integer, real, or semantic string representations of factor directions to `[-1, 0, 1]`.
+"""
+FAST_ParseDirection_DDEF(v::Integer)::Int = Int(clamp(v, -1, 1))
+
+FAST_ParseDirection_DDEF(v::Real)::Int = isnan(v) ? -1 : Int(clamp(round(v), -1, 1))
+
+function FAST_ParseDirection_DDEF(v::AbstractString)::Int
+    s = uppercase(strip(v))
+    s in ("1", "+1", "MAX", "MAXIMISE", "MAXIMIZE") && return 1
+    s in ("0", "TARGET", "CENTER", "CENTRE")        && return 0
+    s in ("-1", "MIN", "MINIMISE", "MINIMIZE")      && return -1
+    parsed = tryparse(Float64, replace(s, ',' => '.'))
+    !isnothing(parsed) && !isnan(parsed) && return Int(clamp(round(parsed), -1, 1))
+    return -1
+end
+
+FAST_ParseDirection_DDEF(::Any)::Int = -1
 
 """
     FAST_DecodeDirections_DDEF(source, names) -> Tuple{Int,Int,Int}
 Decodes factor directions using multiple dispatch on the source container type.
 """
 function FAST_DecodeDirections_DDEF(dm::AbstractDict, names::AbstractVector)
-    dm_norm = Dict{String,Any}(lowercase(strip(string(k))) => FAST_SafeNum_DDEF(v) for (k, v) in pairs(dm))
+    dm_norm = Dict{String,Int}(lowercase(strip(string(k))) => FAST_ParseDirection_DDEF(v) for (k, v) in pairs(dm))
     function get_val(idx)
         idx > length(names) && return -1
         target_name = lowercase(strip(string(names[idx])))
-        return Int(get(dm_norm, target_name, -1))
+        return get(dm_norm, target_name, -1)
     end
     return (get_val(1), get_val(2), get_val(3))
 end
 
 FAST_DecodeDirections_DDEF(v::AbstractVector, ::AbstractVector) = (
     length(v) >= 3 ? (
-        Int(FAST_SafeNum_DDEF(v[1])),
-        Int(FAST_SafeNum_DDEF(v[2])),
-        Int(FAST_SafeNum_DDEF(v[3]))
+        FAST_ParseDirection_DDEF(v[1]),
+        FAST_ParseDirection_DDEF(v[2]),
+        FAST_ParseDirection_DDEF(v[3])
     ) : (-1, -1, -1)
 )
 
@@ -1398,12 +1514,12 @@ FAST_ExtractMap_DDEF(dm::AbstractDict) = isempty(dm) ? nothing : dm
 FAST_ExtractMap_DDEF(::Any)            = nothing
 
 """
-    FAST_ExtractPhaseNum_DDEF(key) -> Int
+    FAST_ExtractPhaseNumber_DDEF(key) -> Int
 Extracts numeric sequence value from arbitrary phase identifier strings (e.g. "Phase2", "P3" -> 2, 3).
 """
-function FAST_ExtractPhaseNum_DDEF(key::Any)::Int
+function FAST_ExtractPhaseNumber_DDEF(key::Any)::Int
     m = match(r"\d+", string(key))
-    return isnothing(m) ? 0 : (tryparse(Int, m.match) !== nothing ? parse(Int, m.match) : 0)
+    return isnothing(m) ? 0 : something(tryparse(Int, m.match), 0)
 end
 
 """
@@ -1417,7 +1533,7 @@ function FAST_ResolveHistoryMap_DDEF(ph::AbstractDict, active_phase::AbstractStr
         !isnothing(dm) && return dm
     end
     # Dynamic chronological sort: sort phase keys by numeric sequence descending without hardcoded limits
-    sorted_keys = sort(collect(keys(ph)), by=FAST_ExtractPhaseNum_DDEF, rev=true)
+    sorted_keys = sort(collect(keys(ph)), by=FAST_ExtractPhaseNumber_DDEF, rev=true)
     for key in sorted_keys
         node = get(ph, key, nothing)
         dm = FAST_ExtractMap_DDEF(FAST_GetDirectionMap_DDEF(node))
@@ -1441,9 +1557,9 @@ Handles both full ingredient vectors (filtering for Variable) and pre-filtered v
 """
 function FAST_ExtractDirections_DDEF(g::AbstractDict, items::AbstractVector, active_phase::AbstractString="")::Tuple{Int,Int,Int}
     names = [
-        string(FAST_GetSafe_DDEF(c, "Name", "")) 
+        string(FAST_SafeGet_DDEF(c, "Name", "")) 
         for c in items 
-        if string(FAST_GetSafe_DDEF(c, "Role", "Variable")) in ("Variable", "Var")
+        if string(FAST_SafeGet_DDEF(c, "Role", "Variable")) in ("Variable", "Var")
     ]
     target_ph = !isempty(active_phase) ? active_phase : string(get(g, "Phase", get(g, :Phase, "")))
     hist_map  = FAST_ResolveHistoryMap_DDEF(get(g, "PhaseHistory", nothing), target_ph)
@@ -1472,6 +1588,105 @@ end
 
 FAST_ExtractDirections_DDEF(::Any, ::Any, ::AbstractString="") = (-1, -1, -1)
 
+"""
+    FAST_DetectPhaseMethod_DDEF(Config::AbstractDict, df_data::DataFrame, PhaseName::AbstractString) -> String
+Determines the experimental design method (BB15, CD17, DF14, TL09) for a specific phase
+by querying PhaseHistory, inspecting run counts, or evaluating factor levels.
+"""
+function FAST_DetectPhaseMethod_DDEF(Config::AbstractDict, df_data::DataFrame, PhaseName::AbstractString)::String
+    isempty(PhaseName) && return "BB15"
+    clean_p = replace(strip(string(PhaseName)), " " => "")
+    
+    # 1. Check PhaseHistory in Config
+    g_info = FAST_SafeGet_DDEF(Config, "Global", Dict{String,Any}())
+    ph_raw = FAST_SafeGet_DDEF(g_info, "PhaseHistory", Dict{String,Any}())
+    if ph_raw isa AbstractDict
+        ph_entry = get(ph_raw, PhaseName, get(ph_raw, clean_p, get(ph_raw, Symbol(clean_p), nothing)))
+        if ph_entry isa AbstractDict
+            meth = uppercase(strip(string(FAST_SafeGet_DDEF(ph_entry, "Method", ""))))
+            meth in ("BB15", "CD17", "DF14", "TL09") && return meth
+        end
+    end
+    
+    # 2. Inspect DataFrame run count for this phase
+    C = FAST_Data_DDEC
+    col_p = Symbol(C.COL_PHASE)
+    if hasproperty(df_data, col_p)
+        r_count = count(p -> !ismissing(p) && replace(strip(string(p)), " " => "") == clean_p, df_data[!, col_p])
+        r_count == 15 && return "BB15"
+        r_count == 17 && return "CD17"
+        r_count == 14 && return "DF14"
+        r_count == 9  && return "TL09"
+    end
+    
+    # 3. Fallback to Global method
+    glob_meth = uppercase(strip(string(FAST_SafeGet_DDEF(g_info, "Method", "BB15"))))
+    glob_meth in ("BB15", "CD17", "DF14", "TL09") && return glob_meth
+    
+    return "BB15"
+end
+
+"""
+    FAST_ResolveModelOptions_DDEF(PhaseMethod::AbstractString, DesiredModel::AbstractString="Auto") -> Tuple{Vector{Dict{String,String}}, String}
+Constructs dropdown options and validates the selected statistical model based on design methodology.
+Restricts screening designs (TL09) strictly to Linear, while higher-order response surface protocols
+(BB15, CD17, DF14) provide Automatic, Linear, and Quadratic selections.
+"""
+function FAST_ResolveModelOptions_DDEF(PhaseMethod::AbstractString, DesiredModel::AbstractString="Auto")::Tuple{Vector{Dict{String,String}}, String}
+    m_clean = uppercase(strip(PhaseMethod))
+    if m_clean in ("TL09", "TAGUCHI", "LINEAR")
+        opts = [Dict("label" => "Linear", "value" => "Linear")]
+        return (opts, "Linear")
+    end
+
+    opts = [
+        Dict("label" => "Automatic", "value" => "Auto"),
+        Dict("label" => "Linear",    "value" => "Linear"),
+        Dict("label" => "Quadratic", "value" => "Quadratic")
+    ]
+    cand = titlecase(strip(string(DesiredModel)))
+    val = cand in ("Auto", "Linear", "Quadratic") ? cand : "Auto"
+    return (opts, val)
+end
+
+"""
+    FAST_DetectActivePhase_DDEF(df_data::DataFrame, Phases::AbstractVector) -> String
+Identifies the default active phase for statistical evaluation. Selects the latest phase
+containing experimental outcome measurements, falling back to Phase 1 for pending protocols.
+"""
+function FAST_DetectActivePhase_DDEF(df_data::DataFrame, Phases::AbstractVector)::String
+    isempty(Phases) && return "Phase1"
+    length(Phases) == 1 && return string(Phases[1])
+    
+    C = FAST_Data_DDEC
+    col_p = Symbol(C.COL_PHASE)
+    !hasproperty(df_data, col_p) && return string(Phases[1])
+    
+    out_cols = [Symbol(c) for c in names(df_data) if startswith(string(c), C.PRE_RESULT)]
+    isempty(out_cols) && return string(Phases[1])
+    
+    # Inspect phases in reverse chronological order with zero intermediate allocations
+    for p in reverse(Phases)
+        p_clean = replace(strip(string(p)), " " => "")
+        has_results = false
+        for r in eachrow(df_data)
+            row_p = ismissing(r[col_p]) ? "" : replace(strip(string(r[col_p])), " " => "")
+            row_p != p_clean && continue
+            for oc in out_cols
+                val = r[oc]
+                if !ismissing(val) && val isa Number && !isnan(val)
+                    has_results = true
+                    break
+                end
+            end
+            has_results && break
+        end
+        has_results && return string(p)
+    end
+    
+    return string(Phases[1])
+end
+
 # ------------------------------------------------------------------------------
 # SECTION 16: HARDWARE AUDIT & THREADING
 # ------------------------------------------------------------------------------
@@ -1486,11 +1701,11 @@ function FAST_GetThreadInfo_DDEF()::Tuple{Int,String,String}
 end
 
 """
-    FAST_LoadMemoFile_DDEF(FilePath::String) -> Dict{String, Any}
+    FAST_ReadMemoFile_DDEF(FilePath::String) -> Dict{String, Any}
 Loads a standardised DDE Memo file (JSON) from the local filesystem.
 Returns an empty dictionary if the file is not found or is corrupt.
 """
-function FAST_LoadMemoFile_DDEF(FilePath::AbstractString)::Dict{String,Any}
+function FAST_ReadMemoFile_DDEF(FilePath::AbstractString)::Dict{String,Any}
     try
         if !isfile(FilePath)
             FAST_Log_DDEF("FAST", "MEMO_NOT_FOUND", "Project reference $FilePath missing.", "WARN")
@@ -1573,7 +1788,7 @@ function FAST_ReleaseLock_DDEF(op_name::AbstractString)
             unlock(lk)
             still_locked = islocked(lk)
             if still_locked
-                FAST_Log_DDEF("SYS", "LOCK_RELEASE_PARTIAL", "Lock: $op_name (Reentrancy Level Decreased)", "INFO")
+                FAST_Log_DDEF("SYS", "LOCK_REL_PARTIAL", "Lock: $op_name (Reentrancy Level Decreased)", "INFO")
             else
                 lock(FAST_LockGuard_DDEC) do
                     delete!(FAST_OperationLockTimes_DDEC, op_name)
@@ -1581,10 +1796,10 @@ function FAST_ReleaseLock_DDEF(op_name::AbstractString)
                 FAST_Log_DDEF("SYS", "LOCK_RELEASE", "Lock: $op_name (Active Lock: OFF)", "INFO")
             end
         catch e
-            FAST_Log_DDEF("SYS", "LOCK_RELEASE_FAIL", "Lock: $op_name | Error: $(string(e))", "FAIL")
+            FAST_Log_DDEF("SYS", "LOCK_REL_FAIL", "Lock: $op_name | Error: $(string(e))", "FAIL")
         end
     else
-        FAST_Log_DDEF("SYS", "LOCK_RELEASE_IDLE", "Lock: $op_name already free.", "LIST")
+        FAST_Log_DDEF("SYS", "LOCK_REL_IDLE", "Lock: $op_name already free.", "LIST")
     end
     return nothing
 end
@@ -1610,12 +1825,12 @@ const FAST_CacheStore_DDEC = Dict{String,DataFrame}()
 const FAST_CacheLock_DDEC  = ReentrantLock()
 
 """
-    FAST_CacheRead_DDEF(key) -> Union{DataFrame, Nothing}
+    FAST_ReadCache_DDEF(key) -> Union{DataFrame, Nothing}
 Thread-safe read from the in-memory cache.
 """
-FAST_CacheRead_DDEF(::Nothing) = nothing
+FAST_ReadCache_DDEF(::Nothing) = nothing
 
-function FAST_CacheRead_DDEF(key::String)::Union{DataFrame,Nothing}
+function FAST_ReadCache_DDEF(key::AbstractString)::Union{DataFrame,Nothing}
     isempty(key) && return nothing
     lock(FAST_CacheLock_DDEC) do
         haskey(FAST_CacheStore_DDEC, key) ? copy(FAST_CacheStore_DDEC[key]) : nothing
@@ -1623,12 +1838,12 @@ function FAST_CacheRead_DDEF(key::String)::Union{DataFrame,Nothing}
 end
 
 """
-    FAST_CacheWrite_DDEF(key, df)
+    FAST_WriteCache_DDEF(key, df)
 Thread-safe write to the in-memory cache.
 """
-FAST_CacheWrite_DDEF(::Nothing, ::DataFrame) = nothing
+FAST_WriteCache_DDEF(::Nothing, ::DataFrame) = nothing
 
-function FAST_CacheWrite_DDEF(key::String, df::DataFrame)::Nothing
+function FAST_WriteCache_DDEF(key::AbstractString, df::DataFrame)::Nothing
     isempty(key) && return nothing
     lock(FAST_CacheLock_DDEC) do
         FAST_CacheStore_DDEC[key] = copy(df)
@@ -1637,7 +1852,7 @@ function FAST_CacheWrite_DDEF(key::String, df::DataFrame)::Nothing
     return nothing
 end
 
-function FAST_CacheEvict_DDEF()
+function FAST_ResetCache_DDEF()
     lock(FAST_CacheLock_DDEC) do
         empty!(FAST_CacheStore_DDEC)
     end
@@ -1650,28 +1865,30 @@ end
 # ------------------------------------------------------------------------------
 
 # Binary storage for binary objects (Excel archives).
-const FAST_BinaryVault_DDEC = Dict{String, Vector{UInt8}}()
+const FAST_VaultStore_DDEC = Dict{String, Vector{UInt8}}()
 const FAST_VaultLock_DDEC   = ReentrantLock()
 
 """
-    FAST_VaultWrite_DDEF(key, binary)
+    FAST_WriteVault_DDEF(key, binary)
 Thread-safe write to binary vault.
 """
-function FAST_VaultWrite_DDEF(key::String, binary::Vector{UInt8})::Nothing
+function FAST_WriteVault_DDEF(key::AbstractString, binary::Vector{UInt8})::Nothing
     lock(FAST_VaultLock_DDEC) do
-        FAST_BinaryVault_DDEC[key] = binary
+        FAST_VaultStore_DDEC[key] = binary
     end
     FAST_Log_DDEF("VAULT", "STORE", "Binary persisted ($key) | Size: $(length(binary) ÷ 1024) KB", "OK")
     return nothing
 end
 
 """
-    FAST_VaultRead_DDEF(key) -> Vector{UInt8}
+    FAST_ReadVault_DDEF(key) -> Vector{UInt8}
 Thread-safe read from binary vault.
 """
-function FAST_VaultRead_DDEF(key::String)::Union{Vector{UInt8}, Nothing}
+FAST_ReadVault_DDEF(::Nothing) = nothing
+
+function FAST_ReadVault_DDEF(key::AbstractString)::Union{Vector{UInt8}, Nothing}
     lock(FAST_VaultLock_DDEC) do
-        return haskey(FAST_BinaryVault_DDEC, key) ? FAST_BinaryVault_DDEC[key] : nothing
+        return haskey(FAST_VaultStore_DDEC, key) ? FAST_VaultStore_DDEC[key] : nothing
     end
 end
 
@@ -1722,7 +1939,6 @@ function FAST_ValidateDataFrame_DDEF(df::DataFrame, RequiredCols::Vector{String}
     return (isempty(issues), issues)
 end
 
-
 """
     FAST_GetSystemQuote_DDEF() -> String
 Provides a stochastic selection of scientific and academic citations to reinforce research focus.
@@ -1744,10 +1960,10 @@ function FAST_GetSystemQuote_DDEF()::String
 end
 
 """
-    FAST_GetCol_DDEF(df::DataFrame, Target::String)::String
+    FAST_GetColumn_DDEF(df::DataFrame, Target::AbstractString)::String
 Identifies the formalised column name in a DataFrame matching the target criterion (Non-destructive operation).
 """
-function FAST_GetCol_DDEF(df::DataFrame, Target::String)::String
+function FAST_GetColumn_DDEF(df::DataFrame, Target::AbstractString)::String
     isempty(df) && return ""
     isempty(strip(Target)) && return ""
 
@@ -1784,14 +2000,14 @@ function FAST_GetCol_DDEF(df::DataFrame, Target::String)::String
 end
 
 """
-    FAST_CleanHeader_DDEF(Header::AbstractString) -> String
+    FAST_SanitiseHeader_DDEF(Header::AbstractString) -> String
 Standardises column headers through the removal of internal system prefixes.
 """
-function FAST_CleanHeader_DDEF(Header::AbstractString)
+function FAST_SanitiseHeader_DDEF(Header::AbstractString)
     h = strip(string(Header))
     isempty(h) && return ""
     C = FAST_Data_DDEC
-    prefixes = (C.PRE_INPUT, C.PRE_FIXED, C.PRE_FILL, C.PRE_MASS, C.PRE_RESULT, C.PRE_PRED, C.PRE_CHRO, C.PRE_ACTUAL, C.PRE_TIME_FORW, C.PRE_TIME_REVE, C.PRE_TIME_DCYP, "INPUT_")
+    prefixes = (C.PRE_VAR, C.PRE_FIXED, C.PRE_FILL, C.PRE_MASS, C.PRE_RESULT, C.PRE_PRED, C.PRE_CHRO, C.PRE_ACTUAL, C.PRE_TIME_FORW, C.PRE_TIME_REVE, C.PRE_TIME_DCYP)
     for pfx in prefixes
         if startswith(uppercase(h), uppercase(pfx))
             return string(strip(h[nextind(h, length(pfx)):end]))
@@ -1801,15 +2017,15 @@ function FAST_CleanHeader_DDEF(Header::AbstractString)
 end
 
 """
-    FAST_DisplayHeader_DDEF(Header::AbstractString) -> String
+    FAST_FormatDisplayHeader_DDEF(Header::AbstractString) -> String
 Standardises column headers for human presentation in the UI:
 Strips internal system prefixes (VARIA_, RESULT_, PRED_, ACTUAL_, etc.) and converts underscores to spaces.
 Never presents internal prefixes or raw underscores in the user interface.
 """
-function FAST_DisplayHeader_DDEF(Header::AbstractString)::String
+function FAST_FormatDisplayHeader_DDEF(Header::AbstractString)::String
     h = strip(string(Header))
     isempty(h) && return ""
-    clean = FAST_CleanHeader_DDEF(h)
+    clean = FAST_SanitiseHeader_DDEF(h)
     return replace(clean, "_" => " ")
 end
 
@@ -1844,24 +2060,24 @@ function FAST_SortColumns_DDEF(cols::Vector{String})::Vector{String}
         c_up = uppercase(strip(col))
         if col in sys_order || c_up in uppercase.(sys_order)
             push!(b_sys, col)
-        elseif startswith(col, C.PRE_MASS)
+        elseif startswith(c_up, uppercase(C.PRE_MASS))
             push!(b_mass, col)
-        elseif startswith(col, C.PRE_INPUT)
+        elseif startswith(c_up, uppercase(C.PRE_VAR))
             push!(b_var, col)
-        elseif startswith(col, C.PRE_FIXED)
+        elseif startswith(c_up, uppercase(C.PRE_FIXED))
             push!(b_fix, col)
-        elseif startswith(col, C.PRE_FILL)
+        elseif startswith(c_up, uppercase(C.PRE_FILL))
             push!(b_fill, col)
-        elseif startswith(col, C.PRE_RESULT)
+        elseif startswith(c_up, uppercase(C.PRE_RESULT))
             push!(b_res, col)
-        elseif startswith(col, C.PRE_PRED)
+        elseif startswith(c_up, uppercase(C.PRE_PRED))
             push!(b_pred, col)
-        elseif col == C.COL_SCORE || c_up == "SCORE"
+        elseif col == C.COL_SCORE || c_up == uppercase(C.COL_SCORE)
             push!(b_score, col)
-        elseif startswith(col, "ACTUAL_")
+        elseif startswith(c_up, uppercase(C.PRE_ACTUAL))
             push!(b_act, col)
-        elseif startswith(col, "TIME_FORW_MINS_") || startswith(col, "TIME_DCYP_MINS_") ||
-               startswith(col, "TIME_REVE_MINS_")
+        elseif startswith(c_up, uppercase(C.PRE_TIME_FORW)) || startswith(c_up, uppercase(C.PRE_TIME_DCYP)) ||
+               startswith(c_up, uppercase(C.PRE_TIME_REVE))
             push!(b_time, col)
         else
             push!(b_other, col)
@@ -1879,6 +2095,61 @@ function FAST_SortColumns_DDEF(cols::Vector{String})::Vector{String}
     end
 
     return vcat(sorted_sys, b_mass, b_var, b_fix, b_fill, b_res, b_pred, b_score, b_radio, b_other)
+end
+
+# ------------------------------------------------------------------------------
+# SECTION 37: COMPOSITE SVG FIGURE PLATE ASSEMBLER
+# ------------------------------------------------------------------------------
+
+"""
+    FAST_AssembleSvgPlate_DDEF(Images::AbstractVector{<:AbstractString}, LayoutType::Symbol=:Grid2x3) -> String
+Assemble a composite SVG figure plate according to the 145 mm publication standard.
+Accepts either a vector of base64 PNG data strings or local PNG file paths.
+Supported LayoutTypes:
+- `:Grid2x3` (default): 6 panels (2 rows × 3 columns, 145 mm × 115.200 mm), labelled A to F.
+- `:Grid3x3`: 9 panels (3 rows × 3 columns, 145 mm × 172.800 mm), labelled A to I.
+- `:Strip1x3`: 3 panels (1 row × 3 columns, 145 mm × 57.600 mm), labelled A to C.
+"""
+function FAST_AssembleSvgPlate_DDEF(Images::AbstractVector{<:AbstractString}, LayoutType::Symbol=:Grid2x3)::String
+    n_panels = (LayoutType == :Grid3x3) ? 9 : ((LayoutType == :Strip1x3) ? 3 : 6)
+    h_str    = (LayoutType == :Grid3x3) ? "172.800" : ((LayoutType == :Strip1x3) ? "57.600" : "115.200")
+
+    col_x = (1.0, 49.333, 97.666)
+    row_y = (1.0, 58.600, 116.200)
+
+    buf = IOBuffer()
+    print(buf, "<svg xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\" width=\"145mm\" height=\"", h_str, "mm\" viewBox=\"0 0 145 ", h_str, "\"><rect width=\"100%\" height=\"100%\" fill=\"#ffffff\"/>")
+
+    max_items = min(length(Images), n_panels)
+    for i in 1:max_items
+        r = (i - 1) ÷ 3
+        c = (i - 1) % 3
+        px = col_x[c + 1]
+        py = row_y[r + 1]
+        tx = px + 0.988
+        ty = py + 3.528
+        lbl = Char('A' + (i - 1))
+
+        px_str = (px == 1.0) ? "1" : @sprintf("%.3f", px)
+        py_str = (py == 1.0) ? "1" : @sprintf("%.3f", py)
+        tx_str = @sprintf("%.3f", tx)
+        ty_str = @sprintf("%.3f", ty)
+
+        raw = Images[i]
+        b64 = if isfile(raw)
+            Base64.base64encode(read(raw))
+        elseif startswith(raw, "data:image/png;base64,")
+            raw[23:end]
+        else
+            raw
+        end
+
+        print(buf, "<svg x=\"", px_str, "\" y=\"", py_str, "\" width=\"46.333\" height=\"55.600\" viewBox=\"18 0 450 540\" preserveAspectRatio=\"none\"><image width=\"480\" height=\"540\" href=\"data:image/png;base64,", b64, "\" xlink:href=\"data:image/png;base64,", b64, "\"/></svg>")
+        print(buf, "<text x=\"", tx_str, "\" y=\"", ty_str, "\" font-family=\"Helvetica, Arial, sans-serif\" font-weight=\"700\" font-size=\"2.822\" fill=\"#000000\">", lbl, "</text>")
+    end
+
+    print(buf, "</svg>")
+    return String(take!(buf))
 end
 
 end

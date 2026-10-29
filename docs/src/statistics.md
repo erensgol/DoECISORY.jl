@@ -6,7 +6,7 @@ This section explains how to interpret the diagnostic metrics, ANOVA tables, mul
 
 ## 1. Statistical Report Structure
 
-Through `VISE_GenerateScientificReport_DDEF`, a structured seven-stage audit report is compiled:
+Through `VISE_GenSciReport_DDEF`, a structured seven-stage audit report is compiled:
 
 * **Stage I: Design Vitals:** Orthogonality, condition number, and D/A/G/I optimality metrics.
 * **Stage II: Model Summary:** $R^2$, Adjusted $R^2$, Prediction $Q^2$ (Cross-Validated $R^2$), PRESS, and AIC.
@@ -63,7 +63,7 @@ F_{\text{LoF}} = \frac{MS_{\text{lack-of-fit}}}{MS_{\text{pure error}}}
 
 Multicollinearity arises when predictor columns in the expanded model matrix are linearly correlated, inflating coefficient variances and making parameter estimates unstable.
 
-For each model term $j$, DoECISORY computes the **Variance Inflation Factor (VIF)**:
+For each model term $j$, DoECISORY.jl computes the **Variance Inflation Factor (VIF)**:
 
 ```math
 \text{VIF}_j = \frac{1}{1 - R_j^2}
@@ -90,14 +90,14 @@ The candidate pool combines continuous metaheuristic search (`BlackBoxOptim`) an
 | :--- | :--- | :--- | :--- |
 | **`TOP-01` to `TOP-08`** *(with `*` tag)* | Top $k \le 8$ ranked solutions across the combined continuous metaheuristic and dense grid search. The asterisk (`*`) designates the continuous `BlackBoxOptim` solution (e.g. `TOP-01*` when BBO leads, or `TOP-02*` if a dense grid coordinate outscores it). | Uncompromised multi-objective desirability across continuous and discrete search modes. | High operational setpoints; may require strict equipment precision. |
 | **`INP-Temperature`** | Minimal factor 1 coordinate within $\ge 90\% D_{\max}$ tier. | Minimise thermal stress on delicate reagents and substrates. | $\le 10\%$ sacrifice in composite desirability. |
-| **`INP-ReactionTime`** | Minimal factor 2 coordinate within $\ge 90\% D_{\max}$ tier. | Minimise radioactive decay loss, holding degradation, and synthesis time. | Slightly narrower chemical conversion margin. |
+| **`INP-Time`** | Minimal factor 2 coordinate within $\ge 90\% D_{\max}$ tier. | Minimise radioactive decay loss, holding degradation, and synthesis time. | Slightly narrower chemical conversion margin. |
 | **`INP-Precursor`** | Minimal factor 3 coordinate within $\ge 90\% D_{\max}$ tier. | Reagent conservation for expensive or scarce APIs. | Minor shift in stoichiometric surplus. |
-| **`OUT-Yield`** | Maximal predicted primary response within $\ge 90\% D_{\max}$ tier. | Prioritise total chemical recovery. | May tolerate slightly elevated secondary impurities. |
-| **`OUT-Impurity`** | Minimal predicted impurity response within $\ge 90\% D_{\max}$ tier. | Strict regulatory compliance for injectable purity. | May require slightly lower operating temperature. |
-| **`OUT-Colloid`** | Minimal predicted colloidal suspension within $\ge 90\% D_{\max}$ tier. | Elimination of liver/spleen colloidal uptake. | Requires precise buffer and pH adherence. |
+| **`OUT-Conversion`** | Maximal predicted conversion within $\ge 90\% D_{\max}$ tier. | Prioritise crude radiochemical incorporation. | May require slightly extended reaction duration. |
+| **`OUT-Yield`** | Maximal predicted primary response within $\ge 90\% D_{\max}$ tier. | Prioritise total isolated chemical recovery. | May tolerate slightly elevated precursor consumption. |
+| **`OUT-Impurity`** | Minimal predicted radiolytic impurity within $\ge 90\% D_{\max}$ tier. | Minimise radiolytic fragments and degradation by-products for strict clinical compliance. | May require slightly reduced temperature or reaction duration. |
 
 ### 5.2. Selection Logic
 1. **Unconstrained Baseline (`TOP-01` / `TOP-01*`):** Inspect the global optimum. Review whether `TOP-01` is the continuous metaheuristic peak (marked with `*`) or a top-tier discrete grid coordinate. If temperatures, reaction durations, and reagent concentrations fall comfortably inside standard operating procedures, advance with the highest-scoring candidate.
 2. **Reagent or Thermal Constraints:** If precursor synthesis is challenging or the substrate is heat-sensitive, evaluate `INP-Precursor` or `INP-Temperature`. If `INP-Precursor` provides $D \ge 0.90 \cdot D_{\max}$ while reducing active precursor consumption by $30\%$, it represents an economically and operationally superior formulation.
-3. **Purity or Safety Imperatives:** For clinical batch release where radiochemical purity must exceed regulatory thresholds (e.g. $\ge 95\%$), select `OUT-Impurity` or `OUT-Colloid`.
+3. **Purity and Impurity Imperatives:** For clinical batch release where radiolytic by-products must be strictly suppressed (e.g. impurity $\le 3.0\%$), select `OUT-Impurity`.
 4. **Transition Commitment:** Feeding the selected candidate into `FLOW_BuildIPKT_DDEF` establishes the anchor coordinate for sequential Phase 2 design space refinement.

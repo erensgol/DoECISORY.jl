@@ -2,13 +2,13 @@
 
 This guide details the scientific visualisation and graphic decision analytics implemented in **DoECISORY.jl** via `Lib_Arts` and PlotlyJS. 
 
-Visual analytics in DoECISORY serve a dual purpose: enabling laboratory researchers to interactively explore multidimensional response landscapes in the browser interface, and generating publication-grade vector graphics for peer-reviewed academic manuscripts.
+Visual analytics in DoECISORY.jl serve a dual purpose: enabling laboratory researchers to interactively explore multidimensional response landscapes in the browser interface, and generating publication-grade vector graphics for peer-reviewed academic manuscripts.
 
 ---
 
 ## 1. Visual Standards & Design System
 
-All graphic routines in DoECISORY adhere to strict biostatistical visual standards:
+All graphic routines in DoECISORY.jl adhere to strict biostatistical visual standards:
 
 * **Scientific Colour Mapping (Viridis Palette):** 
   Response surfaces, contour gradients, and 3D heatmaps natively use the **Viridis** colour scale. Viridis offers three vital properties for peer-reviewed literature:
@@ -27,7 +27,7 @@ All graphic routines in DoECISORY adhere to strict biostatistical visual standar
 Polynomial response models capture complex non-linear curvatures, but human visual perception is inherently constrained to three spatial dimensions (two input factors against one output response).
 
 ```
-   Factor X2 (Reaction Time)
+   Factor X2 (Time)
        ▲
        │        ┌───────────────────────────────┐
   Max  │        │   Contour Projection (2D)     │
@@ -54,7 +54,7 @@ fig_surface = ARTS_RenderSurface_DDEF(
     1, 2;               # Factor indices for X and Y axes
     SliceFactor=3, 
     SliceVal=0.0,       # Coded coordinate for pinned 3rd factor
-    InNames=["Temperature (°C)", "Time (min)", "Precursor (μg)"],
+    InNames=["Temperature (°C)", "Time (min)", "Precursor (mg)"],
     OutName="Radiochemical Yield (%)"
 )
 ```
@@ -73,7 +73,7 @@ fig_contour = ARTS_RenderContour_DDEF(
     1, 2; 
     SliceFactor=3, 
     SliceVal=0.0,
-    InNames=["Temperature (°C)", "Time (min)", "Precursor (μg)"],
+    InNames=["Temperature (°C)", "Time (min)", "Precursor (mg)"],
     OutName="Radiochemical Yield (%)"
 )
 ```
@@ -144,27 +144,27 @@ fig_fit = ARTS_RenderFit_DDEF(
 * **Tight Clustering along Diagonal:** Confirms high coefficient of determination ($R^2$) and minimal unexplained residual variance.
 * **Systematic Curvature:** Points sagging below the diagonal at low values and bowing above at high values indicate missing quadratic or interaction terms.
 
-### 3.3. Residual Diagnostics (`ARTS_RenderResidualsVsPred_DDEF` & `ARTS_RenderQQPlot_DDEF`)
+### 3.3. Residual Diagnostics (`ARTS_RenderResiduals_DDEF` & `ARTS_RenderQQ_DDEF`)
 Evaluates the core Gauss-Markov assumptions of Ordinary Least Squares regression:
 
 ```julia
 # 1. Residuals vs Predicted (Homoscedasticity)
-fig_residuals = ARTS_RenderResidualsVsPred_DDEF(model_yield)
+fig_residuals = ARTS_RenderResiduals_DDEF(model_yield)
 
 # 2. Normal Q-Q Plot of Residuals (Normality)
-fig_qq = ARTS_RenderQQPlot_DDEF(model_yield)
+fig_qq = ARTS_RenderQQ_DDEF(model_yield)
 ```
 
 * **Homoscedasticity Check:** Residuals should scatter randomly within a constant horizontal band around zero. A funnel or wedge shape indicates heteroscedasticity (variance depending on response magnitude), suggesting a power or logarithmic response transformation.
 * **Normality Check:** Studentised residuals in the Normal Q-Q plot should align tightly along the straight theoretical quantile reference line. S-shaped departures indicate heavy-tailed distributions or outliers.
 
-### 3.4. Factor Sensitivity & Perturbation (`ARTS_RenderSensitivityPlot_DDEF`)
+### 3.4. Factor Sensitivity & Perturbation (`ARTS_RenderSensitivity_DDEF`)
 Compares the relative responsiveness of all input factors radiating outwards from a designated reference coordinate (typically the design centre or active leader coordinate):
 
 ```julia
-fig_sens = ARTS_RenderSensitivityPlot_DDEF(
+fig_sens = ARTS_RenderSensitivity_DDEF(
     model_yield, 
-    [60.0, 20.0, 30.0]; # Reference operating point [Temp, Time, Precursor]
+    [90.0, 15.0, 25.0]; # Reference operating point [Temperature, Time, Precursor]
     InNames=["Temperature", "Time", "Precursor"]
 )
 ```
@@ -176,28 +176,31 @@ fig_sens = ARTS_RenderSensitivityPlot_DDEF(
 
 ## 4. Multi-Response Sweet-Spot Zones & Candidate Portfolios
 
-When balancing conflicting laboratory criteria (e.g. maximising yield while simultaneously restricting impurity generation), isolated single-response plots are insufficient.
+When balancing conflicting laboratory criteria (e.g. maximising yield while simultaneously suppressing impurity formation), isolated single-response plots are insufficient.
 
-### 4.1. Overlay Contour Mapping (`ARTS_RenderOptimalZone_DDEF`)
-The overlay contour graph superimposes the acceptable regions across multiple fitted models to highlight the **Sweet-Spot Operating Window**:
+### 4.1. Three-Tier Decision Space Architecture (`PLATE60`)
+
+Rather than relying on a single arbitrary cutoff, DoECISORY.jl structures the multi-criteria decision space into three concentric operating tiers:
+
+1. **Feasible Space (`ARTS_RenderFeasibleSpace_DDEF`):**
+   Demarcates the broad permissible region where all individual response specifications are satisfied ($D_i \ge 0.05$). This forms the baseline regulatory compliance perimeter.
+2. **Optimal Zone (`ARTS_RenderOptimalZone_DDEF`):**
+   Restricts the operating space to coordinates achieving at least $90\%$ of the maximum composite desirability ($D \ge 0.90 \times D_{\max}$). Serves as the primary operational territory for process engineering.
+3. **Sweet Spot (`ARTS_RenderSweetSpot_DDEF`):**
+   Isolates the core operating nucleus within $5\%$ tolerance of summit desirability ($D \ge 0.95 \times D_{\max}$). This provides the target setpoint coordinates for validated clinical batch release.
 
 ```julia
-# Define acceptable operational thresholds
-thresholds = [
-    Dict("Response" => "Yield",    "Condition" => ">=", "Value" => 90.0),
-    Dict("Response" => "Impurity", "Condition" => "<=", "Value" => 1.5)
-]
+# 1. Feasible Space (Baseline Compliance: D >= 0.05)
+fig_feasible = ARTS_RenderFeasibleSpace_DDEF(models, goals, 1, 2; SliceFactor=3, SliceVal=0.0)
 
-fig_sweetspot = ARTS_RenderOptimalZone_DDEF(
-    [model_yield, model_impur], 
-    thresholds, 
-    1, 2; # X and Y factors
-    SliceFactor=3, 
-    SliceVal=0.0
-)
+# 2. Optimal Zone (High Yield: D >= 0.90 * D_max)
+fig_optimal  = ARTS_RenderOptimalZone_DDEF(models, goals, 1, 2; SliceFactor=3, SliceVal=0.0)
+
+# 3. Sweet Spot (Primary Operating Nucleus: D >= 0.95 * D_max)
+fig_sweet    = ARTS_RenderSweetSpot_DDEF(models, goals, 1, 2; SliceFactor=3, SliceVal=0.0)
 ```
 
-The unshaded intersection represents the robust operating design space where all regulatory and yield specifications are simultaneously satisfied.
+The concentric projection visually demonstrates how parameter tolerance tightens from broad feasibility towards the optimum.
 
 ### 4.2. Candidate Portfolio Spatial Mapping (`ARTS_RenderCandidates_DDEF`)
 Visualises where the extracted candidates from the multi-criteria portfolio sit within the 3-factor parameter space:
@@ -210,14 +213,14 @@ fig_candidates = ARTS_RenderCandidates_DDEF(
 ```
 
 * **`TOP-01` to `TOP-08`:** Clustered near the global desirability plateau.
-* **`INP-<Factor>`:** Positioned along the low-consumption boundary edges, visually demonstrating the input savings achieved relative to the global peak.
-* **`OUT-<Response>`:** Oriented towards the optimal frontier for specific critical quality attributes.
+* **`INP-<Factor>`:** Positioned along the low-consumption boundary edges (e.g. `INP-Precursor`), visually demonstrating the input savings achieved relative to the global peak.
+* **`OUT-<Response>`:** Oriented towards the optimal frontier for specific critical quality attributes (e.g. `OUT-Impurity`).
 
 ---
 
 ## 5. Sequential Interphase Dynamics (IPKT Interval Migration)
 
-A core methodological strength of DoECISORY is the seamless transition of experimental knowledge between successive experimental phases without loss of historical variance or coordinate fidelity.
+A core methodological strength of DoECISORY.jl is the seamless transition of experimental knowledge between successive experimental phases without loss of historical variance or coordinate fidelity.
 
 In laboratory investigations, sequential optimisation requires moving from a broad initial exploration space (**Phase 1**) to a focused, high-precision domain (**Phase 2**). The **Inter-Phase Knowledge Transfer (IPKT)** framework automates this transition via two complementary mathematical engines:
 1. **Adaptive Contraction & Translation Algorithm (ACTA):** Governs intra-system factor range adaptation, computing continuous coordinate adjustments, domain narrowing, gradient-directed translations, and physical boundary clamping.
@@ -227,7 +230,7 @@ In laboratory investigations, sequential optimisation requires moving from a bro
 
 ### 5.1. Visual Canvas Architecture (`FLOW_RenderIPKT_DDEF`)
 
-The IPKT transition chart visualises how factor domains shift, narrow, or translate relative to their previous baseline. To allow simultaneous visual comparison across disparate physical dimensions (e.g. Temperature in °C, Reaction Time in min, and Precursor Concentration in mM), `FLOW_RenderIPKT_DDEF` projects all variables onto a **normalised dimensionless axis** spanning $[-2.0, +2.0]$:
+The IPKT transition chart visualises how factor domains shift, narrow, or translate relative to their previous baseline. To allow simultaneous visual comparison across disparate physical dimensions (e.g. Temperature in °C, Time in min, and Precursor in mg), `FLOW_RenderIPKT_DDEF` projects all variables onto a **normalised dimensionless axis** spanning $[-2.0, +2.0]$:
 
 ```
                           IPKT Multi-Layer Visual Trace Canvas
@@ -239,19 +242,19 @@ The IPKT transition chart visualises how factor domains shift, narrow, or transl
    -2.0   │   -1.5        -1.0 (Lower)     -0.5          0.0         +0.5       +1.0 (Upper)    +1.5       +2.0
 ────┆─────┼─────┼──────────────┼─────────────┼───────────┼────────────┼──────────────┼────────────┼─────────┆────
     ┆     │                    │                                                     │            │         ┆
-    ┆     │                    30.0 [Phase 1 Lower]                90.0 [Phase 1 Upper]           │         ┆
+    ┆     │                    60.0 [Phase 1 Lower]                120.0 [Phase 1 Upper]          │         ┆
     ┆     │                    ┌─────────────────────────────────────────────────────┐            │         ┆
     ┆     │   Trace 1: Current │░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░│ (Dark Gray)│         ┆
     ┆     │                    └─────────────────────────────────────────────────────┘            │         ┆
-    ┆     │                                          ┌───────────────────────────────┐            │         ┆
-    ┆     │   Trace 2: Target                        │██████████████●████████████████│ (Gold Bar) │         ┆
-    ┆     │                                          └──────────────┼────────────────┘            │         ┆
-    ┆     │                                                         │                             │         ┆
+    ┆     │                                                 ┌────────────────────────┐            │         ┆
+    ┆     │   Trace 2: Target                               │█████████████●██████████│ (Gold Bar) │         ┆
+    ┆     │                                                 └─────────────┼──────────┘            │         ┆
+    ┆     │                                                               │                       │         ┆
     ┆     │                                                Trace 3: Target Centre (Green Dot)     │         ┆
-    ┆     │                                                  Trace 4: Leader Point (Magenta Dot)  │         ┆
-    ┆     │                                                         │                             │         ┆
-    ┆     │                                             61.0        76.0            90.0          │         ┆
-    ┆     │                                           [P2 Min]   [P2 Centre]      [P2 Max]        │         ┆
+    ┆     │                                                Trace 4: Leader Point (Magenta Dot)    │         ┆
+    ┆     │                                                               │                       │         ┆
+    ┆     │                                            88.18            103.18         118.18     │         ┆
+    ┆     │                                           [P2 Min]        [P2 Centre]     [P2 Max]    │         ┆
 ────┆─────┴─────┼──────────────┼─────────────┼───────────┼────────────┼──────────────┼────────────┴─────────┆────
     ▲                                                                                                       ▲
     └──────────────── Red Dashed Exploration Limit Lines (Hard Boundary Warning) ───────────────────────────┘
@@ -325,29 +328,29 @@ The ACTA engine dynamically selects an adaptation strategy based on the spatial 
 The following script illustrates an end-to-end IPKT diagnostic workflow in Julia, showing how `FLOW_BuildIPKT_DDEF` extracts historical candidates and generates the interactive Plotly visual specification via `FLOW_RenderIPKT_DDEF`:
 
 ```julia
-using DoECISORY
+using DoECISORY, PlotlyJS
 
-# 1. Define Phase 1 configuration (Historical Baseline)
+# 1. Define Phase 1 configuration (18F Baseline)
 old_config = [
-    Dict("Name" => "ReactionTemperature", "Role" => "Variable", "Levels" => [30.0, 60.0, 90.0]),
-    Dict("Name" => "ReactionTime",        "Role" => "Variable", "Levels" => [5.0,  20.0, 35.0]),
-    Dict("Name" => "PrecursorConcentr",   "Role" => "Variable", "Levels" => [10.0, 30.0, 50.0])
+    Dict("Name" => "Temperature", "Role" => "Variable", "Levels" => [60.0, 90.0, 120.0]),
+    Dict("Name" => "Time",        "Role" => "Variable", "Levels" => [5.0,  15.0, 25.0]),
+    Dict("Name" => "Precursor",   "Role" => "Variable", "Levels" => [15.0, 25.0, 35.0])
 ]
 
-# 2. Champion leader coordinates extracted from Phase 1 optimisation
-# Temperature: 76.0°C (Safe, internal)
-# Reaction Time: 18.0 min (Safe, internal)
-# Precursor: 11.5 mM (Near Lower Boundary: < 10.0 + 2.0 -> Boundary Alert)
-leader_coords = [76.0, 18.0, 11.5]
+# 2. Champion leader coordinates extracted from Phase 1 optimisation (TOP-01*)
+# Temperature: 103.18°C (Safe, internal)
+# Time: 15.50 min (Safe, internal, decay-penalised)
+# Precursor: 27.80 mg (Safe, internal)
+leader_coords = [103.18, 15.50, 27.80]
 
-# 3. Compute Phase 2 adapted levels via ACTA (Contraction = 0.50, Translation = 0.0)
+# 3. Compute Phase 2 adapted levels via ACTA (Contraction c = 0.50, Translation δ = 0.0)
 new_config = [
-    # Temperature: Contracted around 76.0°C, clamped at 90.0°C solvent boiling limit
-    Dict("Name" => "ReactionTemperature", "Role" => "Variable", "Levels" => [61.0, 76.0, 90.0]),
-    # Reaction Time: Symmetrically contracted around 18.0 min
-    Dict("Name" => "ReactionTime",        "Role" => "Variable", "Levels" => [10.5, 18.0, 25.5]),
-    # Precursor: Directionally translated downward to explore sub-10 mM region
-    Dict("Name" => "PrecursorConcentr",   "Role" => "Variable", "Levels" => [0.5,  10.5, 20.5])
+    # Temperature: Symmetrically contracted around 103.18°C
+    Dict("Name" => "Temperature", "Role" => "Variable", "Levels" => [88.18, 103.18, 118.18]),
+    # Time: Symmetrically contracted around 15.50 min
+    Dict("Name" => "Time",        "Role" => "Variable", "Levels" => [10.50, 15.50, 20.50]),
+    # Precursor: Symmetrically contracted around 27.80 mg
+    Dict("Name" => "Precursor",   "Role" => "Variable", "Levels" => [22.80, 27.80, 32.80])
 ]
 
 # 4. Generate Interactive IPKT Diagnostic Plot
@@ -379,9 +382,31 @@ Prior to clicking **Commit Phase 2** in the Graphical Interface (`Gui_Deck`) or 
 
 ---
 
-## 6. Programmatic Export for Academic Publications
+## 6. Programmatic Export & 145 mm Composite Plates
 
-All `PlotlyJS.Plot` objects returned by `Lib_Arts` can be exported directly from Julia into publication formats:
+### 6.1. Publication-Ready 145 mm Composite Vector Plates (`FAST_AssembleSvgPlate_DDEF`)
+
+For academic manuscripts, doctoral dissertations, and technical reports, DoECISORY.jl standardises graphic exports onto **145 mm fixed-width composite SVG plates** (`PLATE11` to `PLATE60`). Rather than manually stitching disparate vector outputs in third-party graphic editors, `FAST_AssembleSvgPlate_DDEF` dynamically combines individual panels into cohesive multi-panel plates:
+
+* **2×3 Multi-Panel Grids** ($115.200\,\text{mm}$ height, e.g. 2D contour pairs, slices, and diagnostic panels)
+* **3×3 Manifold Matrices** ($172.800\,\text{mm}$ height, e.g. interaction matrices and response surfaces)
+* **1×3 Linear Strips** ($57.600\,\text{mm}$ height, e.g. isolated factor progressions)
+
+```julia
+using DoECISORY
+
+# Assemble individual vector panel strings into a standardised 145 mm 2x3 plate
+svg_plate = FAST_AssembleSvgPlate_DDEF(panel_svg_strings, :Grid2x3)
+write("PLATE11_Contour_Slices.svg", svg_plate)
+```
+
+Each composite plate features:
+* Standardised 8 pt bold panel labels (`(a)`, `(b)`, etc.) for direct manuscript citation,
+* Strict physical scaling calibrated to standard two-column page widths without text distortion.
+
+### 6.2. Direct PlotlyJS Single-Plot Export
+
+Individual `PlotlyJS.Plot` objects returned by `Lib_Arts` can also be exported directly into lossless vector or high-resolution raster formats:
 
 ```julia
 using PlotlyJS
@@ -397,4 +422,10 @@ PlotlyJS.savefig(fig_contour, "Figure_5_Contour.png"; width=1200, height=900, sc
 PlotlyJS.savefig(fig_surface, "Supplementary_3D_Surface.html")
 ```
 
-This export workflow bridges computational modeling and final manuscript submission, ensuring diagrams meet publisher DPI and vector clarity guidelines.
+### 6.3. Automated Portfolio ZIP Archive
+
+Through the `Gui_Lens` interface, researchers can download the entire analytical output in a single step via **Download Portfolio (.zip)**:
+* `PLATE11.svg` to `PLATE60.svg`: All 12 composite vector plates at 145 mm width stored directly in the archive root for immediate document insertion,
+* `REPORT.txt`: The complete 7-stage interpreted scientific report,
+* `ANALYTICS.xlsx`: Raw regression coefficients, ANOVA tables, and candidate coordinates,
+* `PNGPLOTS/`: High-resolution standalone raster plots ($960 \times 1080\,\text{px}$).

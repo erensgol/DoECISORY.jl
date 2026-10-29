@@ -17,6 +17,7 @@
     --colour-chr3-toncya: #21918C;
     --colour-chr4-tongre: #5EC962;
     --colour-chr5-hueyel: #FDE725;
+    --colour-chr6-inforg: #BB4722;
 
     /* Effects & Gradients */
     --colour-accent-gradient: linear-gradient(135deg, var(--colour-val4-darhig) 0%, var(--colour-val5-purbla) 100%);
@@ -56,6 +57,7 @@
 .colourtx-c3tc, .btn.colourtx-c3tc { color: var(--colour-chr3-toncya); }
 .colourtx-c4tg, .btn.colourtx-c4tg { color: var(--colour-chr4-tongre); }
 .colourtx-c5hy, .btn.colourtx-c5hy { color: var(--colour-chr5-hueyel); }
+.colourtx-c6io, .btn.colourtx-c6io { color: var(--colour-chr6-inforg); }
 
 /* Group C: Glassmorphic Effects (Neutral Outline by default for buttons) */
 .colourgl-neut { background: transparent !important; border: 1px solid var(--colour-val3-darlow) !important; color: var(--colour-val5-purbla) !important; }
@@ -65,6 +67,7 @@
 .colourgl-c3tc { background: rgba(33, 145, 140, 0.15); border: 1px solid var(--colour-chr3-toncya) !important; color: var(--colour-val5-purbla) !important; }
 .colourgl-c4tg { background: rgba(94, 201, 98, 0.45) !important; border: 1px solid var(--colour-chr4-tongre) !important; color: var(--colour-val5-purbla) !important; }
 .colourgl-c5hy { background: rgba(253, 231, 37, 0.15); border: 1px solid var(--colour-chr5-hueyel) !important; color: var(--colour-val5-purbla) !important; }
+.colourgl-c6io { background: rgba(187, 71, 34, 0.15); border: 1px solid var(--colour-chr6-inforg) !important; color: var(--colour-val5-purbla) !important; }
 
 .btn[class*="colourgl-"] { background: transparent !important; transition: all 0.2s ease-in-out !important; }
 
@@ -76,6 +79,7 @@
 .btn.colourgl-c3tc:hover { background: var(--colour-chr3-toncya) !important; color: var(--colour-val0-purwhi) !important; transform: translateY(-1px); }
 .btn.colourgl-c4tg:hover { background: var(--colour-chr4-tongre) !important; color: var(--colour-val0-purwhi) !important; transform: translateY(-1px); }
 .btn.colourgl-c5hy:hover { background: var(--colour-chr5-hueyel) !important; color: var(--colour-val5-purbla) !important; transform: translateY(-1px); }
+.btn.colourgl-c6io:hover { background: var(--colour-chr6-inforg) !important; color: var(--colour-val0-purwhi) !important; transform: translateY(-1px); }
 
 /* Group E: Specialized Utility Classes */
 .btn-white-bg { background: var(--colour-val0-purwhi) !important; border: 1px solid var(--colour-val3-darlow) !important; color: var(--colour-val5-purbla) !important; box-shadow: 0 2px 4px rgba(0,0,0,0.05) !important; }
@@ -268,6 +272,10 @@
 }
 
 /* --- 2. CORE STYLES --- */
+html, body {
+    overflow-x: hidden;
+}
+
 body {
     background-color: var(--colour-val2-liglow);
     color: var(--colour-val5-purbla);
@@ -279,6 +287,7 @@ body {
     letter-spacing: -0.01em;
     background-image: radial-gradient(circle at 50% 0%, var(--colour-val0-purwhi) 0%, var(--colour-val2-liglow) 60%);
     background-attachment: fixed;
+    overflow-x: hidden;
 }
 
 h1, h2, h3, h4, h5, h6 {
@@ -503,6 +512,8 @@ a:hover {
 }
 
 /* --- 6. FORM ELEMENTS & INPUTS --- */
+
+/* --- 6.1 --- */
 .form-control, .form-select, input:not(.Select-input input), select {
     background: var(--colour-val0-purwhi) !important;
     border: 1px solid var(--colour-val2-liglow) !important;
@@ -520,6 +531,221 @@ a:hover {
     outline: none !important;
     box-shadow: 0 0 0 2px var(--colour-val3-darlow) !important;
 }
+
+/* --- 6.2 --- */
+table.deck-segmented-table {
+    border-collapse: separate !important;
+    border-spacing: 0 6px !important;
+    width: 100% !important;
+    margin-bottom: 0 !important;
+}
+
+table.deck-segmented-table thead tr th,
+table.deck-id-table thead tr th {
+    background: transparent !important;
+    border: none !important;
+    padding: 2px 4px 6px 4px !important;
+    font-size: 0.65rem !important;
+    letter-spacing: 0.05em !important;
+    font-weight: 600 !important;
+    color: var(--colour-val4-darhig) !important;
+}
+
+table.deck-segmented-table tbody tr {
+    height: 31px !important;
+    min-height: 31px !important;
+    max-height: 31px !important;
+}
+
+table.deck-segmented-table tbody tr td {
+    background: var(--colour-val0-purwhi) !important;
+    background-color: var(--colour-val0-purwhi) !important;
+    border-top: 1px solid var(--colour-val2-liglow) !important;
+    border-bottom: 1px solid var(--colour-val2-liglow) !important;
+    border-left: none !important;
+    border-right: none !important;
+    padding: 0 !important;
+    height: 31px !important;
+    min-height: 31px !important;
+    max-height: 31px !important;
+    line-height: 31px !important;
+    vertical-align: middle !important;
+    box-sizing: border-box !important;
+    transition: border-color 0.15s ease !important;
+}
+
+table.deck-segmented-table tbody tr td:first-child {
+    border-left: 1px solid var(--colour-val2-liglow) !important;
+    border-top-left-radius: 4px !important;
+    border-bottom-left-radius: 4px !important;
+}
+
+table.deck-segmented-table tbody tr td:not(:last-child) {
+    border-right: 1px solid var(--colour-val2-liglow) !important;
+}
+
+table.deck-segmented-table tbody tr td:last-child {
+    border-right: 1px solid var(--colour-val2-liglow) !important;
+    border-top-right-radius: 4px !important;
+    border-bottom-right-radius: 4px !important;
+}
+
+/* Remove HTML5 number input spinners completely for horizontal centering */
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+    -webkit-appearance: none !important;
+    margin: 0 !important;
+}
+
+input[type="number"] {
+    -moz-appearance: textfield !important;
+    appearance: textfield !important;
+}
+
+table.deck-segmented-table tbody tr td input,
+table.deck-segmented-table tbody tr td select,
+table.deck-segmented-table tbody tr.deck-goal-row td input,
+table.deck-segmented-table tbody tr.deck-goal-row td select,
+table.deck-segmented-table .form-select,
+table.deck-segmented-table .form-select-sm {
+    background: transparent !important;
+    background-color: transparent !important;
+    border: none !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    color: var(--colour-val5-purbla) !important;
+    -webkit-text-fill-color: var(--colour-val5-purbla) !important;
+    font-size: 10px !important;
+    font-weight: 500 !important;
+    font-variant-numeric: tabular-nums !important;
+    height: 31px !important;
+    min-height: 31px !important;
+    max-height: 31px !important;
+    width: 100% !important;
+    line-height: 31px !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    text-align: center !important;
+    box-sizing: border-box !important;
+}
+
+table.deck-segmented-table tbody tr td select,
+table.deck-segmented-table tbody tr.deck-goal-row td select,
+table.deck-segmented-table .form-select,
+table.deck-segmented-table .form-select-sm {
+    padding: 0 !important;
+    height: 31px !important;
+    min-height: 31px !important;
+    max-height: 31px !important;
+    line-height: 31px !important;
+    background-position: right 4px center !important;
+    background-size: 10px 8px !important;
+    text-align: center !important;
+    text-align-last: center !important;
+    cursor: pointer !important;
+}
+
+table.deck-segmented-table tbody tr td input:focus,
+table.deck-segmented-table tbody tr td select:focus,
+table.deck-segmented-table .form-select:focus {
+    background: var(--colour-val0-purwhi) !important;
+    box-shadow: inset 0 0 0 1.5px var(--colour-val4-darhig) !important;
+    outline: none !important;
+}
+
+table.deck-segmented-table tbody tr td.deck-cell-disabled,
+table.deck-segmented-table tbody tr td:has(input:disabled),
+table.deck-segmented-table tbody tr td:has(select:disabled),
+table.deck-segmented-table tbody tr.deck-tr-constant td:first-child,
+table.deck-segmented-table tbody tr.deck-tr-constant td:last-child {
+    background: var(--colour-val0-purwhi) !important;
+    background-color: var(--colour-val0-purwhi) !important;
+    cursor: not-allowed !important;
+}
+
+table.deck-segmented-table tbody tr td input:disabled,
+table.deck-segmented-table tbody tr td select:disabled,
+table.deck-segmented-table tbody tr td input[readonly],
+table.deck-segmented-table tbody tr.deck-tr-constant td:first-child input,
+table.deck-segmented-table tbody tr.deck-tr-constant td:last-child input {
+    background: transparent !important;
+    background-color: transparent !important;
+    color: var(--colour-val5-purbla) !important;
+    -webkit-text-fill-color: var(--colour-val5-purbla) !important;
+    opacity: 1 !important;
+    cursor: not-allowed !important;
+}
+
+table.deck-segmented-table tbody tr.deck-tr-constant td:first-child {
+    border-left: 1px solid var(--colour-val2-liglow) !important;
+    border-right: 1px solid var(--colour-val2-liglow) !important;
+    border-top-left-radius: 4px !important;
+    border-bottom-left-radius: 4px !important;
+}
+
+table.deck-segmented-table tbody tr.deck-tr-constant td:last-child {
+    border-right: 1px solid var(--colour-val2-liglow) !important;
+    border-top-right-radius: 4px !important;
+    border-bottom-right-radius: 4px !important;
+}
+
+table.deck-segmented-table tbody tr.deck-tr-constant td:nth-child(2) {
+    background: var(--colour-val0-purwhi) !important;
+    background-color: var(--colour-val0-purwhi) !important;
+    border-top: 1px solid var(--colour-val2-liglow) !important;
+    border-bottom: 1px solid var(--colour-val2-liglow) !important;
+    border-right: 1px solid var(--colour-val2-liglow) !important;
+    border-radius: 0 !important;
+}
+
+/* --- 6.3 --- */
+table.deck-id-table {
+    border-collapse: separate !important;
+    border-spacing: 0 6px !important;
+    width: 100% !important;
+    margin-bottom: 0 !important;
+}
+
+table.deck-id-table tbody tr {
+    height: 31px !important;
+}
+
+table.deck-id-table tbody tr td {
+    background: transparent !important;
+    border: none !important;
+    padding: 0 2px !important;
+    height: 31px !important;
+    vertical-align: middle !important;
+}
+
+table.deck-id-table tbody tr td.deck-name-cell input {
+    background: var(--colour-val0-purwhi) !important;
+    border: 1px solid var(--colour-val2-liglow) !important;
+    border-radius: 4px !important;
+    box-shadow: none !important;
+    color: var(--colour-val5-purbla) !important;
+    font-size: 11.5px !important;
+    font-weight: 500 !important;
+    height: 31px !important;
+    min-height: 31px !important;
+    line-height: 31px !important;
+    padding: 0 8px !important;
+    text-align: left !important;
+    width: 100% !important;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease !important;
+}
+
+table.deck-id-table tbody tr td.deck-name-cell input:hover {
+    border-color: var(--colour-val4-darhig) !important;
+}
+
+table.deck-id-table tbody tr td.deck-name-cell input:focus {
+    border-color: var(--colour-val4-darhig) !important;
+    box-shadow: 0 0 0 1px var(--colour-val4-darhig) !important;
+    outline: none !important;
+}
+
+/* --- 6.4 --- */
 
 .form-label {
     font-size: 0.8rem;
@@ -767,7 +993,146 @@ a:hover {
     display: block;
 }
 
-#lens-graph-main { display: block; margin: 0 auto; max-width: 320px; width: 100%; aspect-ratio: 320 / 400; }
+#lens-graph-title {
+    display: none !important;
+}
+
+/* ==========================================================================
+   GRAPH INDEX RESPONSIVE PILLS
+   ========================================================================== */
+.lens-graph-info-container {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    align-items: center;
+    gap: 6px 12px;
+    padding: 6px 4px;
+    width: 100%;
+}
+
+.lens-graph-info-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11.5px;
+    font-weight: 600;
+    letter-spacing: 0.1px;
+    padding: 3px 9px;
+    border-radius: 5px;
+    background: rgba(255, 255, 255, 0.55);
+    border: 1px solid rgba(0, 0, 0, 0.08);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02);
+    white-space: nowrap !important;
+    user-select: none;
+    cursor: pointer !important;
+    transition: all 0.15s ease-in-out;
+}
+
+.lens-graph-info-badge:hover {
+    background: rgba(255, 255, 255, 0.95) !important;
+    border-color: var(--colour-val3-darlow, rgba(0, 0, 0, 0.25)) !important;
+    transform: translateY(-1px);
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.08) !important;
+    color: var(--colour-val5-purbla) !important;
+}
+
+.lens-graph-info-badge:active {
+    transform: translateY(0);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04) !important;
+}
+
+.lens-graph-info-badge:focus-visible {
+    outline: 2px solid var(--colour-chr4-tongre) !important;
+    outline-offset: 1px;
+}
+
+#lens-radio-btn-cancel,
+#lens-radio-btn-apply {
+    white-space: nowrap !important;
+    flex-shrink: 0 !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    min-width: fit-content !important;
+}
+
+/* ==========================================================================
+   PLOTS & VISUALISATION RESPONSIVE ARCHITECTURE
+   ========================================================================== */
+#lens-graph-main {
+    display: block;
+    margin: 0 auto !important;
+    position: relative !important;
+    overflow: hidden !important;
+    box-sizing: border-box !important;
+    max-width: 480px;
+    width: var(--plot-ref-width, 480px);
+    height: var(--plot-ref-height, 540px);
+}
+
+#lens-graph-main .js-plotly-plot {
+    position: absolute !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: var(--plot-ref-width, 480px) !important;
+    height: var(--plot-ref-height, 540px) !important;
+    transform: scale(var(--plot-scale, 1)) !important;
+    transform-origin: top left !important;
+    margin: 0 !important;
+    padding: 0 !important;
+}
+
+#lens-graph-main .modebar-container {
+    top: 35px !important;
+    right: 0px !important;
+}
+#lens-graph-main .modebar {
+    display: flex !important;
+    flex-direction: column !important;
+    background: transparent !important;
+}
+#lens-graph-main .modebar-group {
+    display: contents !important;
+}
+#lens-graph-main .modebar-btn {
+    padding: 3px 4px !important;
+    margin: 1px 0 !important;
+}
+#lens-graph-main .modebar-btn svg {
+    position: relative;
+    top: 1px;
+}
+#lens-graph-main .modebar-btn[data-val="auto"],
+#lens-graph-main .modebar-btn[data-title*="Autoscale"],
+#lens-graph-main .modebar-btn[data-val="reset+lastsave"],
+#lens-graph-main .modebar-btn[data-title*="Reset camera"] {
+    order: 1 !important;
+}
+#lens-graph-main .modebar-btn[data-val="zoom3d"],
+#lens-graph-main .modebar-btn[data-title*="Zoom"] {
+    order: 2 !important;
+}
+#lens-graph-main .modebar-btn[data-val="in"],
+#lens-graph-main .modebar-btn[data-title*="Zoom in"] {
+    order: 3 !important;
+}
+#lens-graph-main .modebar-btn[data-val="out"],
+#lens-graph-main .modebar-btn[data-title*="Zoom out"] {
+    order: 4 !important;
+}
+#lens-graph-main .modebar-btn[data-val="turntable"],
+#lens-graph-main .modebar-btn[data-title*="Turntable"] {
+    order: 5 !important;
+}
+#lens-graph-main .modebar-btn[data-val="pan"],
+#lens-graph-main .modebar-btn[data-title*="Pan"] {
+    order: 99 !important;
+}
+#lens-graph-main .modebar-btn[data-attr="toImage"],
+#lens-graph-main .modebar-btn[data-title*="Download plot"],
+#lens-graph-main .modebar-btn[data-title*="Download"] {
+    order: 100 !important;
+}
 #lens-graph-main._dash-loading::after, #deck-run-output._dash-loading::after { width: 40px; height: 40px; border-width: 3px; margin: 100px auto; }
 
 @keyframes doecisory-spin {
@@ -841,15 +1206,178 @@ a:hover {
 
 }
 
-/* Extra Compact Mode (Small Screens < 768px) */
+/* Compact Mode (Small Screens < 768px) */
 @media (max-width: 768px) {
-    .app-container { max-width: 95% !important; width: 95% !important; }
-    .glass-navbar { height: 48px; }
-    .nav-item { padding: 0.3rem 0.5rem; font-size: 0.78rem; gap: 4px; }
+    /* 1. Global Viewport & Shell */
+    .app-container { 
+        max-width: 100% !important; 
+        width: 100% !important; 
+        padding: 0.25rem 0.35rem !important; 
+        overflow-x: hidden !important;
+    }
+    .container-fluid.px-4 { 
+        padding-left: 0.45rem !important; 
+        padding-right: 0.45rem !important; 
+        padding-top: 0.45rem !important; 
+        padding-bottom: 0.45rem !important; 
+    }
+    .row.g-3 {
+        --bs-gutter-x: 0.5rem !important;
+        --bs-gutter-y: 0.5rem !important;
+    }
+    .glass-navbar { 
+        height: 48px; 
+        padding-left: 0.5rem !important;
+        padding-right: 0.5rem !important;
+    }
+    .nav-item { 
+        padding: 0.3rem 0.5rem; 
+        font-size: 0.78rem; 
+        gap: 4px; 
+    }
     
     .glass-command-row { padding: 0.7rem 0.8rem; }
     .glass-command-icon { width: 28px; height: 28px; font-size: 0.85rem; }
     .glass-command-title { font-size: 0.85rem; }
     
     .modal-xl, .modal-lg { max-width: 95vw !important; margin: 0.25rem auto !important; }
+
+    /* 2. Responsive Table Guard & Touch Scrolling */
+    .table-responsive {
+        overflow-x: auto !important;
+        -webkit-overflow-scrolling: touch !important;
+        scrollbar-width: thin;
+        margin-bottom: 0.25rem !important;
+        max-width: 100% !important;
+    }
+
+    /* Multi-column tables scroll horizontally */
+    table.lens-goals-table,
+    .table-responsive > table.lens-leaders-table,
+    .table-responsive > .dash-table-container {
+        min-width: 480px !important;
+        width: 100% !important;
+    }
+
+    /* Keeps ID, Limits, Levels side-by-side */
+    .deck-factor-row {
+        display: flex !important;
+        flex-wrap: nowrap !important;
+        min-width: 660px !important;
+        width: 100% !important;
+    }
+
+    .deck-factor-row > .col,
+    .deck-factor-row > [class*="col-"] {
+        flex: 0 0 33.333333% !important;
+        max-width: 33.333333% !important;
+        width: 33.333333% !important;
+    }
+
+    .deck-factor-row table {
+        width: 100% !important;
+        min-width: 0 !important;
+    }
+
+    table.deck-segmented-table thead tr th {
+        font-size: 9.5px !important;
+        white-space: nowrap !important;
+        padding: 2px 4px 5px 4px !important;
+        letter-spacing: 0.04em !important;
+    }
+
+    table.deck-segmented-table tbody tr.deck-goal-row td input,
+    table.deck-segmented-table tbody tr.deck-goal-row td select {
+        font-size: 10px !important;
+        height: 30px !important;
+        min-height: 30px !important;
+        max-height: 30px !important;
+        line-height: 30px !important;
+    }
+
+    /* 3. Graph Index & Plot Area Mobile Adaptation */
+    .lens-graph-info-container {
+        gap: 4px 6px !important;
+        padding: 4px 2px !important;
+    }
+
+    .lens-graph-info-badge {
+        font-size: 10px !important;
+        padding: 2px 7px !important;
+        white-space: nowrap !important;
+    }
+
+    /* Plotly ModeBar Touch Optimization */
+    .js-plotly-plot .modebar-container {
+        top: 2px !important;
+        right: 2px !important;
+    }
+    .js-plotly-plot .modebar-btn {
+        font-size: 13px !important;
+        padding: 2px 4px !important;
+    }
+
+    /* Plot Navigation Carousel Controls */
+    #lens-btn-prev, 
+    #lens-btn-next {
+        min-width: 34px !important;
+        height: 32px !important;
+        padding: 0.25rem 0.6rem !important;
+        display: inline-flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+    }
+
+    #lens-graph-input {
+        width: 58px !important;
+        height: 32px !important;
+        font-size: 11px !important;
+        padding: 2px 4px !important;
+    }
+
+    #lens-graph-counter {
+        font-size: 11px !important;
+        font-weight: 600 !important;
+    }
+
+    #lens-graph-title {
+        font-size: 0.8rem !important;
+        word-break: break-word !important;
+    }
+
+    #lens-graph-info {
+        font-size: 0.78rem !important;
+        line-height: 1.3 !important;
+    }
+
+    /* 4. Glass Panel Spacing Adaptation */
+    .glass-panel {
+        margin-bottom: 0.65rem !important;
+        max-width: 100% !important;
+        overflow: hidden !important;
+    }
+    .glass-header { 
+        padding: 0.45rem 0.65rem !important; 
+    }
+    .glass-content { 
+        padding: 0.5rem 0.65rem !important; 
+    }
 }
+
+/* --- 12. PLOTLY GRAPH TYPOGRAPHY --- */
+.js-plotly-plot .plotly svg text,
+.js-plotly-plot svg text,
+.js-plotly-plot .xtick text,
+.js-plotly-plot .ytick text,
+.js-plotly-plot .ztick text,
+.js-plotly-plot .legendtext,
+.js-plotly-plot .gtitle,
+.js-plotly-plot .g-title,
+.js-plotly-plot .axis-title,
+.js-plotly-plot .cbtitle,
+.js-plotly-plot .cbaxis text,
+.js-plotly-plot text.bartext,
+.js-plotly-plot .annotation-text {
+    font-weight: 800 !important;
+}
+

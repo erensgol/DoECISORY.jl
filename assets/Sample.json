@@ -1,41 +1,27 @@
 {
   "Inputs": [
     {
-      "Name": "Cholesterol",
+      "Name": "Temperature",
       "Role": "Variable",
-      "L1": 50.0,
-      "L2": 125.0,
-      "L3": 200.0,
-      "Min": 0.0,
-      "Max": 500.0,
-      "MW": 386.65,
-      "Unit": "mg",
+      "L1": 60.0,
+      "L2": 90.0,
+      "L3": 120.0,
+      "Min": 20.0,
+      "Max": 150.0,
+      "MW": 0.0,
+      "Unit": "degC",
       "IsRadioactive": false,
       "HalfLife": 0.0,
       "HalfLifeUnit": "Hours"
     },
     {
-      "Name": "Surfactant",
+      "Name": "Time",
       "Role": "Variable",
-      "L1": 100.0,
-      "L2": 150.0,
-      "L3": 200.0,
-      "Min": 0.0,
-      "Max": 500.0,
-      "MW": 1310.0,
-      "Unit": "mg",
-      "IsRadioactive": false,
-      "HalfLife": 0.0,
-      "HalfLifeUnit": "Hours"
-    },
-    {
-      "Name": "Hydration Time",
-      "Role": "Variable",
-      "L1": 10.0,
+      "L1": 5.0,
       "L2": 15.0,
-      "L3": 20.0,
-      "Min": 0.0,
-      "Max": 360.0,
+      "L3": 25.0,
+      "Min": 1.0,
+      "Max": 60.0,
       "MW": 0.0,
       "Unit": "min",
       "IsRadioactive": false,
@@ -43,21 +29,35 @@
       "HalfLifeUnit": "Hours"
     },
     {
-      "Name": "Mefenamic Acid",
-      "Role": "Fixed",
-      "L1": 0.0,
-      "L2": 10.0,
-      "L3": 0.0,
-      "Min": 0.0,
-      "Max": 0.0,
-      "MW": 241.29,
+      "Name": "Precursor",
+      "Role": "Variable",
+      "L1": 15.0,
+      "L2": 25.0,
+      "L3": 35.0,
+      "Min": 5.0,
+      "Max": 50.0,
+      "MW": 450.5,
       "Unit": "mg",
       "IsRadioactive": false,
       "HalfLife": 0.0,
       "HalfLifeUnit": "Hours"
     },
     {
-      "Name": "131-I",
+      "Name": "Buffer Salt",
+      "Role": "Fixed",
+      "L1": 0.0,
+      "L2": 15.0,
+      "L3": 0.0,
+      "Min": 0.0,
+      "Max": 0.0,
+      "MW": 82.03,
+      "Unit": "mg",
+      "IsRadioactive": false,
+      "HalfLife": 0.0,
+      "HalfLifeUnit": "Hours"
+    },
+    {
+      "Name": "18F",
       "Role": "Fixed",
       "L1": 0.0,
       "L2": 100.0,
@@ -65,17 +65,17 @@
       "Min": 0.0,
       "Max": 0.0,
       "MW": 0.0,
-      "Unit": "%",
+      "Unit": "mCi",
       "IsRadioactive": true,
-      "HalfLife": 192.48,
-      "HalfLifeUnit": "Hours"
+      "HalfLife": 109.8,
+      "HalfLifeUnit": "Minutes"
     }
   ],
   "Global": {
-    "Conc": 10.0,
+    "Conc": 300.0,
     "Direction": null,
-    "FillerMW": 734.05,
-    "FillerName": "DDPC",
+    "FillerMW": 176.12,
+    "FillerName": "Ascorbic Acid",
     "Method": "BB15",
     "PhaseHistory": {
       "Phase1": {
@@ -83,23 +83,23 @@
         "Method": "BB15"
       }
     },
-    "ProjectName": "NiosomalSample",
-    "Volume": 100.0
+    "ProjectName": "F18 Radiolabelling",
+    "Volume": 1.0
   },
   "Outputs": [
     {
       "IsRadioactive": false,
-      "Name": "Particle Size",
-      "Unit": "nm"
+      "Name": "Conversion",
+      "Unit": "%"
     },
     {
       "IsRadioactive": false,
-      "Name": "Zeta Potential",
-      "Unit": "mV"
+      "Name": "Yield",
+      "Unit": "%"
     },
     {
       "IsRadioactive": false,
-      "Name": "E.E.",
+      "Name": "Impurity",
       "Unit": "%"
     }
   ]

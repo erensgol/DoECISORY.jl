@@ -1,0 +1,105 @@
+name: Sync to Hugging Face Spaces
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  sync-to-hub:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - name: Install huggingface_hub
+        run: pip install huggingface_hub
+      - name: Upload to Hugging Face Space
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          COMMIT_MSG: ${{ github.event.head_commit.message }}
+        shell: python
+        run: |
+          import os
+          import textwrap
+          from huggingface_hub import HfApi
+
+          token = os.environ.get("HF_TOKEN")
+          if not token:
+              raise ValueError("HF_TOKEN secret is not set in GitHub repository settings.")
+
+          commit_title = (os.environ.get("COMMIT_MSG") or "Sync repository to Hugging Face Spaces").strip().splitlines()[0]
+
+          api = HfApi(token=token)
+          repo_id = "erensgol/DoECISORY"
+          repo_type = "space"
+
+          # Core deployment files required on Hugging Face Space
+          space_required = {
+              "README.md",
+              "Dockerfile",
+              ".dockerignore",
+              "LICENSE"
+          }
+
+          # Derive ignore patterns dynamically from .dockerignore
+          docker_ignored = set()
+          if os.path.exists(".dockerignore"):
+              with open(".dockerignore") as f:
+                  docker_ignored = {
+                      line.strip().rstrip("/\\")
+                      for line in f
+                      if line.strip() and not line.startswith("#")
+                  } - space_required
+
+          # Identify obsolete files and non-deployment categories to prune from Space
+          remote_files = api.list_repo_files(repo_id=repo_id, repo_type=repo_type)
+          stale_files = []
+          for f in remote_files:
+              # Protect essential space files and internal git metadata (.git/)
+              if f in space_required or f.startswith(".git/"):
+                  continue
+              is_ignored = any(f == p or f.startswith(f"{p}/") for p in docker_ignored)
+              if not os.path.exists(f) or is_ignored:
+                  stale_files.append(f)
+
+          upload_ignore = list(docker_ignored) + [f"{p}/**" for p in docker_ignored]
+
+          # Generate concise Space README aligned with user profile format
+          hf_readme = textwrap.dedent("""\
+              ---
+              title: DoECISORY
+              emoji: 🧪
+              colorFrom: yellow
+              colorTo: purple
+              sdk: docker
+              pinned: false
+              license: mpl-2.0
+              short_description: DoE with Computational Interactive SeqOpt for Response Yield
+              ---
+
+              # [DoECISORY.jl](https://github.com/erensgol/DoECISORY.jl)
+
+              **Design of Experiments with Computational Interactive Sequential Optimisation for Response Yield** (Julia package & Cloud Web Application).
+
+              ✒️ **Keywords:** Julia, DoE, Response Surface Methodology, Radiopharmacy, Optimisation  
+              📄 **Citation & Metadata:** [Zenodo DOI: 10.5281/zenodo.23276841](https://doi.org/10.5281/zenodo.23276841)  
+              📖 **Documenter.jl Based Guides:** [DoECISORY.jl Pages](https://erensgol.github.io/DoECISORY.jl)  
+              📦 **Source Code & Package:** [GitHub Repository](https://github.com/erensgol/DoECISORY.jl)
+          """)
+
+          with open("README.md", "w", encoding="utf-8") as f:
+              f.write(hf_readme)
+
+          api.upload_folder(
+              folder_path=".",
+              repo_id=repo_id,
+              repo_type=repo_type,
+              commit_message=commit_title,
+              delete_patterns=stale_files or None,
+              ignore_patterns=upload_ignore
+          )
+          print("Successfully synced repository to Hugging Face Spaces!")

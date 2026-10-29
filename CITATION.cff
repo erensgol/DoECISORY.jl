@@ -1,24 +1,36 @@
 cff-version: 1.2.0
-message: "If you use DoECISORY in your research, thesis, or publications, please cite it using the metadata below."
+message: "If you use DoECISORY.jl in your research or publications, please cite the software using the metadata below."
 title: "DoECISORY.jl: Design of Experiments with Computational Interactive Sequential Optimisation for Response Yield"
-abstract: "DoECISORY is an open-source scientific software and web platform for experimental design (DoE), statistical modelling, stoichiometric verification, and multi-objective optimisation, developed in Julia and Dash."
+abstract: "DoECISORY.jl is an open-source, registered Julia package and stateless Dash web application developed for classical and adaptive Design of Experiments (DoE), Response Surface Methodology (RSM), stoichiometric verification, and multi-objective optimisation."
 authors:
   - family-names: "Göl"
     given-names: "Eren Selim"
     orcid: "https://orcid.org/0009-0000-4491-7759"
     affiliation: "Department of Radiopharmacy, Faculty of Pharmacy, Hacettepe University"
-version: 0.1.0
-# doi:
-# date-released:
+version: 0.2.0
+doi: 10.5281/zenodo.23276841
 license: "MPL-2.0"
 repository-code: "https://github.com/erensgol/DoECISORY.jl"
 url: "https://erensgol-doecisory.hf.space"
 keywords:
-
   - "design-of-experiments"
-  - "julia-package"
-  - "multi-objective-optimisation"
-  - "optimisation"
+  - "julia"
+  - "optimization"
   - "radiopharmacy"
   - "response-surface-methodology"
   - "scientific-computing"
+  - "statistics"
+preferred-citation:
+  type: software
+  title: "DoECISORY.jl: Design of Experiments with Computational Interactive Sequential Optimisation for Response Yield"
+  authors:
+    - family-names: "Göl"
+      given-names: "Eren Selim"
+      orcid: "https://orcid.org/0009-0000-4491-7759"
+      affiliation: "Department of Radiopharmacy, Faculty of Pharmacy, Hacettepe University"
+  version: 0.2.0
+  doi: 10.5281/zenodo.23276841
+  url: "https://doi.org/10.5281/zenodo.23276841"
+  year: 2026
+  month: 10
+  license: "MPL-2.0"

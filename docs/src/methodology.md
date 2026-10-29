@@ -11,7 +11,7 @@ While classical experimental designs, Ordinary Least Squares (OLS) regression, a
 
 ## 1. Temporal Latency Adjustments: Pre- and Post-Reaction Delays
 
-In experiments involving radioisotopes or labile chemical compounds with a known half-life ($t_{1/2}$), elapsed time is an active physical variable that alters reagent mass and product yield. Precursor decay prior to reaction initiation and analytical latency following synthesis completion are managed via [`VISE_ApplyForwReveDecay_DDEF`](@ref) and [`MOLE_CalcRadioDecay_DDEF`](@ref):
+In experiments involving radioisotopes or labile chemical compounds with a known half-life ($t_{1/2}$), elapsed time is an active physical variable that alters reagent mass and product yield. Precursor decay prior to reaction initiation and analytical latency following synthesis completion are managed via [`VISE_ApplyFRDecay_DDEF`](@ref) and [`MOLE_CalcRadioDecay_DDEF`](@ref):
 
 * **Precursor Preparation Delay ($\Delta t_{\text{forw}}$):** The elapsed time between stock precursor calibration and addition to the reaction vessel at $t_0$.
 * **Reaction Duration ($\Delta t_{\text{reaction}}$):** The controlled residence time in the reactor.
@@ -83,13 +83,13 @@ Y_{\text{net}}(t) = Y_{\text{chemical}}(t) \cdot \exp(-\lambda \cdot t) = Y_{\te
 
 Optimising solely for percentage conversion yield ($Y_{\text{chemical}}$) leads to artificially prolonged reaction times that produce severely degraded net active product or depleted radiotracer doses.
 
-In DoECISORY, the **Decay-Coupled Yield Penalty (DCYP)** integrates physical kinetic decay directly into the multi-criteria composite desirability function $D$:
+In DoECISORY.jl, the **Decay-Coupled Yield Penalty (DCYP)** integrates physical kinetic decay directly into the multi-criteria composite desirability function $D$:
 
 ```math
 D_{\text{adjusted}} = D \cdot \exp(-\lambda \cdot \Delta t_{\text{reaction}})
 ```
 
-By embedding this penalty into both gradient-free metaheuristics and continuous landscape evaluations, DoECISORY identifies the precise kinetic optimum that balances reaction completion against exponential first-order loss.
+By embedding this penalty into both gradient-free metaheuristics and continuous landscape evaluations, DoECISORY.jl identifies the precise kinetic optimum that balances reaction completion against exponential first-order loss.
 
 > [!NOTE] Radiopharmaceutical Application
 > For short-lived radionuclides ($^{11}\text{C}$, $^{18}\text{F}$, $^{68}\text{Ga}$), a reaction taking 45 minutes to reach 90% radiochemical conversion will yield significantly less net injectable radioactivity than a 15-minute reaction reaching 75% conversion, due to continuous half-life decay. DCYP mathematically arbitrates this dilemma to maximise injectable patient dose at EOS.
@@ -106,7 +106,7 @@ D = \left( \prod_{i=1}^{k} d_i(y_i)^{w_i} \right)^{\frac{1}{\sum w_i}}
 
 Sharp boundaries or disparate objective weightings can induce numerical singularities and noisy objective landscapes that trap gradient or evolutionary search engines in suboptimal local modes.
 
-To guarantee numerical stability, DoECISORY applies a **Gaussian Neighbour-Weighting Regularisation** scheme across a discrete scale of importance weights:
+To guarantee numerical stability, DoECISORY.jl applies a **Gaussian Neighbour-Weighting Regularisation** scheme across a discrete scale of importance weights:
 
 ```math
 \mathbf{w}_{\text{star}} = [0.50,\, 0.75,\, 1.00,\, 1.50,\, 2.00]
@@ -128,7 +128,7 @@ This regularisation smoothens narrow ridges in the multi-response landscape, ena
 
 ## 3. Candidate Pool Generation and Selection
 
-Rather than restricting the output to a single theoretical point $x^*$, DoECISORY constructs a structured **Candidate Pool** covering distinct operational compromises: global optimality, input conservation, and output specialisation.
+Rather than restricting the output to a single theoretical point $x^*$, DoECISORY.jl constructs a structured **Candidate Pool** covering distinct operational compromises: global optimality, input conservation, and output specialisation.
 
 ### 3.1. Search Strategy and Deduplication
 1. **Continuous Metaheuristic Optimisation:** Explores the continuous parameter space via evolutionary metaheuristics (`BlackBoxOptim.jl`), locating the global mathematical peak coordinate $\mathbf{x}_{\text{BBO}}$ and score $S_{\text{BBO}}$.
@@ -140,7 +140,7 @@ Rather than restricting the output to a single theoretical point $x^*$, DoECISOR
    Points clustering within $1\%$ of the BBO optimum are pruned to avoid redundant solutions.
 
 ### 3.2. Candidate Classification
-From the deduplicated search results, DoECISORY builds a multi-criteria portfolio of candidates rather than forcing a single deterministic compromise:
+From the deduplicated search results, DoECISORY.jl builds a multi-criteria portfolio of candidates rather than forcing a single deterministic compromise:
 
 * **1. Absolute Global Leaders (`TOP-01` to `TOP-08`):**
   The continuous metaheuristic solution ($\mathbf{x}_{\text{BBO}}$) and top discrete grid nodes are pooled together and sorted descending by composite desirability. Up to 8 unconstrained candidates (`TOP-01` through `TOP-08`) are extracted:
@@ -152,15 +152,15 @@ From the deduplicated search results, DoECISORY builds a multi-criteria portfoli
   \mathbf{x}_{\text{INP-}j} = \arg\min_{\mathbf{x} \in \text{Tier}_{90}} x_j
   ```
   * `INP-X1` (e.g. `INP-Temperature`): Formulations operating at minimal thermal load to prevent substrate decomposition, thermal side-reactions, or excessive energy consumption.
-  * `INP-X2` (e.g. `INP-ReactionTime`): Formulations with minimal residence time, reducing physical radioactive decay, chemical degradation during holding, and overall cycle duration.
+  * `INP-X2` (e.g. `INP-Time`): Formulations with minimal residence time, reducing physical radioactive decay, chemical degradation during holding, and overall cycle duration.
   * `INP-X3` (e.g. `INP-Precursor`): Green chemistry formulations conserving scarce, costly, or high-purity active pharmaceutical ingredients (APIs).
 * **3. Output Specialisation Leaders (`OUT-<Response>`):**
   Identified within the same $90\%$ desirability tier by evaluating which candidate maximises or minimises individual quality attributes:
-  * `OUT-Y1` (e.g. `OUT-Yield`): Maximises overall chemical conversion or isolated recovery.
-  * `OUT-Y2` (e.g. `OUT-Impurity`): Minimises degradation by-products, radiolytic fragments, or isomeric impurities.
-  * `OUT-Y3` (e.g. `OUT-SpecificActivity` / `OUT-Purity`): Maximises specific activity, radiochemical purity, or enantiomeric excess.
+  * `OUT-Y1` (e.g. `OUT-Conversion`): Maximises overall chemical conversion or crude radiochemical incorporation.
+  * `OUT-Y2` (e.g. `OUT-Yield`): Maximises net isolated product recovery or end-of-synthesis (EOS) yield.
+  * `OUT-Y3` (e.g. `OUT-Impurity`): Minimises radiolytic degradation by-products, fragments, or chemical impurities.
 
-This multi-faceted portfolio allows the research team to select a leader tailored to specific laboratory limitations (e.g. reagent scarcity, heating constraints, or purity thresholds) before advancing to the next sequential phase.
+This multi-faceted portfolio allows the research team to select a leader tailored to specific laboratory limitations (e.g. reagent scarcity, heating constraints, or impurity limits) before advancing to the next sequential phase.
 
 ---
 

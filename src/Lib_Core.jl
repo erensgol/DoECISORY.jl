@@ -14,19 +14,18 @@ using Printf
 using ..Sys_Fast
 using BlackBoxOptim
 
-const Main = parentmodule(@__MODULE__)
-
-
-export CORE_GenDesign_DDEF, CORE_GenerateMatrix_DDEF, CORE_MapLevels_DDEF,
-       CORE_CodeMatrix_DDEF, CORE_ExpandModelMatrix_DDEF, CORE_D_Efficiency_DDEF,
+export CORE_GenDesign_DDEF, CORE_BuildMatrix_DDEF, CORE_MapLevels_DDEF,
+       CORE_CodeMatrix_DDEF, CORE_ExpandModelMatrix_DDEF, CORE_CalcDEfficiency_DDEF,
        CORE_CalcDesignMetrics_DDEF, CORE_OptimiseDesirability_DDEF, CORE_CalcDesirability_DDEF,
        CORE_ExtractGoal_DDEF, CORE_ValidateDesign_DDEF, CORE_ExtractLeader_DDEF,
        CORE_ModifierDCYP_DDES, CORE_ApplyDCYP_DDEF, CORE_GetNeighbourWeights_DDEF,
        CORE_StarWeights_DDEC, CORE_GetMethodType_DDEF, CORE_GetModelType_DDEF,
        CORE_AbstractDesignMethod_DDET, CORE_MethodBB15_DDES, CORE_MethodTL09_DDES,
-       CORE_MethodCD17_DDES, CORE_MethodDF14_DDES, CORE_AbstractModelType_DDET,
-       CORE_ModelLinear_DDES, CORE_ModelQuadratic_DDES
-
+       CORE_MethodCD17_DDES, CORE_MethodDF14_DDES, CORE_MethodMap_DDEC, CORE_DesignBB15_DDEC,
+       CORE_AbstractModelType_DDET, CORE_ModelLinear_DDES, CORE_ModelQuadratic_DDES, 
+       CORE_ModelMap_DDEC, CORE_AbstractCriterion_DDET, CORE_CriterionD_DDES, CORE_CriterionA_DDES,
+       CORE_CriterionG_DDES, CORE_CriterionI_DDES, CORE_CalcCriterion_DDEF
+       
 # ==============================================================================
 # PART A: DESIGN MATRIX & COORDINATE GENERATION
 # ==============================================================================
@@ -62,7 +61,7 @@ const CORE_ModelMap_DDEC = Dict{String, CORE_AbstractModelType_DDET}(
 # SECTION 2: CONSTANTS - PRE-ALLOCATED DESIGN MATRICES
 # ------------------------------------------------------------------------------
 
-const CORE_Tl09Design_DDEC = Int8[
+const CORE_DesignTL09_DDEC = Int8[
     -1 -1 -1;
     -1  0  0;
     -1  1  1;
@@ -74,7 +73,7 @@ const CORE_Tl09Design_DDEC = Int8[
      1  1  0
 ]
 
-const CORE_Bb15Design_DDEC = Int8[
+const CORE_DesignBB15_DDEC = Int8[
      0  0  0;
     -1 -1  0;
      1 -1  0;
@@ -92,7 +91,7 @@ const CORE_Bb15Design_DDEC = Int8[
      0  1  1
 ]
 
-const CORE_Cd17Design_DDEC = Int8[
+const CORE_DesignCD17_DDEC = Int8[
      0  0  0;
      1 -1 -1;
     -1  1 -1;
@@ -112,7 +111,7 @@ const CORE_Cd17Design_DDEC = Int8[
      0  0  1
 ]
 
-function CORE_GenDf14Design_DDEF(direction::AbstractVector=[-1, -1, -1])::Matrix{Int8}
+function CORE_DesignDF14_DDEF(direction::AbstractVector=[-1, -1, -1])::Matrix{Int8}
     s1 = Int8(length(direction) >= 1 && direction[1] >= 0 ? 1 : -1)
     s2 = Int8(length(direction) >= 2 && direction[2] >= 0 ? 1 : -1)
     s3 = Int8(length(direction) >= 3 && direction[3] >= 0 ? 1 : -1)
@@ -153,11 +152,11 @@ function CORE_GenDesign_DDEF(Method::AbstractString, FactorCount::Integer=3; Dir
     if FactorCount != 3
         throw(ArgumentError("DoECISORY experimental design methods (BB15, CD17, TL09, DF14) currently support exactly 3 factors (received FactorCount = $FactorCount)."))
     end
-    Main.Sys_Fast.FAST_Log_DDEF("CORE", "DESIGN_GEN", "Generating matrix for $Method (Strict 3-Var Mode)", "WAIT")
+    FAST_Log_DDEF("CORE", "DESIGN_GEN", "Generating matrix for $Method (Strict 3-Var Mode)", "WAIT")
     method_type = CORE_GetMethodType_DDEF(Method)
-    design = CORE_GenerateMatrix_DDEF(method_type, FactorCount, Direction)
+    design = CORE_BuildMatrix_DDEF(method_type, FactorCount, Direction)
     R, C_dim = size(design)
-    Main.Sys_Fast.FAST_Log_DDEF("CORE", "GEN_SUCCESS", "$R Runs x $C_dim Variables created.", "OK")
+    FAST_Log_DDEF("CORE", "GEN_SUCCESS", "$R Runs x $C_dim Variables created.", "OK")
     return design
 end
 
@@ -178,7 +177,7 @@ end
 CORE_GetModelType_DDEF(m::CORE_AbstractModelType_DDET) = m
 
 """
-    CORE_GenerateMatrix_DDEF(Method, fc=3, dir=[-1, -1, -1]) -> Matrix{Float64}
+    CORE_BuildMatrix_DDEF(Method, fc=3, dir=[-1, -1, -1]) -> Matrix{Float64}
 Generate the normalised design matrix for the specified experimental method dispatch type or string identifier.
 Validates the factor count requirement and dispatches to the corresponding topology constructor.
 
@@ -190,18 +189,17 @@ Validates the factor count requirement and dispatches to the corresponding topol
 # Returns
 - A `Matrix{Float64}` containing normalised coordinate points in the domain `[-1, 1]`.
 """
-CORE_GenerateMatrix_DDEF(::CORE_MethodTL09_DDES, fc::Integer, dir::AbstractVector=[-1, -1, -1]) = 
-    fc == 3 ? copy(CORE_Tl09Design_DDEC) : throw(ArgumentError("Method TL09 requires exactly 3 factors (received $fc)."))
-CORE_GenerateMatrix_DDEF(::CORE_MethodBB15_DDES, fc::Integer, dir::AbstractVector=[-1, -1, -1]) = 
-    fc == 3 ? copy(CORE_Bb15Design_DDEC) : throw(ArgumentError("Method BB15 requires exactly 3 factors (received $fc)."))
-CORE_GenerateMatrix_DDEF(::CORE_MethodCD17_DDES, fc::Integer, dir::AbstractVector=[-1, -1, -1]) = 
-    fc == 3 ? copy(CORE_Cd17Design_DDEC) : throw(ArgumentError("Method CD17 requires exactly 3 factors (received $fc)."))
-CORE_GenerateMatrix_DDEF(::CORE_MethodDF14_DDES, fc::Integer, dir::AbstractVector=[-1, -1, -1]) = 
-    fc == 3 ? CORE_GenDf14Design_DDEF(dir) : throw(ArgumentError("Method DF14 requires exactly 3 factors (received $fc)."))
+CORE_BuildMatrix_DDEF(::CORE_MethodTL09_DDES, fc::Integer, dir::AbstractVector=[-1, -1, -1]) = 
+    fc == 3 ? copy(CORE_DesignTL09_DDEC) : throw(ArgumentError("Method TL09 requires exactly 3 factors (received $fc)."))
+CORE_BuildMatrix_DDEF(::CORE_MethodBB15_DDES, fc::Integer, dir::AbstractVector=[-1, -1, -1]) = 
+    fc == 3 ? copy(CORE_DesignBB15_DDEC) : throw(ArgumentError("Method BB15 requires exactly 3 factors (received $fc)."))
+CORE_BuildMatrix_DDEF(::CORE_MethodCD17_DDES, fc::Integer, dir::AbstractVector=[-1, -1, -1]) = 
+    fc == 3 ? copy(CORE_DesignCD17_DDEC) : throw(ArgumentError("Method CD17 requires exactly 3 factors (received $fc)."))
+CORE_BuildMatrix_DDEF(::CORE_MethodDF14_DDES, fc::Integer, dir::AbstractVector=[-1, -1, -1]) = 
+    fc == 3 ? CORE_DesignDF14_DDEF(dir) : throw(ArgumentError("Method DF14 requires exactly 3 factors (received $fc)."))
 
-CORE_GenerateMatrix_DDEF(Method::AbstractString, fc::Integer=3, dir::AbstractVector=[-1, -1, -1]) = 
-    CORE_GenerateMatrix_DDEF(CORE_GetMethodType_DDEF(Method), fc, dir)
-
+CORE_BuildMatrix_DDEF(Method::AbstractString, fc::Integer=3, dir::AbstractVector=[-1, -1, -1]) = 
+    CORE_BuildMatrix_DDEF(CORE_GetMethodType_DDEF(Method), fc, dir)
 
 # ------------------------------------------------------------------------------
 # SECTION 3: COORDINATE MAPPING (CODED -> PHYSICAL)
@@ -399,7 +397,7 @@ Evaluates geometric-mean composite objective functions across all active respons
 - `X_Bounds::AbstractMatrix{Float64}`: Lower and upper search domain bounds of size `3 × 2`.
 
 # Keywords
-- `MaxTime::Float64`: Maximum optimisation time budget in seconds (default: `2.0`).
+- `MaxTime::Float64`: Maximum optimisation time budget in seconds (default: `1.0`).
 - `PenaltyFn::Union{Function,Nothing}`: Optional boundary constraint penalty function.
 - `ModifiersDCYP::Vector{CORE_ModifierDCYP_DDES}`: Optional radiochemical decay penalty modifiers.
 
@@ -407,7 +405,7 @@ Evaluates geometric-mean composite objective functions across all active respons
 - `Tuple{Vector{Float64}, Float64}`: `(best_coordinates, best_composite_desirability)`.
 """
 function CORE_OptimiseDesirability_DDEF(Models::AbstractVector, Goals::AbstractVector, X_Bounds::AbstractMatrix{Float64};
-    MaxTime::Float64=2.0, PenaltyFn::Union{Function,Nothing}=nothing,
+    MaxTime::Float64=1.0, MaxSteps::Union{Int, Nothing}=nothing, PenaltyFn::Union{Function,Nothing}=nothing,
     ModifiersDCYP::Vector{CORE_ModifierDCYP_DDES}=CORE_ModifierDCYP_DDES[])
     Dim       = 3
     NumModels = length(Models)
@@ -476,28 +474,40 @@ function CORE_OptimiseDesirability_DDEF(Models::AbstractVector, Goals::AbstractV
     search_range = [(X_Bounds[i, 1], X_Bounds[i, 2]) for i in 1:Dim]
 
     decay_msg = isempty(ModifiersDCYP) ? "" : " [DCYP: $(join([dm.IsotopeName for dm in ModifiersDCYP], ", "))]"
-    Main.Sys_Fast.FAST_Log_DDEF("CORE", "BBO_START", "Initiating BlackBoxOptim for Global Desirability (MaxTime: $(MaxTime)s)...$(decay_msg)", "WAIT")
+    FAST_Log_DDEF("CORE", "BBO_START", "Initiating BlackBoxOptim for Global Desirability (MaxTime: $(MaxTime)s)...$(decay_msg)", "WAIT")
+
+    bbo_kwargs = Dict{Symbol, Any}(
+        :SearchRange   => search_range,
+        :NumDimensions => Dim,
+        :MaxTime       => MaxTime,
+        :Method        => :adaptive_de_rand_1_bin_radiuslimited,
+        :TraceMode     => :silent
+    )
+    eff_steps = isnothing(MaxSteps) ? (MaxTime <= 0.25 ? 5000 : nothing) : MaxSteps
+    if eff_steps !== nothing
+        bbo_kwargs[:MaxSteps] = eff_steps
+    end
 
     try
-        res = bboptimize(CORE_CalcObjective_DDEF; SearchRange=search_range, NumDimensions=Dim, MaxTime=MaxTime, Method=:adaptive_de_rand_1_bin_radiuslimited, TraceMode=:silent)
+        res = bboptimize(CORE_CalcObjective_DDEF; bbo_kwargs...)
         best_x = best_candidate(res)
         best_score = -best_fitness(res)
-        Main.Sys_Fast.FAST_Log_DDEF("CORE", "BBO_SUCCESS", "Global Optimum Found -> Score: $(round(best_score, digits=4))", "OK")
+        FAST_Log_DDEF("CORE", "BBO_SUCCESS", "Global Optimum Found -> Score: $(round(best_score, digits=4))", "OK")
         
-        refined_x, refined_score = CORE_LocalRefinement_DDEF(CORE_CalcObjective_DDEF, best_candidate(res), search_range)
+        refined_x, refined_score = CORE_RefineLocal_DDEF(CORE_CalcObjective_DDEF, best_candidate(res), search_range)
         
         if refined_score > best_score + 1e-6
-            Main.Sys_Fast.FAST_Log_DDEF("CORE", "LOCAL_REFINE", "Optimum Polished: $(round(best_score; digits=4)) -> $(round(refined_score; digits=4))", "OK")
+            FAST_Log_DDEF("CORE", "LOCAL_REFINE", "Optimum Polished: $(round(best_score; digits=4)) -> $(round(refined_score; digits=4))", "OK")
             return refined_x, refined_score
         end
         return best_x, best_score
     catch e
-        Main.Sys_Fast.FAST_Log_DDEF("CORE", "BBO_FAIL", "BlackBoxOptim encountered a critical failure: $e. Reverting to geometric centre.", "FAIL")
+        FAST_Log_DDEF("CORE", "BBO_FAIL", "BlackBoxOptim encountered a critical failure: $e. Reverting to geometric centre.", "FAIL")
         return [ (X_Bounds[i, 1] + X_Bounds[i, 2]) / 2.0 for i in 1:Dim ], 0.0
     end
 end
 
-function CORE_LocalRefinement_DDEF(obj_fn, start_x, range; iters=100)
+function CORE_RefineLocal_DDEF(obj_fn, start_x, range; iters=100)
     dim = length(start_x)
     current_x = copy(start_x)
     current_score = -obj_fn(current_x)
@@ -556,12 +566,12 @@ Reads the specified phase candidate table, retrieves the global best or user-sel
 - `Dict{String, Any}`: Dictionary containing `"ID"`, `"Score"`, `"Vals"` (factor coordinates), and `"InputNames"`.
 """
 function CORE_ExtractLeader_DDEF(FilePath::AbstractString, PhaseCode::AbstractString, SelectedID::AbstractString="", VarNames::AbstractVector{<:AbstractString}=String[])
-    C     = Main.Sys_Fast.FAST_Data_DDEC
+    C     = FAST_Data_DDEC
     sheet = C.PREFIX_LEADERS * PhaseCode
 
-    df = Main.Sys_Fast.FAST_ReadExcel_DDEF(FilePath, sheet)
+    df = FAST_ReadExcel_DDEF(FilePath, sheet)
     if isempty(df)
-        Main.Sys_Fast.FAST_Log_DDEF("CORE", "EXTRACTION_FAIL", "Sheet '$sheet' not found or empty.", "FAIL")
+        FAST_Log_DDEF("CORE", "EXTRACTION_FAIL", "Sheet '$sheet' not found or empty.", "FAIL")
         return Dict{String,Any}()
     end
 
@@ -575,15 +585,15 @@ function CORE_ExtractLeader_DDEF(FilePath::AbstractString, PhaseCode::AbstractSt
     if !isempty(SelectedID) && !isnothing(col_id)
         idx = findfirst(==(SelectedID), string.(df[!, col_id]))
         if isnothing(idx)
-            Main.Sys_Fast.FAST_Log_DDEF("CORE", "LEADER_WARN", "ID '$SelectedID' not found. Defaulting to Best.", "WARN")
+            FAST_Log_DDEF("CORE", "LEADER_WARN", "ID '$SelectedID' not found. Defaulting to Best.", "WARN")
         else
-            Main.Sys_Fast.FAST_Log_DDEF("CORE", "LEADER_FETCH", "Manual selection: $SelectedID", "OK")
+            FAST_Log_DDEF("CORE", "LEADER_FETCH", "Manual selection: $SelectedID", "OK")
         end
     end
 
     if isnothing(idx) || idx == 0
         _, idx = findmax(df[!, col_score])
-        Main.Sys_Fast.FAST_Log_DDEF("CORE", "LEADER_FETCH", "Automatic selection: Global Best", "OK")
+        FAST_Log_DDEF("CORE", "LEADER_FETCH", "Automatic selection: Global Best", "OK")
     end
 
     row = df[idx, :]
@@ -591,28 +601,28 @@ function CORE_ExtractLeader_DDEF(FilePath::AbstractString, PhaseCode::AbstractSt
     vals = Float64[]
     if !isempty(VarNames)
         for v_name in VarNames
-            v_key_pfx = startswith(uppercase(v_name), uppercase(C.PRE_INPUT)) ? v_name : "$(C.PRE_INPUT)$v_name"
+            v_key_pfx = startswith(uppercase(v_name), uppercase(C.PRE_VAR)) ? v_name : "$(C.PRE_VAR)$v_name"
             
-            actual_key = Main.Sys_Fast.FAST_GetCol_DDEF(df, v_key_pfx)
-            actual_alt = isempty(actual_key) ? Main.Sys_Fast.FAST_GetCol_DDEF(df, v_name) : ""
+            actual_key = FAST_GetColumn_DDEF(df, v_key_pfx)
+            actual_alt = isempty(actual_key) ? FAST_GetColumn_DDEF(df, v_name) : ""
             
             val = !isempty(actual_key) ? row[Symbol(actual_key)] : (!isempty(actual_alt) ? row[Symbol(actual_alt)] : 0.0)
-            push!(vals, Main.Sys_Fast.FAST_SafeNum_DDEF(val))
+            push!(vals, FAST_SafeNum_DDEF(val))
         end
     else
-        input_cols = filter(n -> startswith(uppercase(string(n)), uppercase(C.PRE_INPUT)), cols)
-        vals       = Main.Sys_Fast.FAST_SafeNum_DDEF.(values(row[input_cols]))
+        input_cols = filter(n -> startswith(uppercase(string(n)), uppercase(C.PRE_VAR)), cols)
+        vals       = FAST_SafeNum_DDEF.(values(row[input_cols]))
     end
 
     id_str = isnothing(col_id) ? "N/A" : string(row[col_id])
-    Main.Sys_Fast.FAST_Log_DDEF("CORE", "LEADER_DATA",
+    FAST_Log_DDEF("CORE", "LEADER_DATA",
         "ID: $id_str | Score: $(round(row[col_score]; digits=4))", "OK")
 
     return Dict{String,Any}(
         "ID"         => id_str,
         "Score"      => row[col_score],
         "Vals"       => collect(vals),
-        "InputNames" => isempty(VarNames) ? filter(n -> startswith(uppercase(string(n)), uppercase(C.PRE_INPUT)), cols) : VarNames,
+        "InputNames" => isempty(VarNames) ? filter(n -> startswith(uppercase(string(n)), uppercase(C.PRE_VAR)), cols) : VarNames,
         "OldConfig"  => Any[]
     )
 end
@@ -668,9 +678,9 @@ function CORE_ValidateDesign_DDEF(DesignMatrix::AbstractMatrix, Config::Abstract
 
     is_valid = isempty(issues)
     if is_valid
-        Main.Sys_Fast.FAST_Log_DDEF("CORE", "VALIDATE", "Design matrix OK ($R×$C, $(R-dup_count) unique).", "OK")
+        FAST_Log_DDEF("CORE", "VALIDATE", "Design matrix OK ($R×$C, $(R-dup_count) unique).", "OK")
     else
-        Main.Sys_Fast.FAST_Log_DDEF("CORE", "VALIDATE", "Design issues: $(join(issues, " | "))", "WARN")
+        FAST_Log_DDEF("CORE", "VALIDATE", "Design issues: $(join(issues, " | "))", "WARN")
     end
 
     return (is_valid, join(issues, "\n"))
@@ -769,7 +779,7 @@ function CORE_ExpandModelMatrix_DDEF(X::AbstractMatrix, ModelType::AbstractStrin
 end
 
 """
-    CORE_D_Efficiency_DDEF(X::AbstractMatrix, ModelType=CORE_ModelQuadratic_DDES()) -> Float64
+    CORE_CalcDEfficiency_DDEF(X::AbstractMatrix, ModelType=CORE_ModelQuadratic_DDES()) -> Float64
 Calculate the normalised D-optimality efficiency criterion based on the Fisher information matrix determinant.
 Quantifies the volume of the joint confidence ellipsoid for parameter estimates relative to an ideal orthogonal design.
 
@@ -780,27 +790,86 @@ Quantifies the volume of the joint confidence ellipsoid for parameter estimates 
 # Returns
 - `Float64`: D-efficiency metric `(|X'X| / N^p)^(1/p)` in `[0.0, 1.0]`.
 """
-function CORE_D_Efficiency_DDEF(X::AbstractMatrix, ModelType::CORE_AbstractModelType_DDET=CORE_ModelQuadratic_DDES())::Float64
-    R, _ = size(X)
-    effective_model = (R < 10 && ModelType isa CORE_ModelQuadratic_DDES) ? CORE_ModelLinear_DDES() : ModelType
-    X_sc = CORE_CodeMatrix_DDEF(X)
-    X_exp = CORE_ExpandModelMatrix_DDEF(X_sc, effective_model)
-    p = size(X_exp, 2)
-    R < p && return 0.0
-
+function CORE_CalcDEfficiency_DDEF(X::AbstractMatrix, ModelType::CORE_AbstractModelType_DDET=CORE_ModelQuadratic_DDES())::Float64
     try
+        R, _ = size(X)
+        effective_model = (R < 10 && ModelType isa CORE_ModelQuadratic_DDES) ? CORE_ModelLinear_DDES() : ModelType
+        X_sc = CORE_CodeMatrix_DDEF(X)
+        X_exp = CORE_ExpandModelMatrix_DDEF(X_sc, effective_model)
+        p = size(X_exp, 2)
+        R < p && return 0.0
+
         M = X_exp' * X_exp
         det_val = det(M)
-        det_val <= 0.0 && return 0.0
+        (isnan(det_val) || det_val <= 0.0) && return 0.0
         eff = (det_val / (Float64(R)^p))^(1.0 / p)
-        return clamp(eff, 0.0, 1.0)
+        return isnan(eff) ? 0.0 : clamp(eff, 0.0, 1.0)
     catch
         return 0.0
     end
 end
 
-function CORE_D_Efficiency_DDEF(X::AbstractMatrix, ModelType::AbstractString)::Float64
-    return CORE_D_Efficiency_DDEF(X, CORE_GetModelType_DDEF(ModelType))
+function CORE_CalcDEfficiency_DDEF(X::AbstractMatrix, ModelType::AbstractString)::Float64
+    return CORE_CalcDEfficiency_DDEF(X, CORE_GetModelType_DDEF(ModelType))
+end
+
+# ------------------------------------------------------------------------------
+# SECTION 9: OPTIMALITY CRITERIA DISPATCH TYPES & CALCULATION
+# ------------------------------------------------------------------------------
+
+"""
+    CORE_AbstractCriterion_DDET
+Trait hierarchy for algorithmic design optimality evaluation (D, A, G, I criteria).
+"""
+abstract type CORE_AbstractCriterion_DDET end
+struct CORE_CriterionD_DDES <: CORE_AbstractCriterion_DDET end
+struct CORE_CriterionA_DDES <: CORE_AbstractCriterion_DDET end
+struct CORE_CriterionG_DDES <: CORE_AbstractCriterion_DDET end
+struct CORE_CriterionI_DDES <: CORE_AbstractCriterion_DDET end
+
+"""
+    CORE_CalcCriterion_DDEF(Criterion::CORE_AbstractCriterion_DDET, arg, p::Int, R::Int) -> Float64
+    CORE_CalcCriterion_DDEF(Criterion::AbstractString, arg, p::Int, R::Int) -> Float64
+
+Calculate information matrix optimality efficiency criteria (D, A, G, or I) using multiple dispatch.
+Evaluates parameter estimation precision, average variance, and prediction dispersion across experimental designs.
+
+# Arguments
+- `Criterion`: Optimality criterion trait (`CORE_CriterionD_DDES()`, `CORE_CriterionA_DDES()`, `CORE_CriterionG_DDES()`, `CORE_CriterionI_DDES()`) or string identifier (`"D"`, `"A"`, `"G"`, `"I"`).
+- `arg`: Information matrix \$X^T X\$, its inverse \$(X^T X)^{-1}\$, or leverage diagonal vector \$h = \\operatorname{diag}(X (X^T X)^{-1} X^T)\$.
+- `p::Int`: Number of estimated model parameters.
+- `R::Int`: Number of experimental design runs.
+
+# Returns
+- `Float64`: Normalised efficiency score bounded in \$[0.0, 1.0]\$.
+"""
+CORE_CalcCriterion_DDEF(::CORE_CriterionD_DDES, XtX::AbstractMatrix{Float64}, p::Int, R::Int)::Float64 = begin
+    det_val = det(XtX)
+    det_val > 0.0 ? clamp((det_val / (Float64(R)^p))^(1.0 / p), 0.0, 1.0) : 0.0
+end
+
+CORE_CalcCriterion_DDEF(::CORE_CriterionA_DDES, inv_XtX::AbstractMatrix{Float64}, p::Int, R::Int)::Float64 = begin
+    tr_inv = tr(inv_XtX)
+    tr_inv > 0.0 ? clamp(p / (R * tr_inv), 0.0, 1.0) : 0.0
+end
+
+CORE_CalcCriterion_DDEF(::CORE_CriterionG_DDES, lev::AbstractVector{Float64}, p::Int, R::Int)::Float64 = begin
+    max_var = maximum(lev)
+    max_var > 0.0 ? clamp(p / (R * max_var), 0.0, 1.0) : 0.0
+end
+
+CORE_CalcCriterion_DDEF(::CORE_CriterionI_DDES, lev::AbstractVector{Float64}, p::Int, R::Int)::Float64 = begin
+    mean_lev = sum(lev) / length(lev)
+    mean_lev > 0.0 ? clamp(p / (R * mean_lev), 0.0, 1.0) : 0.0
+end
+
+function CORE_CalcCriterion_DDEF(Crit::AbstractString, arg, p::Int, R::Int)::Float64
+    u = uppercase(strip(Crit))
+    u == "D" && return CORE_CalcCriterion_DDEF(CORE_CriterionD_DDES(), arg, p, R)
+    u == "A" && return CORE_CalcCriterion_DDEF(CORE_CriterionA_DDES(), arg, p, R)
+    u == "G" && return CORE_CalcCriterion_DDEF(CORE_CriterionG_DDES(), arg, p, R)
+    u == "I" && return CORE_CalcCriterion_DDEF(CORE_CriterionI_DDES(), arg, p, R)
+    throw(ArgumentError("Unknown criterion type: '$Crit'. Valid options: D, A, G, I."))
 end
 
 """
@@ -827,24 +896,18 @@ function CORE_CalcDesignMetrics_DDEF(X::AbstractMatrix, ModelType::CORE_Abstract
     R < p && return res
 
     try
-        XtX = X_exp' * X_exp
+        XtX = Matrix{Float64}(X_exp' * X_exp)
         res["Condition"] = cond(XtX)
+        res["D"] = CORE_CalcCriterion_DDEF(CORE_CriterionD_DDES(), XtX, p, R)
 
-        det_val = det(XtX)
-        res["D"] = det_val > 0.0 ? clamp((det_val / (Float64(R)^p))^(1.0 / p), 0.0, 1.0) : 0.0
+        inv_XtX = Matrix{Float64}(pinv(XtX))
+        res["A"] = CORE_CalcCriterion_DDEF(CORE_CriterionA_DDES(), inv_XtX, p, R)
 
-        inv_XtX = pinv(XtX)
-        tr_inv = tr(inv_XtX)
-        res["A"] = tr_inv > 0.0 ? clamp(p / (R * tr_inv), 0.0, 1.0) : 0.0
-
-        lev = diag(X_exp * inv_XtX * X_exp')
-        max_var = maximum(lev)
-        res["G"] = max_var > 0.0 ? clamp(p / (R * max_var), 0.0, 1.0) : 0.0
-
-        mean_lev = sum(lev) / length(lev)
-        res["I"] = mean_lev > 0.0 ? clamp(p / (R * mean_lev), 0.0, 1.0) : 0.0
+        lev = Vector{Float64}(diag(X_exp * inv_XtX * X_exp'))
+        res["G"] = CORE_CalcCriterion_DDEF(CORE_CriterionG_DDES(), lev, p, R)
+        res["I"] = CORE_CalcCriterion_DDEF(CORE_CriterionI_DDES(), lev, p, R)
     catch e
-        Main.Sys_Fast.FAST_Log_DDEF("CORE", "METRICS_ERR", "Stability error in design metrics: $e", "WARN")
+        FAST_Log_DDEF("CORE", "METRICS_ERR", "Stability error in design metrics: $e", "WARN")
     end
     return res
 end

@@ -4,10 +4,3 @@ coverage:
       default:
         target: auto
         threshold: 1%
-
-ignore:
-  - "src/Gui_Base.jl"
-  - "src/Gui_Deck.jl"
-  - "src/Gui_Lens.jl"
-  - "src/DoECISORY.jl"
-  - "app.jl"

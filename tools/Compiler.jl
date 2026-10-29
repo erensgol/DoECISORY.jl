@@ -1,16 +1,16 @@
 # ==============================================================================
 # DoECISORY Sysimage Compiler
 # ==============================================================================
-# Usage:  julia --threads auto --project=. build/Compiler.jl
-# Output: build/sysimage.dll (Windows) / .so (Linux)
+# Usage:  julia --threads auto --project=. tools/Compiler.jl
+# Output: tools/Sysimage.dll (Windows) / .so (Linux)
 # ==============================================================================
 
 using Pkg
 using TOML
 
-println("\n" * "="^60)
+println("\n" * "="^90)
 println("  DoECISORY Sysimage Compiler")
-println("="^60 * "\n")
+println("="^90 * "\n")
 
 # --- 1. Setup ---------------------------------------------------------------
 
@@ -19,19 +19,20 @@ try
     @eval using PackageCompiler
     println("[BUILD] PackageCompiler is available.")
 catch
-    println("\n" * "!"^60)
+    println("\n" * "!"^90)
     println("  [NOTICE] PackageCompiler is not installed.")
     println("  To preserve DoECISORY's lightweight package dependencies,")
     println("  PackageCompiler is not bundled in Project.toml.")
     println("  Please install it once in your global environment:")
     println("    julia -e \"using Pkg; Pkg.add(\\\"PackageCompiler\\\")\"")
-    println("!"^60 * "\n")
+    println("!"^90 * "\n")
     error("[BUILD] PackageCompiler not found. Please install it globally and re-run.")
 end
 
+is_dev_mode   = ("--dev" in ARGS)
 project_dir   = abspath(joinpath(@__DIR__, ".."))
 sysimg_ext    = Sys.iswindows() ? "dll" : "so"
-sysimg_name   = "sysimage.$sysimg_ext"
+sysimg_name   = is_dev_mode ? "Sysimage_Deps.$sysimg_ext" : "Sysimage.$sysimg_ext"
 sysimg_path   = joinpath(@__DIR__, sysimg_name)
 stmts_path    = joinpath(@__DIR__, "precompile_statements.txt")
 workload_file = joinpath(@__DIR__, "Workload.jl")
@@ -46,6 +47,7 @@ if isfile(proj_backup) || isfile(mani_backup)
     rm(mani_backup; force=true)
 end
 
+println("[BUILD] Scope:  $(is_dev_mode ? "DEV (Dependencies Only)" : "FULL (Includes DoECISORY)")")
 println("[BUILD] Target: $sysimg_path")
 
 # --- 2. Ensure project is fully resolved ------------------------------------
@@ -65,6 +67,7 @@ try
     println("[BUILD] Phase 1: Tracing workload to capture precompile statements...")
     t_trace = time()
     trace_cmd = Cmd(`$(Base.julia_cmd()) --project=$project_dir
+        --threads=auto
         --trace-compile=$stmts_path
         --startup-file=no
         -O0
@@ -90,7 +93,7 @@ try
         excluded_patterns = [
             "Plotly", "Kaleido", "JSExpr", "WebIO", "Blink", "Hiccup", "Mustache",
             "AssetRegistry", "Colors", "ColorTypes", "ColorVectorSpace", "ColorSchemes",
-            "FixedPointNumbers", "Main.", "DoECISORY."
+            "FixedPointNumbers", "Main."
         ]
         filtered_lines = filter(raw_lines) do line
             !any(pat -> occursin(pat, line), excluded_patterns)
@@ -108,6 +111,12 @@ try
     dep_names = collect(keys(get(proj_data, "deps", Dict())))
     filter!(n -> !(n in ["PackageCompiler", "PlotlyJS"]), dep_names)
     packages  = Symbol.(sort(dep_names))
+    if is_dev_mode
+        println("[BUILD] Scope: DEV  (Development: Dependencies Only -> $sysimg_name)")
+    else
+        println("[BUILD] Scope: FULL (Production: Includes DoECISORY -> $sysimg_name)")
+        push!(packages, :DoECISORY)
+    end
 
     println("[BUILD] Phase 3: Building sysimage ($(length(packages)) packages):")
     println("        $(join(string.(packages), ", "))\n")
@@ -125,17 +134,15 @@ try
     elapsed     = round(time() - t0; digits=1)
     filesize_mb = round(filesize(sysimg_path) / 1024^2; digits=1)
 
-    println("\n" * "="^60)
+    println("\n" * "="^90)
     println("  SYSIMAGE BUILD COMPLETE")
-    println("="^60)
-    println("  File:  $sysimg_name")
-    println("  Size:  $(filesize_mb) MB")
-    println("  Time:  $(elapsed)s")
-    println("  Path:  $sysimg_path")
-    println()
-    println("  Launch: julia --sysimage build/$sysimg_name --threads auto --project=. app.jl")
-    println("  Or double-click Run_DoE.bat (auto-detects sysimage).")
-    println("="^60 * "\n")
+    println("="^90)
+    println("  File:   $sysimg_name")
+    println("  Size:   $(filesize_mb) MB")
+    println("  Time:   $(elapsed)s")
+    println("  Path:   $sysimg_path")
+    println("  Launch: julia --sysimage tools/$sysimg_name --threads auto -O1 --project=. -e \"using DoECISORY; launch(; wait=true)\"")
+    println("="^90 * "\n")
 
 finally
     # Clean up temporary precompile statements

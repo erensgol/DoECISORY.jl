@@ -1,4 +1,7 @@
-build/sysimage.dll
 Manifest.toml
-docs/build/
+*.txt
 *.cov
+docs/build/
+tools/Sysimage.*
+*.dll
+*.so
