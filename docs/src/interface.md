@@ -15,7 +15,7 @@ using DoECISORY
 launch()
 ```
 
-Your default web browser will open the application at `http://127.0.0.1:8060`. If port 8060 is occupied on a shared workstation or server, `CALL_ResolvePort_DDEF` automatically scans and binds to an open TCP port, reporting the active address in the terminal.
+Your default web browser will open the application at `http://127.0.0.1:8060`. The listening port is resolved by `CALL_ResolvePort_DDEF`, which checks for environment port overrides (`ENV["PORT"]`), cloud host indicators (`SPACE_ID`, defaulting to `7860` on Hugging Face Spaces), or defaults to `8060` for local sessions.
 
 ---
 
@@ -38,7 +38,7 @@ The **Deck** workspace manages formulation setup, mass balance auditing, and exp
    * **Active Precursor (`VAR`):** Continuous variables subject to experimental variation.
    * **Fixed Salts/Buffers (`FIX`):** Constant formulation components.
    * **Diluent/Filler (`FILL`):** Solvent or carrier adjusted to maintain a constant total volume.
-2. If working with short-lived radionuclides (e.g. $^{18}\text{F}$, $^{68}\text{Ga}$), toggle **Is Radioactive** and enter the physical half-life.
+2. If working with short-lived radionuclides (e.g. $^{18}\text{F}$, $^{68}\text{Ga}$) or labile reagents, click the **Component Properties** modal on the component row to specify the physical half-life ($t_{1/2}$) alongside its unit (`Minutes`, `Hours`, `Days`). The kinetic decay engine activates automatically when a positive half-life is entered.
 3. Click **Audit Mass Balance** to verify that concentration and total volume constraints are strictly satisfied.
 
 ### 2.2. Generating the Protocol Sheet
@@ -88,20 +88,27 @@ Once laboratory runs are performed and analytical results obtained:
 
 ## 4. Sequential Phase Transition (ACTA & ASTM)
 
-To advance from Phase 1 to Phase 2:
+Sequential advancement from Phase 1 to Phase 2 is managed through a guided **3-Step IPKT Transition Wizard Modal**:
 
-1. In the **Candidate Leaders Table**, review the ranked solutions:
-   * `TOP-01*`: Global unconstrained composite desirability.
-   * `INP-Precursor`: Lowest precursor consumption within $90\%$ of maximum desirability.
-   * `INP-Temperature`: Lowest thermal load candidate.
-   * `OUT-Impurity`: Lowest radiolytic impurity candidate.
-2. Select your preferred candidate row.
-3. **ACTA Contraction Factor ($c$):** Adjust the slider to set the search range contraction:
-   * $c = 0.50$ (Default): Contracts the factor range by 50% around the selected leader.
-   * $c = 0.75$: Mild 25% refinement for broader confirmation.
-   * $c = 0.25$: Aggressive 75% zoom for precise fine-tuning.
-4. Review the **IPKT Interval Bar Chart** to visually confirm that the new boundaries are valid and safely clamped away from equipment limits.
-5. Click **Commit Phase Transition & Download Phase 2 Protocol**. The updated workbook is immediately generated with Phase 1 variance preserved in metadata.
+1. **Step 1/3: Target Phase Selection (`lens-modal-wizard`):**
+   * Define the destination experimental stage identifier (e.g. `Phase2`).
+2. **Step 2/3: Candidate Leader Selection (`lens-modal-leader`):**
+   * Review ranked solutions from the multi-criteria portfolio:
+     * `TOP-01*`: Global unconstrained composite desirability summit (BBO metaheuristic solution).
+     * `TOP-02`: High-density grid mode leader.
+     * `INP-Precursor`: Green chemistry candidate with lowest precursor consumption within $\ge 90\%$ desirability.
+     * `INP-Temperature`: Lowest thermal load candidate.
+     * `OUT-Impurity`: Lowest radiolytic impurity candidate.
+   * Select your target leader row.
+3. **Step 3/3: Design Space Configuration (`lens-modal-preview`):**
+   * **Global Contraction Ratio ($c$):** Set domain narrowing via slider ($1.0$, $0.75$, $0.50$ [default], $0.25$, or $0.10$).
+   * **Global Translation ($\delta$):** Set search space translation shift in $[-1.0, 1.0]$ when near domain edges.
+   * **Factor Slot Customisation:** For each active factor, choose between:
+     * `Keep (ACTA)`: Retains the factor and applies standard ACTA contraction/translation.
+     * `Scale (ASTM)`: Applies affine scaling ($x' = \alpha x + \beta$) and validates against physical limits $[L^{\text{abs}}, U^{\text{abs}}]$.
+     * `Replace`: Drops an uninfluential variable and introduces a new physical process parameter.
+   * **IPKT Diagnostic Canvas:** Visually verify the gold target bar relative to the gray baseline and red extrapolation fences ($\pm 2.0$).
+   * Click **Commit Phase Transition & Download Phase 2 Protocol**. The updated workbook is generated with prior variance preserved.
 
 ---
 
@@ -112,19 +119,19 @@ For researchers coordinating computational scripts and laboratory interfaces, th
 | Graphical Control / Widget | Workspace | User Operation | Underlying Julia API Function | Engine Arguments & Structs |
 | :--- | :--- | :--- | :--- | :--- |
 | **Audit Mass Balance Button** | Deck | Verifies formulation conservation | [`MOLE_AuditQuick_DDEF`](@ref) | `TableData::AbstractVector`, `Vol::Float64`, `Conc::Float64` |
-| **Design Geometry Dropdown** | Deck | Generates design matrix | [`CORE_GenDesign_DDEF`](@ref) | `DesignType::String`, `nFactors::Int`, `Direction` |
+| **Design Geometry Dropdown** | Deck | Generates design matrix | [`CORE_GenDesign_DDEF`](@ref) | `Method::String, [FactorCount::Int=3]; Direction=[-1,-1,-1]` |
 | **Factor Level Inputs [Min, Mid, Max]** | Deck | Maps coded space to units | [`CORE_MapLevels_DDEF`](@ref) | `X_coded::Matrix`, `FactorConfig::Vector{Dict}` |
-| **Download Protocol Workbook Button** | Deck | Builds formatted `.xlsx` | [`FAST_WriteExcel_DDEF`](@ref) | `File::AbstractString`, `Updates::Dict` |
+| **Download Protocol Workbook Button** | Deck | Builds formatted `.xlsx` | [`FAST_WriteExcel_DDEF`](@ref) | `File::AbstractString`, `Updates::Dict{<:AbstractString, DataFrame}` |
 | **Dataset Ingestion Dropzone** | Lens | Parses sheet & applies decay | [`FAST_ReadExcel_DDEF`](@ref) & [`VISE_ApplyFRDecay_DDEF`](@ref) | `df::DataFrame`, `decay_map::Dict` |
-| **Model Type Selector** | Lens | Fits response surfaces | [`VISE_Regress_DDEF`](@ref) | `X::Matrix`, `Y::Vector`, `ModelType::String` |
+| **Model Type Selector** | Lens | Fits response surfaces | [`VISE_Regress_DDEF`](@ref) | `X_Raw::AbstractMatrix{Float64}, Y::AbstractVector{Float64}, ModelType::String` |
 | **Analytical Summary Modal** | Lens | Displays 7-stage diagnostic report | [`VISE_GenSciReport_DDEF`](@ref) | `Res::AbstractDict` |
 | **ANOVA & Lack-of-Fit Display** | Lens | Evaluates model adequacy | [`VISE_GenANOVATable_DDEF`](@ref) | `Model::AbstractDict`, `X_Raw::Any`, `Y_Raw::Any` |
 | **DCYP Kinetic Penalty Toggle** | Lens | Enforces duration trade-off | [`CORE_ApplyDCYP_DDEF`](@ref) | `Score::Float64`, [`CORE_ModifierDCYP_DDES`](@ref), `x` |
-| **Execute Optimization Button** | Lens | Solves multi-objective landscape | [`CORE_OptimiseDesirability_DDEF`](@ref) | `models`, `goals::Vector{Dict}`, `bounds` |
-| **Candidate Portfolio Selector** | Lens | Extracts multi-criteria leaders | [`FLOW_GetCandidates_DDEF`](@ref) | `MasterFile`, `CurrentPhase` |
-| **ACTA Contraction Slider ($c$)** | Lens | Adapts domain boundaries | [`FLOW_CalcACTA_DDEF`](@ref) | `Val`, `L_Old`, `Contraction`, `Translation`, `MinLimit` |
-| **ASTM Transformation Inputs** | Lens | Scales and clamps physical space | [`FLOW_ApplyASTM_DDEF`](@ref) | `Val::Real`, `Alpha::Real`, `Beta::Real` |
-| **Transfer Knowledge Button** | Lens $\rightarrow$ Deck | Bridges sequential phase | [`FLOW_CommitIPKT_DDEF`](@ref) & [`FLOW_BuildIPKT_DDEF`](@ref) | `MasterFile`, `CurrentPhase`, `SelectedLeaderID`, `ContractionFactor` |
-| **Download Portfolio Button** | Lens | Builds 145 mm multi-plate ZIP | [`FAST_AssembleSvgPlate_DDEF`](@ref) | `Images::Vector{String}`, `LayoutType::Symbol` |
+| **Execute Optimization Button** | Lens | Solves multi-objective landscape | [`CORE_OptimiseDesirability_DDEF`](@ref) | `Models, Goals, X_Bounds; MaxTime, ModifiersDCYP` |
+| **Candidate Portfolio Selector** | Lens | Extracts multi-criteria leaders | [`FLOW_GetCandidates_DDEF`](@ref) | `MasterFile, CurrentPhase` |
+| **ACTA Contraction Slider ($c$)** | Lens | Adapts domain boundaries | [`FLOW_CalcACTA_DDEF`](@ref) | `Val::Real, L_Old::AbstractVector, Contraction::Real, Translation::Real, [MinLimit, MaxLimit]` |
+| **ASTM Transformation Inputs** | Lens | Applies affine scaling and bounds validation | [`FLOW_ApplyASTM_DDEF`](@ref) | `Val::Real, Alpha::Real, Beta::Real` |
+| **Commit Phase Transition Button** | Lens $\rightarrow$ Deck | Bridges sequential phase | [`FLOW_CommitIPKT_DDEF`](@ref) | `MasterFile, CurrentPhase, [LeaderID, Contraction, Method, Translation]; Direction, CustomConfig` |
+| **Download Portfolio Button** | Lens | Builds 145 mm multi-plate ZIP | [`FAST_AssembleSvgPlate_DDEF`](@ref) | `Images::AbstractVector{<:AbstractString}, [LayoutType::Symbol=:Grid2x3]` |
 | **Graph Index Badges** | Lens | Jumps carousel to plot group | Client-side DOM Trigger | `data-page`, `role="button"` |
 

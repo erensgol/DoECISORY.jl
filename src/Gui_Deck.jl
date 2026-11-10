@@ -16,6 +16,7 @@ using ..Sys_Fast
 using ..Lib_Core
 using ..Lib_Mole
 using ..Gui_Base
+using ..Sys_Flow
 using Printf
 using JSON3
 using Dates
@@ -728,22 +729,21 @@ function DECK_GenProtocol_DDEF(path, in_data, out_data, vol, conc, method, stoch
         end
 
         current_phase = !isnothing(target_phase) && !isempty(strip(target_phase)) ? strip(target_phase) : "Phase1"
-        m_tgt = match(r"\d+", current_phase)
-        phase_num = !isnothing(m_tgt) ? parse(Int, m_tgt.match) : 1
-
         if (isnothing(target_phase) || isempty(strip(target_phase))) && isfile(path)
             try
                 df_old = FAST_ReadExcel_DDEF(path, C.SHEET_DATA)
                 phase_col = FAST_GetColumn_DDEF(df_old, C.COL_PHASE)
                 if !isempty(df_old) && !isempty(phase_col)
                     phases = filter(!ismissing, unique(df_old[!, Symbol(phase_col)]))
-                    nums   = [let m = match(r"\d+", string(p)); isnothing(m) ? 1 : parse(Int, m.match) end for p in phases]
-                    phase_num     = isempty(nums) ? 1 : maximum(nums) + 1
-                    current_phase = "Phase$phase_num"
+                    if !isempty(phases)
+                        current_phase = FLOW_AdvancePhase_DDEF(string(last(phases)))
+                    end
                 end
             catch
             end
         end
+        p_match = match(r"\d+", current_phase)
+        phase_num = !isnothing(p_match) ? parse(Int, p_match.match) : 1
 
         df_chem = MOLE_ProcessDesign_DDEF(real_matrix, processed_rows, sv, sc)
 

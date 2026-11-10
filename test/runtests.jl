@@ -10,6 +10,7 @@ using Printf
 using LinearAlgebra
 using Statistics
 using Dates
+using Random
 
 using DoECISORY
 using DoECISORY.Sys_Fast
@@ -128,11 +129,11 @@ const TEST_TITLES = String[
     "Visual orchestrator multi-mode render pipelines",
     "Viridis colour scale, hex alpha, and grid maths",
     # Group 6 (76-85)
-    "ASTM affine transformation and boundary clamping",
+    "ASTM affine transformation and boundary alignment",
     "ASTM boundary status and telemetry alert mapping",
     "Leader proximity evaluation and threshold checks",
-    "Adaptive range contraction and clamping via ACTA",
-    "Multi-variable simultaneous ACTA range profiling",
+    "Adaptive range contraction and boundary seeking",
+    "Method traits, direction and state dispatch helpers",
     "Candidate extraction and leader ranking from file",
     "Next phase IPKT configuration build and contract",
     "Phase transition fallback and missing data audit",
@@ -206,105 +207,100 @@ const SUITE_START_TIME = time()
     # ==========================================================================
     Sys_Fast.FAST_ActiveGroup_DDEC[] = "G1"
     Sys_Fast.FAST_InitialiseWorkforce_DDEF()
+    Random.seed!(42)
 
     t_g1 = time()
     @testset "Group 1: Sys_Fast Infrastructure, Resilience & Excel I/O" begin
+        C    = Sys_Fast.FAST_Data_DDEC
+        FACT = Sys_Fast.FAST_CleanTransient_DDEF
+
         # 1: Scientific, decimal, and malformed numeric parsing
-        @track G1 isapprox(Sys_Fast.FAST_SafeNum_DDEF("1.25e-3"), 0.00125; atol=1e-6) &&
-                  Sys_Fast.FAST_SafeNum_DDEF("12,7") == 12.7 &&
-                  Sys_Fast.FAST_SafeNum_DDEF("-0,0035") == -0.0035 &&
-                  Sys_Fast.FAST_SafeNum_DDEF(true) == 1.0 &&
-                  Sys_Fast.FAST_SafeNum_DDEF(false) == 0.0 &&
-                  Sys_Fast.FAST_SafeNum_DDEF(42) == 42.0 &&
-                  Sys_Fast.FAST_SafeNum_DDEF(3.1415) == 3.1415 &&
-                  Sys_Fast.FAST_SafeNum_DDEF(1.5f0) == 1.5 &&
-                  Sys_Fast.FAST_SafeNum_DDEF(Int32(7)) == 7.0 &&
-                  isnan(Sys_Fast.FAST_SafeNum_DDEF(:any_sym)) &&
-                  isnan(Sys_Fast.FAST_SafeNum_DDEF("NaN")) &&
-                  all(isnan, [
-                      Sys_Fast.FAST_SafeNum_DDEF(nothing),
-                      Sys_Fast.FAST_SafeNum_DDEF(missing),
-                      Sys_Fast.FAST_SafeNum_DDEF("  -  "),
-                      Sys_Fast.FAST_SafeNum_DDEF("-"),
-                      Sys_Fast.FAST_SafeNum_DDEF("nan"),
-                      Sys_Fast.FAST_SafeNum_DDEF("abc"),
-                      Sys_Fast.FAST_SafeNum_DDEF(""),
-                      Sys_Fast.FAST_SafeNum_DDEF("   "),
-                      Sys_Fast.FAST_SafeNum_DDEF("1.2.3")
-                  ])
+        let FASN = Sys_Fast.FAST_SafeNum_DDEF
+            @track G1 isapprox(FASN("1.25e-3"), 0.00125; atol=1e-6) &&
+                      FASN("12,7") == 12.7 &&
+                      FASN("-0,0035") == -0.0035 &&
+                      all(FASN(k) == v for (k, v) in ((true, 1.0), (false, 0.0), (42, 42.0), (3.1415, 3.1415), (1.5f0, 1.5), (Int32(7), 7.0))) &&
+                      all(isnan ∘ FASN, (:any_sym, "NaN", nothing, missing, "  -  ", "-", "nan", "abc", "", "   ", "1.2.3")) &&
+                      Sys_Fast.FAST_SafeGet_DDEF(Dict(), [1, 2, 3], "fallback") == "fallback" &&
+                      Sys_Fast.FAST_DetectPhaseMethod_DDEF(Dict("Global" => Dict("Method" => "INVALID")), DataFrame(), "NonExistentPhase") == "BB15" &&
+                      Sys_Fast.FAST_DetectActivePhase_DDEF(DataFrame(PHASE=["P1", "P2"]), ["P1", "P2"]) == "P1"
+        end
 
         # 2: Filename sanitisation and path traversal defence
-        @track G1 Sys_Fast.FAST_SanitiseFilename_DDEF("öğrenci_işleri.xlsx") == "ogrenci_isleri.xlsx" &&
-                  Sys_Fast.FAST_SanitiseFilename_DDEF("test/file!name.csv") == "test_file_name.csv" &&
-                  Sys_Fast.FAST_SanitiseFilename_DDEF("secret/system.xlsx") == "secret_system.xlsx"
+        let FASFN = Sys_Fast.FAST_SanitiseFilename_DDEF
+            @track G1 all(FASFN(k) == v for (k, v) in (
+                ("öğrenci_işleri.xlsx", "ogrenci_isleri.xlsx"),
+                ("test/file!name.csv", "test_file_name.csv"),
+                ("secret/system.xlsx", "secret_system.xlsx")
+            ))
+        end
 
         # 3: Universal DataID and unique hash code extraction
-        @track G1 Sys_Fast.FAST_ExtractDataID_DDEF(Dict("dataid" => "HASH_123")) == "HASH_123" &&
-                  Sys_Fast.FAST_ExtractDataID_DDEF("HASH_456") == "HASH_456" &&
-                  Sys_Fast.FAST_ExtractDataID_DDEF(Dict("DataID" => "HASH_789")) == "HASH_789" &&
-                  Sys_Fast.FAST_ExtractDataID_DDEF(Dict("content" => "HASH_CNT")) == "HASH_CNT" &&
-                  Sys_Fast.FAST_ExtractDataID_DDEF(nothing) == "" &&
-                  Sys_Fast.FAST_ExtractDataID_DDEF("") == "" &&
-                  Sys_Fast.FAST_ExtractDataID_DDEF(Dict()) == "" &&
-                  Sys_Fast.FAST_ExtractDataID_DDEF(999) == "" &&
-                  Sys_Fast.FAST_ExtractDataID_DDEF([1, 2]) == ""
+        let FAEDID = Sys_Fast.FAST_ExtractDataID_DDEF
+            @track G1 all(FAEDID(k) == v for (k, v) in (
+                          (Dict("dataid" => "HASH_123"), "HASH_123"),
+                          ("HASH_456", "HASH_456"),
+                          (Dict("DataID" => "HASH_789"), "HASH_789"),
+                          (Dict("content" => "HASH_CNT"), "HASH_CNT")
+                      )) &&
+                      all(isempty ∘ FAEDID, (nothing, "", Dict(), 999, [1, 2]))
+        end
 
         # 4: Smart protocol filename generation and extraction
-        let name = Sys_Fast.FAST_GenSmartName_DDEF("DoECISORY", "Phase1", "Design"),
-            name_noext = Sys_Fast.FAST_GenSmartName_DDEF("DoECISORY", "Phase1", "Design", ""),
-            name_proj  = Sys_Fast.FAST_GenSmartName_DDEF("CustomProj", "Phase2", "Check"),
-            name_empty = Sys_Fast.FAST_GenSmartName_DDEF("", "Phase1", "Check"),
-            name_lower = Sys_Fast.FAST_GenSmartName_DDEF("doecisory", "Phase1", "Check"),
-            base_ext   = Sys_Fast.FAST_ExtractProjectName_DDEF("arbitrary_file.xlsx"),
-            ext_nil1   = Sys_Fast.FAST_ExtractProjectName_DDEF(""),
-            ext_nil2   = Sys_Fast.FAST_ExtractProjectName_DDEF("."),
+        let FAGSN = Sys_Fast.FAST_GenSmartName_DDEF,
+            FAEPName = Sys_Fast.FAST_ExtractProjectName_DDEF,
+            FAASP = Sys_Fast.FAST_AssembleSvgPlate_DDEF,
+            name = FAGSN("DoECISORY", "Phase1", "Design"),
+            name_noext = FAGSN("DoECISORY", "Phase1", "Design", ""),
+            name_proj  = FAGSN("CustomProj", "Phase2", "Check"),
+            name_empty = FAGSN("", "Phase1", "Check"),
+            name_lower = FAGSN("doecisory", "Phase1", "Check"),
+            base_ext   = FAEPName("arbitrary_file.xlsx"),
+            ext_nil1   = FAEPName(""),
+            ext_nil2   = FAEPName("."),
             svg_dummy  = ["data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="],
             t_dummy    = joinpath(Sys_Fast.FAST_TempRoot_DDEC, "DOECISORY_DUMMY_PLATE.png"),
             _          = write(t_dummy, "dummy_png_bytes"),
-            plate_file = Sys_Fast.FAST_AssembleSvgPlate_DDEF([t_dummy], :Strip1x3),
+            plate_file = FAASP([t_dummy], :Strip1x3),
             _          = Sys_Fast.FAST_CleanTransient_DDEF(t_dummy),
-            plate_raw  = Sys_Fast.FAST_AssembleSvgPlate_DDEF(["pure_base64_sample"], :Strip1x3),
-            plate_6    = Sys_Fast.FAST_AssembleSvgPlate_DDEF(svg_dummy, :Grid2x3),
-            plate_9    = Sys_Fast.FAST_AssembleSvgPlate_DDEF(svg_dummy, :Grid3x3),
-            plate_3    = Sys_Fast.FAST_AssembleSvgPlate_DDEF(svg_dummy, :Strip1x3)
+            plate_raw  = FAASP(["pure_base64_sample"], :Strip1x3),
+            plate_6    = FAASP(svg_dummy, :Grid2x3),
+            plate_9    = FAASP(svg_dummy, :Grid3x3),
+            plate_3    = FAASP(svg_dummy, :Strip1x3)
             @track G1 (startswith(name, "DoECISORY_") || startswith(name, "DDE_")) && occursin("P1_Design_", name) &&
-                      Sys_Fast.FAST_ExtractProjectName_DDEF(name) == "DoECISORY" &&
+                      FAEPName(name) == "DoECISORY" &&
                       !endswith(name_noext, ".xlsx") && occursin("CustomProj", name_proj) && base_ext == "arbitrary_file" &&
                       startswith(name_empty, "DoECISORY_DoECISORY_") && startswith(name_lower, "DoECISORY_DoECISORY_") &&
                       isempty(ext_nil1) && isempty(ext_nil2) &&
                       occursin("width=\"145mm\" height=\"115.200mm\"", plate_6) &&
                       occursin("width=\"145mm\" height=\"172.800mm\"", plate_9) &&
                       occursin("width=\"145mm\" height=\"57.600mm\"", plate_3) &&
-                      occursin("<text x=\"1.988\" y=\"4.528\"", plate_6) &&
-                      occursin("font-family=\"Helvetica, Arial, sans-serif\"", plate_6) &&
-                      occursin("viewBox=\"18 0 450 540\"", plate_6) &&
-                      occursin("width=\"46.333\" height=\"55.600\"", plate_6) &&
+                      all(s -> occursin(s, plate_6), (
+                          "<text x=\"1.988\" y=\"4.528\"",
+                          "font-family=\"Helvetica, Arial, sans-serif\"",
+                          "viewBox=\"18 0 450 540\"",
+                          "width=\"46.333\" height=\"55.600\""
+                      )) &&
                       occursin("ZHVtbXlfcG5nX2J5dGVz", plate_file) && occursin("pure_base64_sample", plate_raw)
         end
 
         # 5: Condition number formatting and GUI colour tokens
-        let c1 = Sys_Fast.FAST_FormatConditionNumber_DDEF(41.25),
-            c2 = Sys_Fast.FAST_FormatConditionNumber_DDEF(Inf),
-            c3 = Sys_Fast.FAST_FormatConditionNumber_DDEF(NaN),
-            c4 = Sys_Fast.FAST_FormatConditionNumber_DDEF(500.0),
-            c5 = Sys_Fast.FAST_FormatConditionNumber_DDEF(5000.0),
-            c6 = Sys_Fast.FAST_FormatConditionNumber_DDEF(50000.0),
-            c7 = Sys_Fast.FAST_FormatConditionNumber_DDEF(missing),
-            c8 = Sys_Fast.FAST_FormatConditionNumber_DDEF(1e15),
-            c9 = Sys_Fast.FAST_FormatConditionNumber_DDEF("invalid_string"),
-            c10 = Sys_Fast.FAST_FormatConditionNumber_DDEF(50.0),
-            c11 = Sys_Fast.FAST_FormatConditionNumber_DDEF(nothing),
-            num_ok = Sys_Fast.FAST_IsNumericInput_DDEF(42) && Sys_Fast.FAST_IsNumericInput_DDEF("12,7") &&
-                     !Sys_Fast.FAST_IsNumericInput_DDEF(nothing) && !Sys_Fast.FAST_IsNumericInput_DDEF(missing) &&
-                     !Sys_Fast.FAST_IsNumericInput_DDEF("abc") && !Sys_Fast.FAST_IsNumericInput_DDEF("") &&
-                     !Sys_Fast.FAST_IsNumericInput_DDEF(NaN) && !Sys_Fast.FAST_IsNumericInput_DDEF(:sym),
-            pop_ok = Sys_Fast.FAST_IsPopulatedInput_DDEF("ok") && Sys_Fast.FAST_IsPopulatedInput_DDEF(100) &&
-                     !Sys_Fast.FAST_IsPopulatedInput_DDEF(nothing) && !Sys_Fast.FAST_IsPopulatedInput_DDEF(missing) &&
-                     !Sys_Fast.FAST_IsPopulatedInput_DDEF("   ") && Sys_Fast.FAST_IsPopulatedInput_DDEF([1, 2]),
-            fmt_fixed = Sys_Fast.FAST_FormatColumn_DDEF(Val(:Fixed), "Buffer"),
-            fmt_fill  = Sys_Fast.FAST_FormatColumn_DDEF(Val(:Filler), "Water"),
-            fmt_act   = Sys_Fast.FAST_FormatColumn_DDEF(Val(:Actual), "Yield"),
-            fmt_gen   = Sys_Fast.FAST_FormatColumn_DDEF(Val(:Custom), "Other"),
+        let FAFCN = Sys_Fast.FAST_FormatConditionNumber_DDEF,
+            FAFC  = Sys_Fast.FAST_FormatColumn_DDEF,
+            FAINI = Sys_Fast.FAST_IsNumericInput_DDEF,
+            FAIPI = Sys_Fast.FAST_IsPopulatedInput_DDEF,
+            (c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11) = map(FAFCN, (41.25, Inf, NaN, 500.0, 5000.0, 50000.0, missing, 1e15, "invalid_string", 50.0, nothing)),
+            num_ok = FAINI(42) && FAINI("12,7") &&
+                     !FAINI(nothing) && !FAINI(missing) &&
+                     !FAINI("abc") && !FAINI("") &&
+                     !FAINI(NaN) && !FAINI(:sym),
+            pop_ok = FAIPI("ok") && FAIPI(100) &&
+                     !FAIPI(nothing) && !FAIPI(missing) &&
+                     !FAIPI("   ") && FAIPI([1, 2]),
+            fmt_fixed = FAFC(Val(:Fixed), "Buffer"),
+            fmt_fill  = FAFC(Val(:Filler), "Water"),
+            fmt_act   = FAFC(Val(:Actual), "Yield"),
+            fmt_gen   = FAFC(Val(:Custom), "Other"),
             cfg_dict  = Sys_Fast.FAST_ReadConfig_DDEF(Dict("A" => 1)),
             cfg_nil   = Sys_Fast.FAST_ReadConfig_DDEF(123),
             w_nil1    = Sys_Fast.FAST_WriteExcel_DDEF(nothing, "Sheet", DataFrame(A=[1])),
@@ -318,31 +314,33 @@ const SUITE_START_TIME = time()
         end
 
         # 6: Configuration cache isolation and update roundtrip
-        let cfg_file = joinpath(Sys_Fast.FAST_TempRoot_DDEC, "DOECISORY_TEMP_CFG_TEST.xlsx"),
+        let FARC = Sys_Fast.FAST_ReadConfig_DDEF,
+            FAUC = Sys_Fast.FAST_UpdateConfig_DDEF,
+            cfg_file = joinpath(Sys_Fast.FAST_TempRoot_DDEC, "DOECISORY_TEMP_CFG_TEST.xlsx"),
             cfg_bad_file = joinpath(Sys_Fast.FAST_TempRoot_DDEC, "DOECISORY_TEMP_CFG_BAD.xlsx")
-            Sys_Fast.FAST_CleanTransient_DDEF(cfg_file)
-            Sys_Fast.FAST_CleanTransient_DDEF(cfg_bad_file)
+            FACT(cfg_file)
+            FACT(cfg_bad_file)
             df_init = DataFrame("PARAMETER" => ["MasterConfig"], "VALUE_JSON" => [JSON3.write(Dict("Phase" => "Phase1", "Volume" => 10.0))])
-            Sys_Fast.FAST_WriteExcel_DDEF(cfg_file, Dict(Sys_Fast.FAST_Data_DDEC.SHEET_CONFIG => df_init))
+            Sys_Fast.FAST_WriteExcel_DDEF(cfg_file, Dict(C.SHEET_CONFIG => df_init))
             df_bad_cfg = DataFrame("PARAMETER" => ["MasterConfig"], "VALUE_JSON" => ["PK_binary_mock_data"])
-            Sys_Fast.FAST_WriteExcel_DDEF(cfg_bad_file, Dict(Sys_Fast.FAST_Data_DDEC.SHEET_CONFIG => df_bad_cfg))
-            cfg_bad = Sys_Fast.FAST_ReadConfig_DDEF(cfg_bad_file)
-            cfg1 = Sys_Fast.FAST_ReadConfig_DDEF(cfg_file)
+            Sys_Fast.FAST_WriteExcel_DDEF(cfg_bad_file, Dict(C.SHEET_CONFIG => df_bad_cfg))
+            cfg_bad = FARC(cfg_bad_file)
+            cfg1 = FARC(cfg_file)
             cfg1["Volume"] = 25.0
-            cfg2 = Sys_Fast.FAST_ReadConfig_DDEF(cfg_file)
-            upd_ok = Sys_Fast.FAST_UpdateConfig_DDEF(cfg_file, Dict("Phase" => "Phase1", "Volume" => 50.0))
-            cfg3 = Sys_Fast.FAST_ReadConfig_DDEF(cfg_file)
+            cfg2 = FARC(cfg_file)
+            upd_ok = FAUC(cfg_file, Dict("Phase" => "Phase1", "Volume" => 50.0))
+            cfg3 = FARC(cfg_file)
             lock(Sys_Fast.FAST_ConfigCacheLock_DDEC) do
                 Sys_Fast.FAST_ConfigCache_DDEC[cfg_file] = (time() - 300.0, cfg3)
             end
-            cfg_expired = Sys_Fast.FAST_ReadConfig_DDEF(cfg_file)
-            cfg_nil = Sys_Fast.FAST_ReadConfig_DDEF("")
-            cfg_none = Sys_Fast.FAST_ReadConfig_DDEF(nothing)
-            upd_nil = Sys_Fast.FAST_UpdateConfig_DDEF("", Dict())
-            upd_none = Sys_Fast.FAST_UpdateConfig_DDEF(nothing, Dict())
+            cfg_expired = FARC(cfg_file)
+            cfg_nil = FARC("")
+            cfg_none = FARC(nothing)
+            upd_nil = FAUC("", Dict())
+            upd_none = FAUC(nothing, Dict())
             df_none = Sys_Fast.FAST_ReadExcel_DDEF(nothing, "DATA")
-            Sys_Fast.FAST_CleanTransient_DDEF(cfg_file)
-            Sys_Fast.FAST_CleanTransient_DDEF(cfg_bad_file)
+            FACT(cfg_file)
+            FACT(cfg_bad_file)
             @track G1 cfg2["Volume"] == 10.0 && upd_ok && cfg3["Volume"] == 50.0 && cfg_expired["Volume"] == 50.0 &&
                       isempty(cfg_nil) && isempty(cfg_none) && !upd_nil && !upd_none && isempty(df_none) && isempty(cfg_bad)
         end
@@ -361,95 +359,102 @@ const SUITE_START_TIME = time()
         end
 
         # 8: DataFrame column rounding and precision retention
-        let df_round = DataFrame("A" => [1.234567, 8.910111], "B" => ["keep", "text"], "C" => [100.1, missing], "D" => [Float32(2.5555), Float32(3.6666)], "E" => [10, 20])
+        let df_round = DataFrame(
+                "A" => [1.234567, 8.910111], "B" => ["keep", "text"],
+                "C" => [100.1, missing], "D" => [Float32(2.5555), Float32(3.6666)], "E" => [10, 20]
+            )
             Sys_Fast.FAST_RoundColumns_DDEF!(df_round)
             @track G1 df_round.A == [1.235, 8.91] && df_round.B == ["keep", "text"] && df_round.C[1] == 100.1 &&
                       isapprox(df_round.D[1], 2.556; atol=1e-3) && df_round.E == [10, 20]
         end
 
         # 9: Multi-sheet Excel workbook write with dirty data
-        let temp_file = joinpath(Sys_Fast.FAST_TempRoot_DDEC, "DOECISORY_TEMP_TEST_IO.xlsx"),
+        let FAWE = Sys_Fast.FAST_WriteExcel_DDEF,
+            temp_file = joinpath(Sys_Fast.FAST_TempRoot_DDEC, "DOECISORY_TEMP_TEST_IO.xlsx"),
             nested_file = joinpath(Sys_Fast.FAST_TempRoot_DDEC, "nested_vault", "DOECISORY_TEMP_NESTED.xlsx")
-            Sys_Fast.FAST_CleanTransient_DDEF(temp_file)
-            Sys_Fast.FAST_CleanTransient_DDEF(nested_file)
+            FACT(temp_file)
+            FACT(nested_file)
             df_real_dirty = DataFrame(
-                Sys_Fast.FAST_Data_DDEC.COL_EXP_ID => ["EXP_P1_01", "EXP_P1_02", "EXP_P1_03"],
-                Sys_Fast.FAST_Data_DDEC.COL_PHASE => ["Phase1", "Phase1", "Phase1"],
+                C.COL_EXP_ID => ["EXP_P1_01", "EXP_P1_02", "EXP_P1_03"],
+                C.COL_PHASE => ["Phase1", "Phase1", "Phase1"],
                 "Temp" => [25.0, 50.0, 75.0],
                 "Yield" => ["", "", ""],
                 "Notes" => ["Initial run", "", "Replicate test"]
             )
             df_cfg = DataFrame("PARAMETER" => ["MasterConfig"], "VALUE_JSON" => ["{\"Variables\": 3}"])
-            Sys_Fast.FAST_WriteExcel_DDEF(temp_file, Dict(Sys_Fast.FAST_Data_DDEC.SHEET_DATA => df_real_dirty, Sys_Fast.FAST_Data_DDEC.SHEET_CONFIG => df_cfg))
-            Sys_Fast.FAST_WriteExcel_DDEF(nested_file, Dict(
-                Sys_Fast.FAST_Data_DDEC.SHEET_CONFIG => DataFrame("PARAMETER" => String[], "VALUE_JSON" => String[]),
+            FAWE(temp_file, Dict(C.SHEET_DATA => df_real_dirty, C.SHEET_CONFIG => df_cfg))
+            FAWE(nested_file, Dict(
+                C.SHEET_CONFIG => DataFrame("PARAMETER" => String[], "VALUE_JSON" => String[]),
                 "EMPTY_SKIPPED" => DataFrame("A" => Int[]),
                 "ZERO_COLS" => DataFrame()
             ))
-            Sys_Fast.FAST_WriteExcel_DDEF(nothing, Dict{String,DataFrame}())
-            Sys_Fast.FAST_WriteExcel_DDEF(temp_file, Dict{String,DataFrame}())
-            Sys_Fast.FAST_WriteExcel_DDEF("", Dict("DATA" => DataFrame("A" => [1])))
-            Sys_Fast.FAST_WriteExcel_DDEF(nothing, "SingleSheet", DataFrame())
-            Sys_Fast.FAST_WriteExcel_DDEF(temp_file, "SINGLE_DISPATCH", DataFrame("Col" => [123]))
+            FAWE(nothing, Dict{String,DataFrame}())
+            FAWE(temp_file, Dict{String,DataFrame}())
+            FAWE("", Dict("DATA" => DataFrame("A" => [1])))
+            FAWE(nothing, "SingleSheet", DataFrame())
+            FAWE(temp_file, "SINGLE_DISPATCH", DataFrame("Col" => [123]))
             is_nest = isfile(nested_file)
-            Sys_Fast.FAST_CleanTransient_DDEF(nested_file)
+            FACT(nested_file)
             @track G1 isfile(temp_file) && filesize(temp_file) > 1000 && is_nest
         end
 
         # 10: Sheet structure and data schema layout validation
-        let temp_file = joinpath(Sys_Fast.FAST_TempRoot_DDEC, "DOECISORY_TEMP_TEST_IO.xlsx"),
-            bad_sheet_file = joinpath(Sys_Fast.FAST_TempRoot_DDEC, "DOECISORY_TEMP_BAD_SHEET.xlsx"),
-            C = Sys_Fast.FAST_Data_DDEC
-            Sys_Fast.FAST_CleanTransient_DDEF(bad_sheet_file)
+        let FARE = Sys_Fast.FAST_ReadExcel_DDEF,
+            FAVSS = Sys_Fast.FAST_ValidateSheetStructure_DDEF,
+            FAAES = Sys_Fast.FAST_ApplyExcelStyle_DDEF,
+            FASJSON = Sys_Fast.FAST_SanitiseJSON_DDEF,
+            FALOG = Sys_Fast.FAST_Log_DDEF,
+            FADPM = Sys_Fast.FAST_DetectPhaseMethod_DDEF,
+            temp_file = joinpath(Sys_Fast.FAST_TempRoot_DDEC, "DOECISORY_TEMP_TEST_IO.xlsx"),
+            bad_sheet_file = joinpath(Sys_Fast.FAST_TempRoot_DDEC, "DOECISORY_TEMP_BAD_SHEET.xlsx")
+            FACT(bad_sheet_file)
             Sys_Fast.FAST_WriteExcel_DDEF(bad_sheet_file, Dict(
                 C.SHEET_DATA => DataFrame("WrongCol1" => [1], "WrongCol2" => [2]),
                 C.PREFIX_LEADERS * "Phase1" => DataFrame("WrongCol3" => [3])
             ))
-            df_bad_data = Sys_Fast.FAST_ReadExcel_DDEF(bad_sheet_file, C.SHEET_DATA)
-            df_bad_lead = Sys_Fast.FAST_ReadExcel_DDEF(bad_sheet_file, C.PREFIX_LEADERS * "Phase1")
-            Sys_Fast.FAST_CleanTransient_DDEF(bad_sheet_file)
+            df_bad_data = FARE(bad_sheet_file, C.SHEET_DATA)
+            df_bad_lead = FARE(bad_sheet_file, C.PREFIX_LEADERS * "Phase1")
+            FACT(bad_sheet_file)
 
-            df_read = Sys_Fast.FAST_ReadExcel_DDEF(temp_file, C.SHEET_DATA)
-            valid_struct = Sys_Fast.FAST_ValidateSheetStructure_DDEF(df_read, C.SHEET_DATA)
-            valid_id = Sys_Fast.FAST_ValidateSheetStructure_DDEF(DataFrame("ID" => [1], "PHASE" => ["P1"]), C.SHEET_DATA)
-            miss_id = Sys_Fast.FAST_ValidateSheetStructure_DDEF(DataFrame("PHASE" => ["P1"]), C.SHEET_DATA)
-            miss_ph = Sys_Fast.FAST_ValidateSheetStructure_DDEF(DataFrame("EXP_ID" => [1]), C.SHEET_DATA)
-            invalid_struct = Sys_Fast.FAST_ValidateSheetStructure_DDEF(DataFrame("A" => [1], "B" => [2]), "BadSheet")
-            empty_struct = Sys_Fast.FAST_ValidateSheetStructure_DDEF(DataFrame(), C.SHEET_DATA)
-            df_missing_sheet = Sys_Fast.FAST_ReadExcel_DDEF(temp_file, "NonExistentSheet")
-            df_bad_ext = Sys_Fast.FAST_ReadExcel_DDEF(normpath(joinpath(@__DIR__, "..", "Project.toml")), C.SHEET_DATA)
-            df_not_exist = Sys_Fast.FAST_ReadExcel_DDEF("not_exist.xlsx", C.SHEET_DATA)
-            _ = Sys_Fast.FAST_ApplyExcelStyle_DDEF(temp_file)
-            _ = Sys_Fast.FAST_ApplyExcelStyle_DDEF("not_a_file.xlsx")
-            _ = Sys_Fast.FAST_ApplyExcelStyle_DDEF("")
-            _ = Sys_Fast.FAST_ApplyExcelStyle_DDEF("Sheet", DataFrame("A" => [1]))
-            _ = Sys_Fast.FAST_ApplyExcelStyle_DDEF(temp_file, Dict("DATA" => df_read))
-            _ = Sys_Fast.FAST_ApplyExcelStyle_DDEF(temp_file, [C.SHEET_DATA => DataFrame("VALUE_JSON" => ["{\"Variables\": 3}"])])
-            _ = Sys_Fast.FAST_ApplyExcelStyle_DDEF(temp_file, ["EMPTY" => DataFrame()])
-            js_nil = Sys_Fast.FAST_SanitiseJSON_DDEF(nothing)
-            js_mis = Sys_Fast.FAST_SanitiseJSON_DDEF(missing)
-            js_nan = Sys_Fast.FAST_SanitiseJSON_DDEF(NaN)
-            js_flt = Sys_Fast.FAST_SanitiseJSON_DDEF(3.14)
-            js_df  = Sys_Fast.FAST_SanitiseJSON_DDEF(DataFrame("A" => [1.0, NaN]))
-            js_dic = Sys_Fast.FAST_SanitiseJSON_DDEF(Dict("A" => NaN, "B" => 2.0))
-            js_mat = Sys_Fast.FAST_SanitiseJSON_DDEF(ones(2, 2))
-            js_vec = Sys_Fast.FAST_SanitiseJSON_DDEF([1.0, NaN, missing])
-            js_tup = Sys_Fast.FAST_SanitiseJSON_DDEF((1, 2))
-            js_pair = Sys_Fast.FAST_SanitiseJSON_DDEF("k" => 42)
-            js_str = Sys_Fast.FAST_SanitiseJSON_DDEF("raw_text")
+            df_read = FARE(temp_file, C.SHEET_DATA)
+            valid_struct = FAVSS(df_read, C.SHEET_DATA)
+            valid_id = FAVSS(DataFrame("ID" => [1], "PHASE" => ["P1"]), C.SHEET_DATA)
+            miss_id = FAVSS(DataFrame("PHASE" => ["P1"]), C.SHEET_DATA)
+            miss_ph = FAVSS(DataFrame("EXP_ID" => [1]), C.SHEET_DATA)
+            invalid_struct = FAVSS(DataFrame("A" => [1], "B" => [2]), "BadSheet")
+            empty_struct = FAVSS(DataFrame(), C.SHEET_DATA)
+            df_missing_sheet = FARE(temp_file, "NonExistentSheet")
+            df_bad_ext = FARE(normpath(joinpath(@__DIR__, "..", "Project.toml")), C.SHEET_DATA)
+            df_not_exist = FARE("not_exist.xlsx", C.SHEET_DATA)
+            bad_zip_xlsx = joinpath(Sys_Fast.FAST_TempRoot_DDEC, "DOECISORY_TEMP_CORRUPT.xlsx")
+            write(bad_zip_xlsx, "plain text corrupted excel file")
+            df_corrupt = FARE(bad_zip_xlsx, C.SHEET_DATA)
+            FACT(bad_zip_xlsx)
+            _ = FAAES(temp_file)
+            _ = FAAES("not_a_file.xlsx")
+            _ = FAAES("")
+            _ = FAAES("Sheet", DataFrame("A" => [1]))
+            _ = FAAES(temp_file, Dict("DATA" => df_read))
+            _ = FAAES(temp_file, [C.SHEET_DATA => DataFrame("VALUE_JSON" => ["{\"Variables\": 3}"])])
+            _ = FAAES(temp_file, ["EMPTY" => DataFrame()])
+            js_nil = FASJSON(nothing)
+            js_mis = FASJSON(missing)
+            js_nan = FASJSON(NaN)
+            js_flt = FASJSON(3.14)
+            js_df  = FASJSON(DataFrame("A" => [1.0, NaN]))
+            js_dic = FASJSON(Dict("A" => NaN, "B" => 2.0))
+            js_mat = FASJSON(ones(2, 2))
+            js_vec = FASJSON([1.0, NaN, missing])
+            js_tup = FASJSON((1, 2))
+            js_pair = FASJSON("k" => 42)
+            js_str = FASJSON("raw_text")
 
             Sys_Fast.FAST_ActiveGroup_DDEC[] = ""
-            Sys_Fast.FAST_Log_DDEF("SYS", "NO_GRP", "No Group Prefix", "INFO")
+            FALOG("SYS", "NO_GRP", "No Group Prefix", "INFO")
             Sys_Fast.FAST_ActiveGroup_DDEC[] = "G1"
-            Sys_Fast.FAST_Log_DDEF(Val(:OK), "SYS", "OK_EVENT", "DETAIL")
-            Sys_Fast.FAST_Log_DDEF(Val(:WARN), "SYS", "WARN_EVENT", "DETAIL")
-            Sys_Fast.FAST_Log_DDEF(Val(:INFO), "SYS", "INFO_EVENT", "DETAIL")
-            Sys_Fast.FAST_Log_DDEF(Val(:FAIL), "SYS", "FAIL_EVENT", "DETAIL")
-            Sys_Fast.FAST_Log_DDEF(Val(:LIST), "SYS", "LIST_EVENT", "DETAIL")
-            Sys_Fast.FAST_Log_DDEF(Val(:WAIT), "SYS", "WAIT_EVENT", "DETAIL")
-            Sys_Fast.FAST_Log_DDEF(Val(:UNKNOWN_VAL), "SYS", "UNKNOWN_EVENT", "DETAIL")
-            Sys_Fast.FAST_Log_DDEF("SYS", "INFO_STR", nothing, "INFO")
-            Sys_Fast.FAST_Log_DDEF("SYS", "WARN_STR", "DETAIL", "WARN")
+            foreach(s -> FALOG(Val(s), "SYS", "$(s)_EVENT", "DETAIL"), (:OK, :WARN, :INFO, :FAIL, :LIST, :WAIT))
+            FALOG("SYS", "INFO_STR", nothing, "INFO")
+            FALOG("SYS", "WARN_STR", "DETAIL", "WARN")
             wrap_str = Sys_Fast.FAST_WrapDetail_DDEF("Line 1\nLine 2", 45)
 
             safe_num = Sys_Fast.FAST_SafeNum_DDEF(missing)
@@ -461,28 +466,29 @@ const SUITE_START_TIME = time()
                 "PHASE" => vcat(fill("Phase1", 15), fill("Phase2", 9)),
                 "RESULT_Yield" => vcat(fill(85.0, 15), fill(missing, 9))
             )
-            meth_p1    = Sys_Fast.FAST_DetectPhaseMethod_DDEF(cfg_mock, df_phase_mock, "Phase1")
-            meth_p1_sp = Sys_Fast.FAST_DetectPhaseMethod_DDEF(cfg_mock, df_phase_mock, "Phase 1")
-            meth_p2    = Sys_Fast.FAST_DetectPhaseMethod_DDEF(cfg_mock, df_phase_mock, "Phase2")
+            meth_p1    = FADPM(cfg_mock, df_phase_mock, "Phase1")
+            meth_p1_sp = FADPM(cfg_mock, df_phase_mock, "Phase 1")
+            meth_p2    = FADPM(cfg_mock, df_phase_mock, "Phase2")
             act_p      = Sys_Fast.FAST_DetectActivePhase_DDEF(df_phase_mock, ["Phase1", "Phase2"])
             (opts_tl, val_tl) = Sys_Fast.FAST_ResolveModelOptions_DDEF("TL09", "Quadratic")
             (opts_bb, val_bb) = Sys_Fast.FAST_ResolveModelOptions_DDEF("BB15", "quadratic")
 
             @track G1 nrow(df_read) == 3 && valid_struct == true && valid_id == true && !miss_id && !miss_ph && invalid_struct == false && !empty_struct &&
-                      isempty(df_bad_data) && isempty(df_bad_lead) &&
+                      isempty(df_bad_data) && isempty(df_bad_lead) && isempty(df_corrupt) &&
                       isempty(df_missing_sheet) && isempty(df_bad_ext) && isempty(df_not_exist) && isnan(safe_num) && safe_val == 42.0 &&
                       !isempty(wrap_str) &&
                       meth_p1 == "BB15" && meth_p1_sp == "BB15" && meth_p2 == "TL09" && act_p == "Phase1" &&
                       length(opts_tl) == 1 && val_tl == "Linear" && length(opts_bb) == 3 && val_bb == "Quadratic" &&
                       isnothing(js_nil) && isnothing(js_mis) && isnothing(js_nan) && js_flt == 3.14 &&
                       length(js_df) == 2 && length(js_mat) == 2 && js_str == "raw_text" && length(js_vec) == 3 &&
-                      length(js_tup) == 2 && length(js_pair) == 2
+                      length(js_tup) == 2 && length(js_pair) == 2 && js_dic isa AbstractDict && js_dic["B"] == 2.0 && isnothing(js_dic["A"])
         end
 
         # 11: DataFrame column name normalisation and formatting
-        let df_norm_empty = Sys_Fast.FAST_SanitiseColumnNames_DDEF!(DataFrame()),
-            df_norm_case  = Sys_Fast.FAST_SanitiseColumnNames_DDEF!(DataFrame(" exp_id " => [1], "pHAse" => ["P1"]); force_upper=true),
-            df_norm_std   = Sys_Fast.FAST_SanitiseColumnNames_DDEF!(DataFrame(" exp id " => [1]))
+        let FASCN! = Sys_Fast.FAST_SanitiseColumnNames_DDEF!,
+            df_norm_empty = FASCN!(DataFrame()),
+            df_norm_case  = FASCN!(DataFrame(" exp_id " => [1], "pHAse" => ["P1"]); force_upper=true),
+            df_norm_std   = FASCN!(DataFrame(" exp id " => [1]))
             @track G1 isempty(df_norm_empty) && names(df_norm_case) == ["EXP_ID", "PHASE"] && names(df_norm_std) == ["exp_id"]
         end
 
@@ -496,218 +502,204 @@ const SUITE_START_TIME = time()
         end
 
         # 13: Transient workforce file deletion and data cleanup
-        let temp_file = joinpath(Sys_Fast.FAST_TempRoot_DDEC, "DOECISORY_TEMP_TEST_IO.xlsx"),
-            (dl_ok, dl_bytes) = Sys_Fast.FAST_PrepareDownload_DDEF(temp_file),
-            (dl_nil_ok, _)    = Sys_Fast.FAST_PrepareDownload_DDEF(nothing),
-            (dl_empty_ok, _)  = Sys_Fast.FAST_PrepareDownload_DDEF(""),
-            (dl_miss_ok, _)   = Sys_Fast.FAST_PrepareDownload_DDEF("not_exist_dl.xlsx"),
-            store_handle      = Sys_Fast.FAST_ReadToStore_DDEF(temp_file),
-            nil_handle        = Sys_Fast.FAST_ReadToStore_DDEF(nothing),
-            empty_handle      = Sys_Fast.FAST_ReadToStore_DDEF(""),
-            dir_handle        = Sys_Fast.FAST_ReadToStore_DDEF(Sys_Fast.FAST_TempRoot_DDEC),
+        let FAPDown = Sys_Fast.FAST_PrepareDownload_DDEF,
+            FARTS = Sys_Fast.FAST_ReadToStore_DDEF,
+            temp_file = joinpath(Sys_Fast.FAST_TempRoot_DDEC, "DOECISORY_TEMP_TEST_IO.xlsx"),
+            (dl_ok, dl_bytes) = FAPDown(temp_file),
+            (dl_nil_ok, _)    = FAPDown(nothing),
+            (dl_empty_ok, _)  = FAPDown(""),
+            (dl_miss_ok, _)   = FAPDown("not_exist_dl.xlsx"),
+            store_handle      = FARTS(temp_file),
+            nil_handle        = FARTS(nothing),
+            empty_handle      = FARTS(""),
+            dir_handle        = FARTS(Sys_Fast.FAST_TempRoot_DDEC),
             _ = Sys_Fast.FAST_ResetConfigCache_DDEF(),
-            _ = Sys_Fast.FAST_CleanTransient_DDEF(nothing),
-            _ = Sys_Fast.FAST_CleanTransient_DDEF(""),
-            _ = Sys_Fast.FAST_CleanTransient_DDEF(normpath(joinpath(@__DIR__, "..", "Project.toml")))
-            Sys_Fast.FAST_CleanTransient_DDEF(temp_file)
+            _ = FACT(nothing),
+            _ = FACT(""),
+            _ = FACT(normpath(joinpath(@__DIR__, "..", "Project.toml")))
+            FACT(temp_file)
             @track G1 !isfile(temp_file) && dl_ok && !isempty(dl_bytes) && !dl_nil_ok && !dl_empty_ok && !dl_miss_ok &&
                       !isempty(store_handle) && isempty(nil_handle) && isempty(empty_handle) && isempty(dir_handle)
         end
 
         # 14: Transient workspace file path isolation routines
-        let t_path = Sys_Fast.FAST_GetTransientPath_DDEF(),
-            t_path_nil = Sys_Fast.FAST_GetTransientPath_DDEF(nothing),
-            t_path_dict = Sys_Fast.FAST_GetTransientPath_DDEF(Dict("dataid" => "x")),
-            t_path_b64 = Sys_Fast.FAST_GetTransientPath_DDEF("data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,UEsDBBQAAAA="),
+        let FAGTP = Sys_Fast.FAST_GetTransientPath_DDEF,
+            FAIM  = Sys_Fast.FAST_InitialiseMaster_DDEF,
+            t_path = FAGTP(),
+            t_path_nil = FAGTP(nothing),
+            t_path_dict = FAGTP(Dict("dataid" => "x")),
+            t_path_b64 = FAGTP("data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,UEsDBBQAAAA="),
             _ = Sys_Fast.FAST_WriteVault_DDEF("vault_key_15", UInt8[0x50, 0x4b, 0x03, 0x04, 0x00, 0x00]),
-            t_path_vault = Sys_Fast.FAST_GetTransientPath_DDEF("vault_key_15"),
+            t_path_vault = FAGTP("vault_key_15"),
             raw_b64_pk = Base64.base64encode(vcat(UInt8[0x50, 0x4b, 0x03, 0x04], fill(UInt8(42), 120))),
-            t_path_raw_pk = Sys_Fast.FAST_GetTransientPath_DDEF(raw_b64_pk),
+            t_path_raw_pk = FAGTP(raw_b64_pk),
             raw_b64_bad = Base64.base64encode(fill(UInt8(42), 120)),
-            t_path_raw_bad = Sys_Fast.FAST_GetTransientPath_DDEF(raw_b64_bad),
+            t_path_raw_bad = FAGTP(raw_b64_bad),
             raw_b64_err = repeat("!@#\$%^&*()", 15),
-            t_path_raw_err = Sys_Fast.FAST_GetTransientPath_DDEF(raw_b64_err),
+            t_path_raw_err = FAGTP(raw_b64_err),
             res = startswith(abspath(t_path), abspath(Sys_Fast.FAST_TempRoot_DDEC)) && endswith(t_path, ".xlsx"),
             t_master = joinpath(Sys_Fast.FAST_TempRoot_DDEC, "DOECISORY_TEMP_MASTER_INIT.xlsx"),
-            C = Sys_Fast.FAST_Data_DDEC,
             df_init_des = DataFrame(
-                C.COL_EXP_ID => ["EXP_01"],
-                C.COL_PHASE => ["Phase1"],
-                C.COL_STATUS => ["Pending"],
-                C.COL_NOTES => ["Initial run"],
-                C.PRE_MASS * "Comp1" => [10.0],
-                C.PRE_VAR * "Temp" => [50.0],
-                C.PRE_FIXED * "Temp" => [25.0],
-                C.PRE_FILL * "Temp" => [1.0],
-                C.PRE_RESULT * "Yield" => [85.0],
-                C.PRE_PRED * "Yield" => [84.2],
-                "TIME_FORW_MINS_Temp" => [15.0],
-                "TIME_DCYP_MINS_Step" => [30.0],
-                "TIME_REVE_MINS_Step" => [45.0],
-                "ACTUAL_Temp" => [48.2]
+                C.COL_EXP_ID => ["EXP_01"], C.COL_PHASE => ["Phase1"], C.COL_STATUS => ["Pending"], C.COL_NOTES => ["Initial run"],
+                C.PRE_MASS * "Comp1" => [10.0], C.PRE_VAR * "Temp" => [50.0], C.PRE_FIXED * "Temp" => [25.0],
+                C.PRE_FILL * "Temp" => [1.0], C.PRE_RESULT * "Yield" => [85.0], C.PRE_PRED * "Yield" => [84.2],
+                "TIME_FORW_MINS_Temp" => [15.0], "TIME_DCYP_MINS_Step" => [30.0], "TIME_REVE_MINS_Step" => [45.0], "ACTUAL_Temp" => [48.2]
             ),
-            ok_m1 = Sys_Fast.FAST_InitialiseMaster_DDEF(t_master, ["Temp"], ["Yield", "Purity"], df_init_des, Dict{String,Any}("Phase" => "Phase1")),
-            ok_m2 = Sys_Fast.FAST_InitialiseMaster_DDEF(t_master, ["Temp"], ["Yield"], df_init_des, Dict{String,Any}("Phase" => "Phase1")),
-            ok_m3 = Sys_Fast.FAST_InitialiseMaster_DDEF(t_master, ["Temp"], ["Yield"], nothing, Dict{String,Any}("Phase" => "Phase1")),
-            ok_nil = Sys_Fast.FAST_InitialiseMaster_DDEF(nothing, ["Temp"], ["Yield"]),
+            ok_m1 = FAIM(t_master, ["Temp"], ["Yield", "Purity"], df_init_des, Dict{String,Any}("Phase" => "Phase1")),
+            ok_m2 = FAIM(t_master, ["Temp"], ["Yield"], df_init_des, Dict{String,Any}("Phase" => "Phase1")),
+            ok_m3 = FAIM(t_master, ["Temp"], ["Yield"], nothing, Dict{String,Any}("Phase" => "Phase1")),
+            ok_nil = FAIM(nothing, ["Temp"], ["Yield"]),
+            ok_dir_err = FAIM(Sys_Fast.FAST_TempRoot_DDEC, ["Temp"], ["Yield"], df_init_des, Dict{String,Any}()),
+            corrupt_memo = joinpath(Sys_Fast.FAST_TempRoot_DDEC, "DOECISORY_TEMP_CORRUPT.json"),
+            _ = write(corrupt_memo, "{invalid_json"),
+            bad_memo_data = Sys_Fast.FAST_ReadMemoFile_DDEF(corrupt_memo),
+            _ = FACT(corrupt_memo),
+            lk_acq1 = Sys_Fast.FAST_AcquireLock_DDEF("TEST_REJECT_LOCK", "First"),
+            lk_acq2 = Sys_Fast.FAST_AcquireLock_DDEF("TEST_REJECT_LOCK", "Second"),
+            _ = Sys_Fast.FAST_ReleaseLock_DDEF("TEST_REJECT_LOCK"),
             cfg_hit1 = Sys_Fast.FAST_ReadConfig_DDEF(t_master),
             cfg_hit2 = Sys_Fast.FAST_ReadConfig_DDEF(t_master),
             v_exist = isfile(t_path_vault),
             pk_exist = isfile(t_path_raw_pk),
             b64_exist = isfile(t_path_b64)
-            Sys_Fast.FAST_CleanTransient_DDEF(t_master)
-            Sys_Fast.FAST_CleanTransient_DDEF(t_path)
-            Sys_Fast.FAST_CleanTransient_DDEF(t_path_nil)
-            Sys_Fast.FAST_CleanTransient_DDEF(t_path_dict)
-            Sys_Fast.FAST_CleanTransient_DDEF(t_path_b64)
-            Sys_Fast.FAST_CleanTransient_DDEF(t_path_vault)
-            Sys_Fast.FAST_CleanTransient_DDEF(t_path_raw_pk)
-            Sys_Fast.FAST_CleanTransient_DDEF(t_path_raw_bad)
-            Sys_Fast.FAST_CleanTransient_DDEF(t_path_raw_err)
+            foreach(FACT, (t_master, t_path, t_path_nil, t_path_dict, t_path_b64, t_path_vault, t_path_raw_pk, t_path_raw_bad, t_path_raw_err))
             @track G1 res && b64_exist && v_exist && pk_exist &&
                       !isfile(t_path_b64) && !isfile(t_path_vault) && !isfile(t_path_raw_pk) &&
-                      ok_m1 && ok_m2 && ok_m3 && !ok_nil &&
+                      ok_m1 && ok_m2 && ok_m3 && !ok_nil && !ok_dir_err &&
+                      isempty(bad_memo_data) && lk_acq1 && !lk_acq2 &&
                       haskey(cfg_hit1, "Phase") && haskey(cfg_hit2, "Phase")
         end
 
         # 15: Transient workforce workspace directory lifecycle
-        let dummy = joinpath(Sys_Fast.FAST_TempRoot_DDEC, "DOECISORY_TEMP_CLEANUP_CHECK.xlsx"),
+        let FAFD = Sys_Fast.FAST_FormatDuration_DDEF,
+            FASH = Sys_Fast.FAST_SanitiseHeader_DDEF,
+            FAGC = Sys_Fast.FAST_GetColumn_DDEF,
+            FAVDF = Sys_Fast.FAST_ValidateDataFrame_DDEF,
+            FARCache = Sys_Fast.FAST_ReadCache_DDEF,
+            FARV = Sys_Fast.FAST_ReadVault_DDEF,
+            FAAL = Sys_Fast.FAST_AcquireLock_DDEF,
+            FARL = Sys_Fast.FAST_ReleaseLock_DDEF,
+            FAEDir = Sys_Fast.FAST_ExtractDirections_DDEF,
+            FADDir = Sys_Fast.FAST_DecodeDirections_DDEF,
+            FAEPNum = Sys_Fast.FAST_ExtractPhaseNumber_DDEF,
+            FARHM = Sys_Fast.FAST_ResolveHistoryMap_DDEF,
+            FASG = Sys_Fast.FAST_SafeGet_DDEF,
+            FAPDir = Sys_Fast.FAST_ParseDirection_DDEF,
+            dummy = joinpath(Sys_Fast.FAST_TempRoot_DDEC, "DOECISORY_TEMP_CLEANUP_CHECK.xlsx"),
             _ = Sys_Fast.FAST_WriteExcel_DDEF(dummy, Dict("SHEET" => DataFrame("X" => [1]))),
             _ = Sys_Fast.FAST_CleanWorkforce_DDEF(true),
             th_info = Sys_Fast.FAST_GetThreadInfo_DDEF(),
             comp_th = Sys_Fast.FAST_GetComputeThreads_DDEF(),
-            dur_1   = Sys_Fast.FAST_FormatDuration_DDEF(0.0005),
-            dur_2   = Sys_Fast.FAST_FormatDuration_DDEF(0.5),
-            dur_3   = Sys_Fast.FAST_FormatDuration_DDEF(15.0),
-            dur_4   = Sys_Fast.FAST_FormatDuration_DDEF(125.4),
+            durs_ok = map(FAFD, (0.0005, 0.5, 15.0, 125.4)) == ("<1ms", "500ms", "15.00s", "2.1min"),
             quote_str = Sys_Fast.FAST_GetSystemQuote_DDEF(),
-            hdr_clean = Sys_Fast.FAST_SanitiseHeader_DDEF("  VARIA_Temp_C  "),
-            hdr_plain = Sys_Fast.FAST_SanitiseHeader_DDEF("SampleHeader"),
-            hdr_disp  = Sys_Fast.FAST_FormatDisplayHeader_DDEF("VARIA_Temp_C"),
-            hdr_fix   = Sys_Fast.FAST_SanitiseHeader_DDEF("FIXED_Flow"),
-            hdr_fill  = Sys_Fast.FAST_SanitiseHeader_DDEF("FILL_Solvent"),
-            hdr_chro  = Sys_Fast.FAST_SanitiseHeader_DDEF("CHRO_Peak"),
-            hdr_act   = Sys_Fast.FAST_SanitiseHeader_DDEF("ACTUAL_Temp"),
-            hdr_rev   = Sys_Fast.FAST_SanitiseHeader_DDEF("TIME_REVE_MINS_Step"),
-            hdr_dcy   = Sys_Fast.FAST_SanitiseHeader_DDEF("TIME_DCYP_MINS_Step"),
+            hdrs_ok = all(FASH(k) == v for (k, v) in (
+                ("  VARIA_Temp_C  ", "Temp_C"), ("SampleHeader", "SampleHeader"),
+                ("FIXED_Flow", "Flow"), ("FILL_Solvent", "Solvent"), ("CHRO_Peak", "Peak"),
+                ("ACTUAL_Temp", "Temp"), ("TIME_REVE_MINS_Step", "Step"), ("TIME_DCYP_MINS_Step", "Step")
+            )) && Sys_Fast.FAST_FormatDisplayHeader_DDEF("VARIA_Temp_C") == "Temp C",
             sort_cols = Sys_Fast.FAST_SortColumns_DDEF([
                 "EXP_ID", "PHASE", "STATUS", "NOTES", "RUN_ORDER",
                 "MASS_A", "VARIA_B", "FIXED_C", "FILL_D", "RESULT_E", "PRED_F",
                 "SCORE", "ACTUAL_G", "TIME_FORW_MINS_H", "CUSTOM_I"
             ]),
             sort_empty = Sys_Fast.FAST_SortColumns_DDEF(String[]),
-            safe_prop  = Sys_Fast.FAST_SafeGet_DDEF((named_field = "custom_val",), "named_field"),
-            v_missing  = Sys_Fast.FAST_ReadVault_DDEF("non_existent_vault_key"),
+            safe_prop  = FASG((named_field = "custom_val",), "named_field"),
+            v_missing  = FARV("non_existent_vault_key"),
             df_probe  = DataFrame("EXP_ID" => [1], "PHASE" => ["P1"]),
-            col_found = Sys_Fast.FAST_GetColumn_DDEF(df_probe, "EXP_ID"),
-            col_empty1 = Sys_Fast.FAST_GetColumn_DDEF(DataFrame(), "EXP_ID"),
-            col_empty2 = Sys_Fast.FAST_GetColumn_DDEF(df_probe, ""),
-            col_suf    = Sys_Fast.FAST_GetColumn_DDEF(DataFrame("Temp_mg" => [1.0]), "Temp"),
-            col_pfx    = Sys_Fast.FAST_GetColumn_DDEF(DataFrame("Yield (%)" => [1.0]), "Yield"),
-            col_par    = Sys_Fast.FAST_GetColumn_DDEF(DataFrame("Yield(g)" => [1.0]), "Yield"),
-            (df_val_ok, _) = Sys_Fast.FAST_ValidateDataFrame_DDEF(df_probe, ["EXP_ID"]),
-            (df_empty_ok, _) = Sys_Fast.FAST_ValidateDataFrame_DDEF(DataFrame()),
-            (df_miss_ok, _)  = Sys_Fast.FAST_ValidateDataFrame_DDEF(df_probe, ["MissingCol"]),
-            (df_allnan_ok, _) = Sys_Fast.FAST_ValidateDataFrame_DDEF(DataFrame("X" => [NaN, NaN])),
-            (df_50nan_ok, _)  = Sys_Fast.FAST_ValidateDataFrame_DDEF(DataFrame("X" => [1.0, NaN, NaN])),
+            col_found = FAGC(df_probe, "EXP_ID"),
+            col_empty1 = FAGC(DataFrame(), "EXP_ID"),
+            col_empty2 = FAGC(df_probe, ""),
+            col_suf    = FAGC(DataFrame("Temp_mg" => [1.0]), "Temp"),
+            col_pfx    = FAGC(DataFrame("Yield (%)" => [1.0]), "Yield"),
+            col_par    = FAGC(DataFrame("Yield(g)" => [1.0]), "Yield"),
+            (df_val_ok, _) = FAVDF(df_probe, ["EXP_ID"]),
+            (df_empty_ok, _) = FAVDF(DataFrame()),
+            (df_miss_ok, _)  = FAVDF(df_probe, ["MissingCol"]),
+            (df_allnan_ok, _) = FAVDF(DataFrame("X" => [NaN, NaN])),
+            (df_50nan_ok, _)  = FAVDF(DataFrame("X" => [1.0, NaN, NaN])),
             _ = Sys_Fast.FAST_WriteCache_DDEF("mem_key", DataFrame("K" => [100])),
-            cached_df = Sys_Fast.FAST_ReadCache_DDEF("mem_key"),
-            _ = Sys_Fast.FAST_ReadCache_DDEF(nothing),
+            cached_df = FARCache("mem_key"),
+            _ = FARCache(nothing),
             _ = Sys_Fast.FAST_WriteCache_DDEF(nothing, DataFrame("A" => [1])),
-            _ = Sys_Fast.FAST_ReadCache_DDEF("unregistered_cache_key"),
+            _ = FARCache("unregistered_cache_key"),
             _ = Sys_Fast.FAST_ResetCache_DDEF(),
             _ = Sys_Fast.FAST_WriteVault_DDEF("v_key", UInt8[65, 66, 67]),
-            vault_bytes = Sys_Fast.FAST_ReadVault_DDEF("v_key"),
-            vault_nil   = Sys_Fast.FAST_ReadVault_DDEF(nothing),
-            lock_ok = Sys_Fast.FAST_AcquireLock_DDEF("test_lock"),
-            lock_nil = Sys_Fast.FAST_AcquireLock_DDEF(nothing),
-            _ = Sys_Fast.FAST_ReleaseLock_DDEF("test_lock"),
+            vault_bytes = FARV("v_key"),
+            vault_nil   = FARV(nothing),
+            lock_ok = FAAL("test_lock"),
+            lock_nil = FAAL(nothing),
+            _ = FARL("test_lock"),
             _ = Sys_Fast.FAST_ForceReleaseAll_DDEF(),
-            dirs_ext = Sys_Fast.FAST_ExtractDirections_DDEF(Dict("Directions" => Dict("Phase1" => [1, -1, 0])), ["X1", "X2", "X3"], "Phase1"),
-            dirs_dec = Sys_Fast.FAST_DecodeDirections_DDEF(Dict("Directions" => Dict("Phase1" => [1, -1, 0])), ["X1", "X2", "X3"]),
-            dirs_dec_vec = Sys_Fast.FAST_DecodeDirections_DDEF([1, -1, 1], ["X1", "X2", "X3"]),
-            dirs_dec_short = Sys_Fast.FAST_DecodeDirections_DDEF([1, -1], ["X1", "X2", "X3"]),
-            dirs_dec_dict = Sys_Fast.FAST_DecodeDirections_DDEF(Dict("x1" => 1, "x2" => -1), ["X1", "X2", "X3"]),
-            dirs_ext_real = Sys_Fast.FAST_ExtractDirections_DDEF(Dict("Phase" => "Phase1", "Direction" => [1, -1, 1]), [Dict("Name" => "X1", "Role" => "Variable"), Dict("Name" => "X2", "Role" => "Variable"), Dict("Name" => "X3", "Role" => "Variable")]),
-            dirs_ext_hist = Sys_Fast.FAST_ExtractDirections_DDEF(Dict("PhaseHistory" => Dict("Phase1" => Dict("DirectionMap" => Dict("x1" => 1, "x2" => -1)))), [Dict("Name" => "X1", "Role" => "Variable"), Dict("Name" => "X2", "Role" => "Variable")]),
-            ph_num   = Sys_Fast.FAST_ExtractPhaseNumber_DDEF("Phase2"),
-            ph_p3    = Sys_Fast.FAST_ExtractPhaseNumber_DDEF("P3"),
-            ph_none  = Sys_Fast.FAST_ExtractPhaseNumber_DDEF("NoDigits"),
-            src_hist = Sys_Fast.FAST_SelectSource_DDEF(Dict("a"=>1), 10),
-            src_glob = Sys_Fast.FAST_SelectSource_DDEF(nothing, 10),
-            map_ext  = Sys_Fast.FAST_ExtractMap_DDEF(Dict("a"=>1)),
-            map_empty = Sys_Fast.FAST_ExtractMap_DDEF(Dict()),
-            hist_act = Sys_Fast.FAST_ResolveHistoryMap_DDEF(Dict("P1" => Dict("DirectionMap" => Dict("x" => 1))), "P1"),
-            hist_sort = Sys_Fast.FAST_ResolveHistoryMap_DDEF(Dict("Phase1" => Dict("DirectionMap" => Dict("x" => 1)), "Phase2" => Dict("DirectionMap" => Dict("x" => 2)))),
-            hist_none = Sys_Fast.FAST_ResolveHistoryMap_DDEF(Dict("P1" => Dict())),
-            dirs_fb  = Sys_Fast.FAST_ExtractDirections_DDEF(Dict("PhaseHistory" => Dict("P1" => Dict("DirectionMap" => Dict("X" => 1)))), [Dict("Name" => "Y", "Role" => "Variable")]),
+            dirs_ext = FAEDir(Dict("Directions" => Dict("Phase1" => [1, -1, 0])), ["X1", "X2", "X3"], "Phase1"),
+            dirs_dec = FADDir(Dict("Directions" => Dict("Phase1" => [1, -1, 0])), ["X1", "X2", "X3"]),
+            dirs_dec_vec = FADDir([1, -1, 1], ["X1", "X2", "X3"]),
+            dirs_dec_short = FADDir([1, -1], ["X1", "X2", "X3"]),
+            dirs_dec_dict = FADDir(Dict("x1" => 1, "x2" => -1), ["X1", "X2", "X3"]),
+            dirs_ext_real = FAEDir(Dict("Phase" => "Phase1", "Direction" => [1, -1, 1]), [Dict("Name" => "X$i", "Role" => "Variable") for i in 1:3]),
+            dirs_ext_hist = FAEDir(Dict("PhaseHistory" => Dict("Phase1" => Dict("DirectionMap" => Dict("x1" => 1, "x2" => -1)))), [Dict("Name" => "X$i", "Role" => "Variable") for i in 1:2]),
+            (ph_num, ph_p3, ph_none) = map(FAEPNum, ("Phase2", "P3", "NoDigits")),
+            hist_act = FARHM(Dict("P1" => Dict("DirectionMap" => Dict("x" => 1))), "P1"),
+            hist_sort = FARHM(Dict("Phase1" => Dict("DirectionMap" => Dict("x" => 1)), "Phase2" => Dict("DirectionMap" => Dict("x" => 2)))),
+            hist_none = FARHM(Dict("P1" => Dict())),
+            dirs_fb  = FAEDir(Dict("PhaseHistory" => Dict("P1" => Dict("DirectionMap" => Dict("X" => 1)))), [Dict("Name" => "Y", "Role" => "Variable")]),
             lab_def  = Sys_Fast.FAST_GetLabDefaults_DDEF(),
             cfg_nil  = Sys_Fast.FAST_ReadConfig_DDEF(nothing),
             upd_nil  = Sys_Fast.FAST_UpdateConfig_DDEF(nothing, Dict()),
             memo_real = Sys_Fast.FAST_ReadMemoFile_DDEF(normpath(joinpath(@__DIR__, "..", "assets", "Sample.json"))),
             memo_nil = Sys_Fast.FAST_ReadMemoFile_DDEF("missing_memo.json"),
-            safe_sym = Sys_Fast.FAST_SafeGet_DDEF(Dict("key" => 123), :key),
-            safe_err = Sys_Fast.FAST_SafeGet_DDEF(Dict(), [1, 2], "fallback"),
-            safe_nil = Sys_Fast.FAST_SafeGet_DDEF(nothing, "k", 999),
-            dir_nil  = Sys_Fast.FAST_DecodeDirections_DDEF(nothing, []),
-            map_nil  = Sys_Fast.FAST_GetDirectionMap_DDEF(nothing),
-            ext_nil  = Sys_Fast.FAST_ExtractMap_DDEF(nothing),
-            hist_nil = Sys_Fast.FAST_ResolveHistoryMap_DDEF(nothing),
-            edir_nil = Sys_Fast.FAST_ExtractDirections_DDEF(nothing, nothing),
-            dir_str_dec = Sys_Fast.FAST_DecodeDirections_DDEF(Dict("x1" => "Max", "x2" => "Min", "x3" => "Target"), ["X1", "X2", "X3"]),
+            safe_sym = FASG(Dict("key" => 123), :key),
+            safe_err = FASG(Dict(), [1, 2], "fallback"),
+            safe_nil = FASG(nothing, "k", 999),
+            dir_nil  = FADDir(nothing, []),
+            hist_nil = FARHM(nothing),
+            edir_nil = FAEDir(nothing, nothing),
+            dir_str_dec = FADDir(Dict("x1" => "Max", "x2" => "Min", "x3" => "Target"), ["X1", "X2", "X3"]),
             col_fmt_m   = Sys_Fast.FAST_FormatColumn_DDEF(Val(:Mass), "Comp"),
             col_fmt_v   = Sys_Fast.FAST_FormatColumn_DDEF(Val(:Variable), "Temp"),
-            safe_nt_sym = Sys_Fast.FAST_SafeGet_DDEF((item = "value",), :item),
-            safe_nt_str = Sys_Fast.FAST_SafeGet_DDEF((item = "value",), "item"),
-            safe_obj    = Sys_Fast.FAST_SafeGet_DDEF(1//2, :den, 0) == 2,
-            safe_obj_nil = Sys_Fast.FAST_SafeGet_DDEF(1//2, :non_existent_prop, 42) == 42,
-            coerce_1    = Sys_Fast.FAST_ParseDirection_DDEF(1.4) == 1,
-            coerce_nan  = Sys_Fast.FAST_ParseDirection_DDEF(NaN) == -1,
-            coerce_nil  = Sys_Fast.FAST_ParseDirection_DDEF(nothing) == -1,
-            coerce_s1   = Sys_Fast.FAST_ParseDirection_DDEF("+1") == 1,
-            coerce_s0   = Sys_Fast.FAST_ParseDirection_DDEF("0") == 0,
-            coerce_sm1  = Sys_Fast.FAST_ParseDirection_DDEF("-1") == -1,
-            coerce_inv  = Sys_Fast.FAST_ParseDirection_DDEF("invalid") == -1,
+            safe_nt_sym = FASG((item = "value",), :item),
+            safe_nt_str = FASG((item = "value",), "item"),
+            safe_obj    = FASG(1//2, :den, 0) == 2,
+            safe_obj_nil = FASG(1//2, :non_existent_prop, 42) == 42,
+            coerce_ok = (FAPDir(1.4) == 1 && FAPDir(NaN) == -1 && FAPDir(nothing) == -1 &&
+                         FAPDir("+1") == 1 && FAPDir("0") == 0 && FAPDir("-1") == -1 && FAPDir("invalid") == -1),
             lock_sweep = try
-                Sys_Fast.FAST_AcquireLock_DDEF("test_suite_op_lock")
-                Sys_Fast.FAST_ReleaseLock_DDEF("test_suite_op_lock")
-                Sys_Fast.FAST_ReleaseLock_DDEF("test_suite_op_lock")
-                Sys_Fast.FAST_ReleaseLock_DDEF(nothing)
-                Sys_Fast.FAST_ReleaseLock_DDEF("")
-                Sys_Fast.FAST_ReleaseLock_DDEF("unregistered_op_lock")
-                Sys_Fast.FAST_AcquireLock_DDEF("reentrant_op_lock")
-                Sys_Fast.FAST_AcquireLock_DDEF("reentrant_op_lock")
-                Sys_Fast.FAST_ReleaseLock_DDEF("reentrant_op_lock")
-                Sys_Fast.FAST_ReleaseLock_DDEF("reentrant_op_lock")
-                Sys_Fast.FAST_AcquireLock_DDEF("timeout_lock")
+                FAAL("test_suite_op_lock")
+                FARL("test_suite_op_lock")
+                FARL("test_suite_op_lock")
+                FARL(nothing)
+                FARL("")
+                FARL("unregistered_op_lock")
+                FAAL("reentrant_op_lock")
+                FAAL("reentrant_op_lock")
+                FARL("reentrant_op_lock")
+                FARL("reentrant_op_lock")
+                FAAL("timeout_lock")
                 lock(Sys_Fast.FAST_LockGuard_DDEC) do
                     Sys_Fast.FAST_OperationLockTimes_DDEC["timeout_lock"] = time() - 15.0
                 end
-                Sys_Fast.FAST_AcquireLock_DDEF("timeout_lock")
-                Sys_Fast.FAST_ReleaseLock_DDEF("timeout_lock")
+                FAAL("timeout_lock")
+                FARL("timeout_lock")
                 Sys_Fast.FAST_ForceReleaseAll_DDEF()
                 true
             catch
                 false
             end
-            @track G1 !isfile(dummy) && th_info[1] >= 1 && comp_th >= 1 && dur_1 == "<1ms" &&
-                      dur_2 == "500ms" && dur_3 == "15.00s" && dur_4 == "2.1min" &&
-                      !isempty(quote_str) && hdr_clean == "Temp_C" && hdr_plain == "SampleHeader" && hdr_disp == "Temp C" &&
-                      hdr_fix == "Flow" && hdr_fill == "Solvent" && hdr_chro == "Peak" && hdr_act == "Temp" &&
-                      hdr_rev == "Step" && hdr_dcy == "Step" && length(sort_cols) == 15 && sort_cols[1] == "EXP_ID" &&
+            @track G1 !isfile(dummy) && th_info[1] >= 1 && comp_th >= 1 && durs_ok &&
+                      !isempty(quote_str) && hdrs_ok && length(sort_cols) == 15 && sort_cols[1] == "EXP_ID" &&
                       isempty(sort_empty) && safe_prop == "custom_val" && isnothing(v_missing) &&
                       col_found == "EXP_ID" && isempty(col_empty1) && isempty(col_empty2) &&
                       col_suf == "Temp_mg" && col_pfx == "Yield (%)" && col_par == "Yield(g)" &&
                       df_val_ok && !df_empty_ok && !df_miss_ok && !df_allnan_ok && !df_50nan_ok && cached_df !== nothing &&
-                      vault_bytes == UInt8[65, 66, 67] && isnothing(vault_nil) && lock_ok && !lock_nil && ph_num == 2 && ph_p3 == 3 && ph_none == 0 &&
+                      vault_bytes == UInt8[65, 66, 67] && isnothing(vault_nil) && lock_ok && !lock_nil && (ph_num, ph_p3, ph_none) == (2, 3, 0) &&
+                      dirs_ext == (1, -1, 0) && dirs_dec == (1, -1, 0) &&
                       dirs_dec_vec == (1, -1, 1) && dirs_dec_short == (-1, -1, -1) && dirs_dec_dict[1] == 1 && dirs_ext_real == (1, -1, 1) &&
-                      dirs_ext_hist[1] == 1 && src_hist isa AbstractDict && src_glob == 10 && map_ext isa AbstractDict &&
-                      isnothing(map_empty) && hist_act isa AbstractDict && hist_sort isa AbstractDict && isnothing(hist_none) && dirs_fb == (-1, -1, -1) &&
-                      !isempty(lab_def) && isempty(cfg_nil) && !upd_nil && !isempty(memo_real) && isempty(memo_nil) && safe_sym == 123 && safe_err == "fallback" && safe_nil == 999 &&
+                      dirs_ext_hist[1] == 1 && hist_act isa AbstractDict && hist_sort isa AbstractDict && isnothing(hist_none) && dirs_fb == (-1, -1, -1) &&
+                      !isempty(lab_def) && isempty(cfg_nil) && !upd_nil && !isempty(memo_real) && isempty(memo_nil) &&
+                      safe_sym == 123 && safe_err == "fallback" && safe_nil == 999 &&
                       safe_nt_sym == "value" && safe_nt_str == "value" && safe_obj && safe_obj_nil &&
-                      coerce_1 && coerce_nan && coerce_nil && coerce_s1 && coerce_s0 && coerce_sm1 && coerce_inv &&
+                      coerce_ok &&
                       dir_str_dec == (1, -1, 0) && col_fmt_m == "MASS_Comp_mg" && col_fmt_v == "VARIA_Temp" &&
-                      dir_nil == (-1, -1, -1) && isnothing(map_nil) && isnothing(ext_nil) && isnothing(hist_nil) && edir_nil == (-1, -1, -1) &&
+                      dir_nil == (-1, -1, -1) && isnothing(hist_nil) && edir_nil == (-1, -1, -1) &&
                       lock_sweep
         end
     end
@@ -719,41 +711,38 @@ const SUITE_START_TIME = time()
     Sys_Fast.FAST_ActiveGroup_DDEC[] = "G2"
     t_g2 = time()
     @testset "Group 2: Lib_Core Optimal Matrices, D-A-G-I & Desirability" begin
+        factors_3var = [
+            Dict("Name" => "X$i", "Role" => "Variable", "L1" => 10.0*i, "L2" => 20.0*i, "L3" => 30.0*i)
+            for i in 1:3
+        ]
+        goals_default = [Dict("Type" => "Maximise", "Min" => 0.0, "Max" => 100.0, "Weight" => 1.0)]
+        X_bb15 = Float64.(Lib_Core.CORE_DesignBB15_DDEC)
+        bounds_cube3 = [-1.0 1.0; -1.0 1.0; -1.0 1.0]
         # 16: Experimental design matrix generation and checks
-        let bb = Lib_Core.CORE_GenDesign_DDEF("BB15"),
-            cd = Lib_Core.CORE_GenDesign_DDEF("CD17"),
-            tl = Lib_Core.CORE_GenDesign_DDEF("TL09"),
-            df = Lib_Core.CORE_GenDesign_DDEF("DF14", 3, [1, -1, 1]),
-            t_bb = Lib_Core.CORE_GetMethodType_DDEF("BB15"),
-            t_cd = Lib_Core.CORE_GetMethodType_DDEF("CD17"),
-            t_tl = Lib_Core.CORE_GetMethodType_DDEF("TL09"),
-            t_df = Lib_Core.CORE_GetMethodType_DDEF("DF14"),
-            m_tl = Lib_Core.CORE_BuildMatrix_DDEF(t_tl, 3),
-            m_cd = Lib_Core.CORE_BuildMatrix_DDEF(t_cd, 3),
-            m_bb = Lib_Core.CORE_BuildMatrix_DDEF(t_bb, 3),
-            m_df = Lib_Core.CORE_BuildMatrix_DDEF(t_df, 3, [1, 1, 1]),
-            err_thrown = false,
-            err_factor = false
-            try
-                Lib_Core.CORE_GenDesign_DDEF("UNKNOWN_TYPE")
-            catch e
-                err_thrown = (e isa ArgumentError)
-            end
-            try
-                Lib_Core.CORE_GenDesign_DDEF("BB15", 4)
-            catch e
-                err_factor = (e isa ArgumentError) && occursin("FactorCount", e.msg)
-            end
-            err_fc_tl = try Lib_Core.CORE_BuildMatrix_DDEF("TL09", 4); false catch e; (e isa ArgumentError) end
-            err_fc_bb = try Lib_Core.CORE_BuildMatrix_DDEF("BB15", 2); false catch e; (e isa ArgumentError) end
-            err_fc_cd = try Lib_Core.CORE_BuildMatrix_DDEF("CD17", 4); false catch e; (e isa ArgumentError) end
-            err_fc_df = try Lib_Core.CORE_BuildMatrix_DDEF("DF14", 2); false catch e; (e isa ArgumentError) end
+        let CGD = Lib_Core.CORE_GenDesign_DDEF,
+            CGMT = Lib_Core.CORE_GetMethodType_DDEF,
+            CBM = Lib_Core.CORE_BuildMatrix_DDEF,
+            bb = CGD("BB15"),
+            cd = CGD("CD17"),
+            tl = CGD("TL09"),
+            df = CGD("DF14", 3, [1, -1, 1]),
+            t_bb = CGMT("BB15"),
+            t_cd = CGMT("CD17"),
+            t_tl = CGMT("TL09"),
+            t_df = CGMT("DF14"),
+            m_tl = CBM(t_tl, 3),
+            m_cd = CBM(t_cd, 3),
+            m_bb = CBM(t_bb, 3),
+            m_df = CBM(t_df, 3, [1, 1, 1]),
+            err_thrown = try CGD("UNKNOWN_TYPE"); false catch e; (e isa ArgumentError) end,
+            err_factor = try CGD("BB15", 4); false catch e; (e isa ArgumentError) && occursin("FactorCount", e.msg) end,
+            err_fc = all(m -> try CBM(m[1], m[2]); false catch e; (e isa ArgumentError) end, (("TL09", 4), ("BB15", 2), ("CD17", 4), ("DF14", 2)))
             @track G2 size(Lib_Core.CORE_DesignBB15_DDEC) == (15, 3) &&
                       count(r -> all(==(0), r), eachrow(Lib_Core.CORE_DesignBB15_DDEC)) == 3 &&
                       size(Lib_Core.CORE_DesignCD17_DDEC) == (17, 3) &&
                       size(bb) == (15, 3) && size(cd) == (17, 3) && size(tl) == (9, 3) && size(df) == (14, 3) &&
                       size(m_tl) == (9, 3) && size(m_cd) == (17, 3) && size(m_bb) == (15, 3) && size(m_df) == (14, 3) &&
-                      err_thrown && err_factor && err_fc_tl && err_fc_bb && err_fc_cd && err_fc_df
+                      err_thrown && err_factor && err_fc
         end
 
         # 17: Directional D-optimal DF14 matrix structure check
@@ -765,34 +754,41 @@ const SUITE_START_TIME = time()
         end
 
         # 18: Physical parameter level mapping from coded space
-        let coded = [-1.0 0.0 1.0; 1.0 -1.0 0.0],
+        let CML = Lib_Core.CORE_MapLevels_DDEF,
+            CCM = Lib_Core.CORE_CodeMatrix_DDEF,
+            coded = [-1.0 0.0 1.0; 1.0 -1.0 0.0],
             config = [
                 Dict("Levels" => [10.0, 20.0, 30.0]),
                 Dict("Levels" => [5.0, 10.0, 15.0]),
                 Dict("Levels" => [100.0, 200.0, 300.0])
             ],
-            mapped = Lib_Core.CORE_MapLevels_DDEF(coded, config),
-            coded_b = Lib_Core.CORE_CodeMatrix_DDEF(coded, [-1.0 1.0; 0.0 50.0; -5.0 5.0]),
-            coded_flat = Lib_Core.CORE_CodeMatrix_DDEF(ones(4, 3)),
-            err_cfg_short = try Lib_Core.CORE_MapLevels_DDEF(coded, config[1:2]); false catch e; (e isa ArgumentError) end,
+            mapped = CML(coded, config),
+            coded_b = CCM(coded, [-1.0 1.0; 0.0 50.0; -5.0 5.0]),
+            coded_flat = CCM(ones(4, 3)),
+            err_cfg_short = try CML(coded, config[1:2]); false catch e; (e isa ArgumentError) end,
             config_short_lvl = [Dict("Levels" => [10.0]), Dict("Levels" => [5.0, 10.0, 15.0]), Dict("Levels" => [100.0, 200.0, 300.0])],
-            mapped_short = Lib_Core.CORE_MapLevels_DDEF(coded, config_short_lvl),
-            coded_b_zero = Lib_Core.CORE_CodeMatrix_DDEF(ones(3, 3), [1.0 1.0; 0.0 50.0; -5.0 5.0])
+            mapped_short = CML(coded, config_short_lvl),
+            coded_b_zero = CCM(ones(3, 3), [1.0 1.0; 0.0 50.0; -5.0 5.0]),
+            bounds_inv = [10.0 30.0; 5.0 15.0; 100.0 300.0],
+            coded_roundtrip = CCM(mapped, bounds_inv),
+            is_roundtrip_ok = isapprox(coded_roundtrip, coded; atol=1e-12)
             @track G2 mapped[1, :] == [10.0, 10.0, 300.0] && mapped[2, :] == [30.0, 5.0, 200.0] &&
                       size(coded_b) == (2, 3) && size(coded_flat) == (4, 3) &&
-                      err_cfg_short && size(mapped_short) == (2, 3) && size(coded_b_zero) == (3, 3)
+                      err_cfg_short && size(mapped_short) == (2, 3) && size(coded_b_zero) == (3, 3) &&
+                      is_roundtrip_ok
         end
 
         # 19: Model matrix expansion for Linear-Quadratic forms
-        let X = Float64.(Lib_Core.CORE_DesignBB15_DDEC),
-            X_lin = Lib_Core.CORE_ExpandModelMatrix_DDEF(X, Lib_Core.CORE_ModelLinear_DDES()),
-            X_qua = Lib_Core.CORE_ExpandModelMatrix_DDEF(X, Lib_Core.CORE_ModelQuadratic_DDES()),
-            X_lin_str = Lib_Core.CORE_ExpandModelMatrix_DDEF(X, "linear"),
-            X_qua_str = Lib_Core.CORE_ExpandModelMatrix_DDEF(X, "quadratic"),
+        let CEMM = Lib_Core.CORE_ExpandModelMatrix_DDEF,
+            X = X_bb15,
+            X_lin = CEMM(X, Lib_Core.CORE_ModelLinear_DDES()),
+            X_qua = CEMM(X, Lib_Core.CORE_ModelQuadratic_DDES()),
+            X_lin_str = CEMM(X, "linear"),
+            X_qua_str = CEMM(X, "quadratic"),
             m_lin_t = Lib_Core.CORE_GetModelType_DDEF("linear"),
             m_qua_t = Lib_Core.CORE_GetModelType_DDEF("quadratic"),
             err_c3 = try
-                Lib_Core.CORE_ExpandModelMatrix_DDEF(ones(5, 2), "linear")
+                CEMM(ones(5, 2), "linear")
                 false
             catch e
                 e isa ArgumentError
@@ -804,27 +800,29 @@ const SUITE_START_TIME = time()
         end
 
         # 20: Algorithmic D, A, G, and I optimality profiling
-        let d_qua = Lib_Core.CORE_CalcDEfficiency_DDEF(Float64.(Lib_Core.CORE_DesignBB15_DDEC)),
-            d_lin = Lib_Core.CORE_CalcDEfficiency_DDEF(Float64.(Lib_Core.CORE_DesignBB15_DDEC), "linear"),
-            d_short = Lib_Core.CORE_CalcDEfficiency_DDEF(Float64.(Lib_Core.CORE_DesignBB15_DDEC)[1:3, :], "quadratic"),
-            d_zero = Lib_Core.CORE_CalcDEfficiency_DDEF(ones(15, 3), "quadratic"),
-            m = Lib_Core.CORE_CalcDesignMetrics_DDEF(Float64.(Lib_Core.CORE_DesignBB15_DDEC)),
-            m_lin = Lib_Core.CORE_CalcDesignMetrics_DDEF(Float64.(Lib_Core.CORE_DesignBB15_DDEC), "linear"),
-            m_bad_dim = Lib_Core.CORE_CalcDesignMetrics_DDEF(ones(10, 2)),
-            m_few_rows = Lib_Core.CORE_CalcDesignMetrics_DDEF(ones(2, 3)),
-            d_nan = Lib_Core.CORE_CalcDEfficiency_DDEF(fill(NaN, 10, 3), "linear"),
-            d_empty = Lib_Core.CORE_CalcDEfficiency_DDEF(zeros(0, 0), "linear"),
-            m_nan = Lib_Core.CORE_CalcDesignMetrics_DDEF(fill(NaN, 10, 3)),
-            X_bb = Float64.(Lib_Core.CORE_DesignBB15_DDEC),
-            X_exp = Lib_Core.CORE_ExpandModelMatrix_DDEF(Lib_Core.CORE_CodeMatrix_DDEF(X_bb), Lib_Core.CORE_ModelQuadratic_DDES()),
+        let CCDE = Lib_Core.CORE_CalcDEfficiency_DDEF,
+            CCDM = Lib_Core.CORE_CalcDesignMetrics_DDEF,
+            CCC = Lib_Core.CORE_CalcCriterion_DDEF,
+            d_qua = CCDE(X_bb15),
+            d_lin = CCDE(X_bb15, "linear"),
+            d_short = CCDE(X_bb15[1:3, :], "quadratic"),
+            d_zero = CCDE(ones(15, 3), "quadratic"),
+            m = CCDM(X_bb15),
+            m_lin = CCDM(X_bb15, "linear"),
+            m_bad_dim = CCDM(ones(10, 2)),
+            m_few_rows = CCDM(ones(2, 3)),
+            d_nan = CCDE(fill(NaN, 10, 3), "linear"),
+            d_empty = CCDE(zeros(0, 0), "linear"),
+            m_nan = CCDM(fill(NaN, 10, 3)),
+            X_exp = Lib_Core.CORE_ExpandModelMatrix_DDEF(Lib_Core.CORE_CodeMatrix_DDEF(X_bb15), Lib_Core.CORE_ModelQuadratic_DDES()),
             XtX = Matrix{Float64}(X_exp' * X_exp),
             inv_XtX = Matrix{Float64}(pinv(XtX)),
             lev = Vector{Float64}(diag(X_exp * inv_XtX * X_exp')),
-            crit_d = Lib_Core.CORE_CalcCriterion_DDEF("D", XtX, 10, 15),
-            crit_a = Lib_Core.CORE_CalcCriterion_DDEF("A", inv_XtX, 10, 15),
-            crit_g = Lib_Core.CORE_CalcCriterion_DDEF("G", lev, 10, 15),
-            crit_i = Lib_Core.CORE_CalcCriterion_DDEF("I", lev, 10, 15),
-            crit_err = try Lib_Core.CORE_CalcCriterion_DDEF("UNKNOWN", XtX, 10, 15); false catch e; e isa ArgumentError end
+            crit_d = CCC("D", XtX, 10, 15),
+            crit_a = CCC("A", inv_XtX, 10, 15),
+            crit_g = CCC("G", lev, 10, 15),
+            crit_i = CCC("I", lev, 10, 15),
+            crit_err = try CCC("UNKNOWN", XtX, 10, 15); false catch e; e isa ArgumentError end
             @track G2 d_qua > 0.35 && d_lin > 0.35 && d_short == 0.0 && d_zero == 0.0 &&
                       m["D"] > 0.30 && m["A"] > 0.0 && m["G"] > 0.0 && m["I"] > 0.0 && m["Condition"] < 100.0 &&
                       m_lin["D"] > 0.30 && m_bad_dim["D"] == 0.0 && m_few_rows["D"] == 0.0 &&
@@ -833,107 +831,98 @@ const SUITE_START_TIME = time()
         end
 
         # 21: Design matrix singularity, anomaly, and duplicates
-        let m_sing = Lib_Core.CORE_CalcDesignMetrics_DDEF(ones(15, 3)),
-            (val_ok, val_warns) = Lib_Core.CORE_ValidateDesign_DDEF(ones(10, 3)),
+        let CVD = Lib_Core.CORE_ValidateDesign_DDEF,
+            m_sing = Lib_Core.CORE_CalcDesignMetrics_DDEF(ones(15, 3)),
+            (val_ok, val_warns) = CVD(ones(10, 3)),
             X_dup = [0.0 0.0 0.0; 0.0 0.0 0.0; 0.0 0.0 0.0; 0.0 0.0 0.0; 0.0 0.0 0.0; 1.0 2.0 3.0],
-            (ok, msg) = Lib_Core.CORE_ValidateDesign_DDEF(X_dup),
-            (ok_clean, _) = Lib_Core.CORE_ValidateDesign_DDEF(Float64.(Lib_Core.CORE_DesignBB15_DDEC))
+            (ok, msg) = CVD(X_dup),
+            (ok_clean, _) = CVD(X_bb15)
             @track G2 m_sing["D"] == 0.0 && (isinf(m_sing["Condition"]) || m_sing["Condition"] > 1e10) &&
                       val_ok == false && occursin("zero variance", val_warns) &&
                       ok == false && occursin("duplicate rows", msg) && ok_clean == true
         end
 
         # 22: Desirability formulation, goals, and boundaries
-        let g1 = Lib_Core.CORE_ExtractGoal_DDEF(Dict("Type" => "Maximise", "Min" => 10.0, "Max" => 50.0)),
-            g2 = Lib_Core.CORE_ExtractGoal_DDEF(Dict("Type" => "InvalidType", "Min" => 5.0, "Max" => 10.0)),
-            g3 = Lib_Core.CORE_ExtractGoal_DDEF(Dict("Type" => "Minimise", "Min" => 0.0, "Max" => 20.0)),
-            g4 = Lib_Core.CORE_ExtractGoal_DDEF(Dict("Type" => "Target", "Target" => 15.0, "Min" => 10.0, "Max" => 20.0)),
-            g5 = Lib_Core.CORE_ExtractGoal_DDEF(Dict("Type" => "None")),
-            g_max = Lib_Core.CORE_ExtractGoal_DDEF(Dict("Type" => "Maximise", "Min" => 10.0, "Max" => 50.0, "Target" => 40.0, "Weight" => 1.0)),
-            g_min = Lib_Core.CORE_ExtractGoal_DDEF(Dict("Type" => "Minimise", "Min" => 0.0, "Max" => 20.0, "Target" => 5.0, "Weight" => 1.0)),
-            g_nom = Lib_Core.CORE_ExtractGoal_DDEF(Dict("Type" => "Nominal", "Min" => 10.0, "Max" => 30.0, "Target" => 20.0, "Weight" => 1.0)),
-            g_tgt = Lib_Core.CORE_ExtractGoal_DDEF(Dict("Type" => "Target", "Min" => 10.0, "Max" => 30.0, "Target" => 20.0, "Weight" => 1.0)),
-            g_non = Lib_Core.CORE_ExtractGoal_DDEF(Dict("Type" => "None")),
-            d_max = Lib_Core.CORE_CalcDesirability_DDEF(25.0, g_max),
-            d_min = Lib_Core.CORE_CalcDesirability_DDEF(2.0, g_min),
-            d_nom = Lib_Core.CORE_CalcDesirability_DDEF(20.0, g_nom),
-            d_tgt = Lib_Core.CORE_CalcDesirability_DDEF(20.0, g_tgt),
-            d_non = Lib_Core.CORE_CalcDesirability_DDEF(0.0, g_non),
-            d_nom_lo = Lib_Core.CORE_CalcDesirability_DDEF(5.0, g_nom),
-            d_nom_hi = Lib_Core.CORE_CalcDesirability_DDEF(35.0, g_nom),
-            d_nom_lft = Lib_Core.CORE_CalcDesirability_DDEF(15.0, g_nom),
-            d_nom_rgt = Lib_Core.CORE_CalcDesirability_DDEF(25.0, g_nom),
-            d_max_lo = Lib_Core.CORE_CalcDesirability_DDEF(5.0, g_max),
-            d_min_hi = Lib_Core.CORE_CalcDesirability_DDEF(25.0, g_min),
-            g_tup_id = Lib_Core.CORE_ExtractGoal_DDEF((Lib_Core.CORE_GoalNominal_DDES(), 0.0, 10.0, 5.0, 1.0)),
-            w_05  = Lib_Core.CORE_GetNeighbourWeights_DDEF(0.5),
-            w_10  = Lib_Core.CORE_GetNeighbourWeights_DDEF(1.0),
-            w_20  = Lib_Core.CORE_GetNeighbourWeights_DDEF(2.0)
+        let CEG = Lib_Core.CORE_ExtractGoal_DDEF,
+            CCD = Lib_Core.CORE_CalcDesirability_DDEF,
+            CGNom = Lib_Core.CORE_GoalNominal_DDES,
+            g1 = CEG(Dict("Type" => "Maximise", "Min" => 10.0, "Max" => 50.0)),
+            g3 = CEG(Dict("Type" => "Minimise", "Min" => 0.0, "Max" => 20.0)),
+            g_max = CEG(Dict("Type" => "Maximise", "Min" => 10.0, "Max" => 50.0, "Target" => 40.0, "Weight" => 1.0)),
+            g_min = CEG(Dict("Type" => "Minimise", "Min" => 0.0, "Max" => 20.0, "Target" => 5.0, "Weight" => 1.0)),
+            g_nom = CEG(Dict("Type" => "Nominal", "Min" => 10.0, "Max" => 30.0, "Target" => 20.0, "Weight" => 1.0)),
+            g_tgt = CEG(Dict("Type" => "Target", "Min" => 10.0, "Max" => 30.0, "Target" => 20.0, "Weight" => 1.0)),
+            g_non = CEG(Dict("Type" => "None")),
+            nom_goals_ok = all(CEG(d)[1] isa CGNom for d in (
+                Dict("Type" => "InvalidType", "Min" => 5.0, "Max" => 10.0),
+                Dict("Type" => "Target", "Target" => 15.0, "Min" => 10.0, "Max" => 20.0),
+                Dict("Type" => "None")
+            )),
+            ones_ok = all(==(1.0), (CCD(2.0, g_min), CCD(20.0, g_nom), CCD(20.0, g_tgt), CCD(0.0, g_non))),
+            zeros_ok = all(==(0.0), (CCD(5.0, g_nom), CCD(35.0, g_nom), CCD(5.0, g_max), CCD(25.0, g_min))),
+            pos_ok = all(>(0.0), (CCD(15.0, g_nom), CCD(25.0, g_nom))),
+            mono_d = [CCD(y, g_max) for y in range(5.0, 55.0, length=20)],
+            is_monotonic = all(diff(mono_d) .>= -1e-12) && all(0.0 .<= mono_d .<= 1.0)
             @track G2 g1[1] isa Lib_Core.CORE_GoalMaximise_DDES && g1[3] == 50.0 &&
-                      g2[1] isa Lib_Core.CORE_GoalNominal_DDES &&
-                      g3[1] isa Lib_Core.CORE_GoalMinimise_DDES &&
-                      g4[1] isa Lib_Core.CORE_GoalNominal_DDES &&
-                      g5[1] isa Lib_Core.CORE_GoalNominal_DDES &&
-                      isapprox(d_max, 0.5; atol=1e-3) && d_min == 1.0 && d_nom == 1.0 && d_tgt == 1.0 && d_non == 1.0 &&
-                      d_nom_lo == 0.0 && d_nom_hi == 0.0 && d_nom_lft > 0.0 && d_nom_rgt > 0.0 &&
-                      d_max_lo == 0.0 && d_min_hi == 0.0 && g_tup_id[2] == 0.0 &&
-                      length(w_05) == 3 && length(w_10) == 3 && length(w_20) == 3
+                      nom_goals_ok && g3[1] isa Lib_Core.CORE_GoalMinimise_DDES &&
+                      isapprox(CCD(25.0, g_max), 0.5; atol=1e-3) && ones_ok && zeros_ok && pos_ok &&
+                      CEG((CGNom(), 0.0, 10.0, 5.0, 1.0))[2] == 0.0 &&
+                      all(w -> length(Lib_Core.CORE_GetNeighbourWeights_DDEF(w)) == 3, (0.5, 1.0, 2.0)) &&
+                      is_monotonic
         end
 
         # 23: Desirability weighting curvature and sensitivity
-        let g_w1 = Lib_Core.CORE_ExtractGoal_DDEF(Dict("Type" => "Maximise", "Min" => 0.0, "Max" => 10.0, "Target" => 10.0, "Weight" => 1.0)),
-            g_w2 = Lib_Core.CORE_ExtractGoal_DDEF(Dict("Type" => "Maximise", "Min" => 0.0, "Max" => 10.0, "Target" => 10.0, "Weight" => 2.0)),
-            d1 = Lib_Core.CORE_CalcDesirability_DDEF(5.0, g_w1),
-            d2 = Lib_Core.CORE_CalcDesirability_DDEF(5.0, g_w2),
-            X_opt = Float64.(Lib_Core.CORE_DesignBB15_DDEC),
-            Y_yield = [20.0 + 10.0*r[1] for r in eachrow(X_opt)],
-            Y_imp   = [2.0 + 10.0*r[1] for r in eachrow(X_opt)],
-            m_y = Lib_Vise.VISE_Regress_DDEF(X_opt, Y_yield, "linear"),
-            m_i = Lib_Vise.VISE_Regress_DDEF(X_opt, Y_imp, "linear"),
-            bounds = [-1.0 1.0; -1.0 1.0; -1.0 1.0],
-            g_y_hi = Dict{String,Any}("Type" => "Maximise", "Min" => 10.0, "Max" => 30.0, "Target" => 30.0, "Weight" => 10.0, "WeightVal" => 10.0),
-            g_i_lo = Dict{String,Any}("Type" => "Minimise", "Min" => 0.0, "Max" => 15.0, "Target" => 0.0, "Weight" => 1.0, "WeightVal" => 1.0),
-            (bx_y, _) = Lib_Core.CORE_OptimiseDesirability_DDEF([m_y, m_i], [g_y_hi, g_i_lo], bounds; MaxTime=0.2),
-            g_y_lo = Dict{String,Any}("Type" => "Maximise", "Min" => 10.0, "Max" => 30.0, "Target" => 30.0, "Weight" => 1.0, "WeightVal" => 1.0),
-            g_i_hi = Dict{String,Any}("Type" => "Minimise", "Min" => 0.0, "Max" => 15.0, "Target" => 0.0, "Weight" => 10.0, "WeightVal" => 10.0),
-            (bx_i, _) = Lib_Core.CORE_OptimiseDesirability_DDEF([m_y, m_i], [g_y_lo, g_i_hi], bounds; MaxTime=0.2)
+        let _gw(w) = Lib_Core.CORE_ExtractGoal_DDEF(Dict("Type" => "Maximise", "Min" => 0.0, "Max" => 10.0, "Target" => 10.0, "Weight" => w)),
+            _gy(w) = Dict{String,Any}("Type" => "Maximise", "Min" => 10.0, "Max" => 30.0, "Target" => 30.0, "Weight" => w, "WeightVal" => w),
+            _gi(w) = Dict{String,Any}("Type" => "Minimise", "Min" => 0.0, "Max" => 15.0, "Target" => 0.0, "Weight" => w, "WeightVal" => w),
+            d1 = Lib_Core.CORE_CalcDesirability_DDEF(5.0, _gw(1.0)),
+            d2 = Lib_Core.CORE_CalcDesirability_DDEF(5.0, _gw(2.0)),
+            m_y = Lib_Vise.VISE_Regress_DDEF(X_bb15, [20.0 + 10.0*r[1] for r in eachrow(X_bb15)], "linear"),
+            m_i = Lib_Vise.VISE_Regress_DDEF(X_bb15, [2.0 + 10.0*r[1] for r in eachrow(X_bb15)], "linear"),
+            (bx_y, _) = Lib_Core.CORE_OptimiseDesirability_DDEF([m_y, m_i], [_gy(10.0), _gi(1.0)], bounds_cube3; MaxTime=0.2),
+            (bx_i, _) = Lib_Core.CORE_OptimiseDesirability_DDEF([m_y, m_i], [_gy(1.0), _gi(10.0)], bounds_cube3; MaxTime=0.2)
             @track G2 isapprox(d1, 0.5; atol=1e-3) && isapprox(d2, 0.25; atol=1e-3) && bx_y[1] > bx_i[1]
         end
 
         # 24: Multi-objective interior Pareto trade-off search
-        let X_bb = Float64.(Lib_Core.CORE_DesignBB15_DDEC),
-            mod_ok = Lib_Vise.VISE_Regress_DDEF(X_bb, fill(25.0, 15), "linear"),
-            mod_fail = Lib_Vise.VISE_Regress_DDEF(X_bb, fill(0.0, 15), "linear"),
+        let VReg = Lib_Vise.VISE_Regress_DDEF,
+            COD  = Lib_Core.CORE_OptimiseDesirability_DDEF,
+            X_bb = X_bb15,
+            mod_ok = VReg(X_bb, fill(25.0, 15), "linear"),
+            mod_fail = VReg(X_bb, fill(0.0, 15), "linear"),
             g_ok = Lib_Core.CORE_ExtractGoal_DDEF(Dict("Type" => "Maximise", "Min" => 10.0, "Max" => 50.0, "Target" => 40.0, "Weight" => 1.0)),
             g_unreach = Dict{String, Any}("Type" => "Maximise", "Min" => 10.0, "Max" => 50.0, "Target" => 40.0, "Weight" => 1.0, "WeightVal" => 1.0),
-            (_, score_zero) = Lib_Core.CORE_OptimiseDesirability_DDEF([mod_ok, mod_fail], [g_ok, g_unreach], [-1.0 1.0; -1.0 1.0; -1.0 1.0]; MaxTime=0.1),
+            (_, score_zero) = COD([mod_ok, mod_fail], [g_ok, g_unreach], bounds_cube3; MaxTime=0.1),
             lead_nil = Lib_Core.CORE_ExtractLeader_DDEF("not_a_master_file.xlsx", "Phase1", "", ["X1", "X2"]),
-            X_opt = Float64.(Lib_Core.CORE_DesignBB15_DDEC),
+            X_opt = X_bb15,
             Y_yield = [20.0 + 10.0*r[1] + 5.0*r[2] for r in eachrow(X_opt)],
             Y_imp   = [2.0 + 8.0*r[1] - 3.0*r[2] for r in eachrow(X_opt)],
-            m_yield = Lib_Vise.VISE_Regress_DDEF(X_opt, Y_yield, "linear"),
-            m_imp   = Lib_Vise.VISE_Regress_DDEF(X_opt, Y_imp, "linear"),
+            m_yield = VReg(X_opt, Y_yield, "linear"),
+            m_imp   = VReg(X_opt, Y_imp, "linear"),
             g_yield = Dict{String,Any}("Type" => "Maximise", "Min" => 10.0, "Max" => 35.0, "Target" => 35.0, "Weight" => 1.0, "WeightVal" => 1.0),
             g_imp   = Dict{String,Any}("Type" => "Minimise", "Min" => 0.0, "Max" => 15.0, "Target" => 0.0, "Weight" => 1.0, "WeightVal" => 1.0),
-            bounds  = [-1.0 1.0; -1.0 1.0; -1.0 1.0],
-            (best_x, best_s) = Lib_Core.CORE_OptimiseDesirability_DDEF([m_yield, m_imp], [g_yield, g_imp], bounds; MaxTime=0.2),
+            bounds  = bounds_cube3,
+            (best_x, best_s) = COD([m_yield, m_imp], [g_yield, g_imp], bounds; MaxTime=0.2),
             m_type_quad = Lib_Core.CORE_GetModelType_DDEF(Lib_Core.CORE_ModelQuadratic_DDES()),
             d_dict_call = Lib_Core.CORE_CalcDesirability_DDEF(0.5, Dict("Type" => "Maximise", "Min" => 0.0, "Max" => 1.0, "Target" => 1.0, "Weight" => 1.0)),
-            (opt_pen_x, opt_pen_s) = Lib_Core.CORE_OptimiseDesirability_DDEF([m_yield], [g_yield], bounds; MaxTime=0.05, PenaltyFn=x->0.9),
-            (opt_fallback_x, opt_fallback_s) = Lib_Core.CORE_OptimiseDesirability_DDEF([m_yield], [g_yield], [2.0 1.0; 2.0 1.0; 2.0 1.0]; MaxTime=0.05),
+            (opt_pen_x, opt_pen_s) = COD([m_yield], [g_yield], bounds; MaxTime=0.05, PenaltyFn=x->0.9),
+            (opt_fallback_x, opt_fallback_s) = COD([m_yield], [g_yield], [2.0 1.0; 2.0 1.0; 2.0 1.0]; MaxTime=0.05),
+            (opt_polish_x, opt_polish_s) = COD([m_yield], [g_yield], bounds; MaxTime=0.05, MaxSteps=10),
             (ref_x, ref_s) = Lib_Core.CORE_RefineLocal_DDEF(x -> -clamp(1.0 - (x[1]-0.5)^2 - (x[2]-0.5)^2, 0.0, 1.0), [0.1, 0.1], [(0.0, 1.0), (0.0, 1.0)])
             @track G2 score_zero < 1e-4 && isempty(lead_nil) && best_s > 0.3 && length(best_x) == 3 &&
                       m_type_quad isa Lib_Core.CORE_ModelQuadratic_DDES && isapprox(d_dict_call, 0.5; atol=1e-3) &&
                       opt_pen_s > 0.0 && length(opt_fallback_x) == 3 && opt_fallback_s == 0.0 &&
+                      opt_polish_s > 0.0 && length(opt_polish_x) == 3 &&
                       ref_s > 0.0
         end
 
         # 25: Radiochemical DCYP structure and incubation decay
-        let dm_ga = Lib_Core.CORE_ModifierDCYP_DDES(3, log(2.0) / 67.71, "Ga-68"),
-            val_decay = Lib_Core.CORE_ApplyDCYP_DDEF(1.0, dm_ga, [0.0, 0.0, 67.71]),
-            dcy_out_idx = Lib_Core.CORE_ApplyDCYP_DDEF(1.0, dm_ga, [1.0]),
-            dcy_neg_t = Lib_Core.CORE_ApplyDCYP_DDEF(1.0, dm_ga, [0.0, 0.0, -10.0]),
-            dcy_zero_t = Lib_Core.CORE_ApplyDCYP_DDEF(1.0, dm_ga, [0.0, 0.0, 0.0]),
+        let CADCYP = Lib_Core.CORE_ApplyDCYP_DDEF,
+            dm_ga = Lib_Core.CORE_ModifierDCYP_DDES(3, log(2.0) / 67.71, "Ga-68"),
+            val_decay = CADCYP(1.0, dm_ga, [0.0, 0.0, 67.71]),
+            dcy_out_idx = CADCYP(1.0, dm_ga, [1.0]),
+            dcy_neg_t = CADCYP(1.0, dm_ga, [0.0, 0.0, -10.0]),
+            dcy_zero_t = CADCYP(1.0, dm_ga, [0.0, 0.0, 0.0]),
             dm = Lib_Core.CORE_ModifierDCYP_DDES(2, log(2.0) / 109.77, "18F")
             @track G2 isapprox(val_decay, 0.5; atol=1e-2) &&
                       dcy_out_idx == 1.0 && dcy_neg_t == 1.0 && dcy_zero_t == 1.0 &&
@@ -948,219 +937,185 @@ const SUITE_START_TIME = time()
     Sys_Fast.FAST_ActiveGroup_DDEC[] = "G3"
     t_g3 = time()
     @testset "Group 3: Lib_Mole Stoichiometry, Mass Invariance & Kinetics" begin
+        X_bb15 = Float64.(Lib_Core.CORE_DesignBB15_DDEC)
+        rows_recipe_std = [
+            Dict("Name" => "Precursor", "Role" => "Variable", "L1" => 10.0, "L2" => 20.0, "L3" => 30.0, "MW" => 150.0, "Unit" => "mg"),
+            Dict("Name" => "Solvent",   "Role" => "Fixed",    "L1" => 50.0, "L2" => 50.0, "L3" => 50.0, "MW" => 46.0,  "Unit" => "mg"),
+            Dict("Name" => "Catalyst",  "Role" => "Fixed",    "L1" => 5.0,  "L2" => 5.0,  "L3" => 5.0,  "MW" => 98.0,  "Unit" => "mg")
+        ]
+        _crow(n, r="Variable", l=10.0, mw=100.0, u="%m") = Dict("Name" => n, "Role" => r, "L1" => l, "L2" => l, "L3" => l, "MW" => mw, "Unit" => u)
+        rows_fill_std = [
+            _crow("Var A", "Variable", 10.0, 500.0), _crow("Var B", "Variable", 10.0, 400.0),
+            _crow("Var C", "Variable", 10.0, 300.0), _crow("Saline", "Filler", 0.0, 58.44)
+        ]
         # 26: Recipe target masses and molar ratio conservation
-        let names = ["Precursor", "Buffer"],
+        let MCM = Lib_Mole.MOLE_CalcMass_DDEF,
+            names = ["Precursor", "Buffer"],
             mws = [1435.0, 210.0],
             ratios = [50.0, 50.0],
-            df_mass = Lib_Mole.MOLE_CalcMass_DDEF(names, mws, ratios, 5.0, 10.0, ["%", "%"]; SuppressLog=true),
-            df_zero_v = Lib_Mole.MOLE_CalcMass_DDEF(names, mws, ratios, 0.0, 10.0, ["%", "%"]),
-            df_zero_c = Lib_Mole.MOLE_CalcMass_DDEF(names, mws, ratios, 5.0, 0.0, ["%", "%"]),
-            df_overflow = Lib_Mole.MOLE_CalcMass_DDEF(names, mws, [5000.0, 5000.0], 5.0, 10.0, ["mg", "mg"]; SuppressLog=false)
+            df_mass = MCM(names, mws, ratios, 5.0, 10.0, ["%", "%"]; SuppressLog=true),
+            df_zero_v = MCM(names, mws, ratios, 0.0, 10.0, ["%", "%"]),
+            df_zero_c = MCM(names, mws, ratios, 5.0, 0.0, ["%", "%"]),
+            df_overflow = MCM(names, mws, [5000.0, 5000.0], 5.0, 10.0, ["mg", "mg"]; SuppressLog=false),
+            moles_conserved = isapprox(sum(df_mass.Moles_mmol), (5.0 / 1000.0) * 10.0; atol=1e-6)
             @track G3 nrow(df_mass) == 2 && df_mass.TARGET_MASS_mg[1] > 0.0 && isapprox(sum(df_mass.Molar_Ratio), 100.0; atol=1e-3) &&
                       nrow(df_zero_v) == 2 && df_zero_v.TARGET_MASS_mg[1] == 0.0 &&
-                      nrow(df_zero_c) == 2 && nrow(df_overflow) == 2
+                      nrow(df_zero_c) == 2 && nrow(df_overflow) == 2 && moles_conserved
         end
 
         # 27: Stoichiometric filler auto-balance and overflows
-        let rows_fill = [
-                Dict("Name" => "Var A", "Role" => "Variable", "L1" => 10.0, "L2" => 10.0, "L3" => 10.0, "MW" => 500.0, "Unit" => "%m"),
-                Dict("Name" => "Var B", "Role" => "Variable", "L1" => 10.0, "L2" => 10.0, "L3" => 10.0, "MW" => 400.0, "Unit" => "%m"),
-                Dict("Name" => "Var C", "Role" => "Variable", "L1" => 10.0, "L2" => 10.0, "L3" => 10.0, "MW" => 300.0, "Unit" => "%m"),
-                Dict("Name" => "Saline", "Role" => "Filler", "L1" => 0.0, "L2" => 0.0, "L3" => 0.0, "MW" => 58.44, "Unit" => "%m")
-            ],
+        let rows_fill = rows_fill_std,
             (ok, rep, _, _, _) = Lib_Mole.MOLE_AuditQuick_DDEF(rows_fill, 10.0, 1.0),
-            rows_overflow = [
-                Dict("Name" => "Var A", "Role" => "Variable", "L1" => 60.0, "L2" => 60.0, "L3" => 60.0, "MW" => 500.0, "Unit" => "%m"),
-                Dict("Name" => "Var B", "Role" => "Variable", "L1" => 50.0, "L2" => 50.0, "L3" => 50.0, "MW" => 400.0, "Unit" => "%m"),
-                Dict("Name" => "Var C", "Role" => "Variable", "L1" => 10.0, "L2" => 10.0, "L3" => 10.0, "MW" => 300.0, "Unit" => "%m"),
-                Dict("Name" => "Saline", "Role" => "Filler", "L1" => 0.0, "L2" => 0.0, "L3" => 0.0, "MW" => 58.44, "Unit" => "%m")
-            ],
+            rows_overflow = [_crow("Var A", "Variable", 60.0, 500.0), _crow("Var B", "Variable", 50.0, 400.0),
+                             _crow("Var C", "Variable", 10.0, 300.0), _crow("Saline", "Filler", 0.0, 58.44)],
             (ok_over, rep_over, _, _, _) = Lib_Mole.MOLE_AuditQuick_DDEF(rows_overflow, 10.0, 1.0)
             @track G3 ok == true && occursin("auto-balanced", rep) &&
                       ok_over == false && occursin("Filler balance failed", rep_over)
         end
 
         # 28: Stoichiometric validation rules and factor audits
-        let rows_neg_mw = [Dict("Name" => "Bad Chem", "Role" => "Variable", "L1" => 10.0, "L2" => 20.0, "L3" => 30.0, "MW" => -150.0, "Unit" => "mg")],
-            rows_nomw_pct = [Dict("Name" => "MolarNoMW", "Role" => "Variable", "L1" => 10.0, "L2" => 20.0, "L3" => 30.0, "MW" => 0.0, "Unit" => "%m")],
-            rows_bad_u = [Dict("Name" => "ChemBadU", "Role" => "Variable", "L1" => 10.0, "L2" => 20.0, "L3" => 30.0, "MW" => 100.0, "Unit" => "non_chemical_unit")],
-            rows_2vars = [Dict("Name" => "V1", "Role" => "Variable", "L1" => 1.0, "L2" => 2.0, "L3" => 3.0), Dict("Name" => "V2", "Role" => "Variable", "L1" => 1.0, "L2" => 2.0, "L3" => 3.0)],
-            rows_2fills = [
-                Dict("Name" => "V1", "Role" => "Variable", "L1" => 1.0, "L2" => 2.0, "L3" => 3.0),
-                Dict("Name" => "V2", "Role" => "Variable", "L1" => 1.0, "L2" => 2.0, "L3" => 3.0),
-                Dict("Name" => "V3", "Role" => "Variable", "L1" => 1.0, "L2" => 2.0, "L3" => 3.0),
-                Dict("Name" => "F1", "Role" => "Filler"),
-                Dict("Name" => "F2", "Role" => "Filler")
-            ],
-            (ok1, _, _, _, _) = Lib_Mole.MOLE_AuditQuick_DDEF(rows_neg_mw, 10.0, 1.0),
-            (ok2, _, _, _, _) = Lib_Mole.MOLE_AuditQuick_DDEF(Dict{String,Any}[], 0.0, 1.0),
-            (ok3, rep3, _, _, _) = Lib_Mole.MOLE_AuditQuick_DDEF(rows_nomw_pct, 10.0, 1.0),
-            (ok4, rep4, _, _, _) = Lib_Mole.MOLE_AuditQuick_DDEF(rows_bad_u, 10.0, 1.0),
-            (ok5, rep5, _, _, _) = Lib_Mole.MOLE_AuditQuick_DDEF(rows_2vars, 10.0, 1.0),
-            (ok6, rep6, _, _, _) = Lib_Mole.MOLE_AuditQuick_DDEF(rows_2fills, 10.0, 1.0)
-            @track G3 ok1 == false && ok2 == false && ok3 == false && occursin("mandatory", rep3) &&
-                      occursin("Unit Error", rep4) && occursin("Exactly 3 Variables", rep5) && occursin("Maximum 1 Filler", rep6)
+        let MAQ = Lib_Mole.MOLE_AuditQuick_DDEF,
+            rows_2vars = [_crow("V$i") for i in 1:2],
+            rows_2fills = [[_crow("V$i") for i in 1:3]; [_crow("F1", "Filler"), _crow("F2", "Filler")]],
+            r3 = MAQ([_crow("MolarNoMW", "Variable", 10.0, 0.0, "%m")], 10.0, 1.0),
+            r4 = MAQ([_crow("ChemBadU", "Variable", 10.0, 100.0, "non_chemical_unit")], 10.0, 1.0),
+            r5 = MAQ(rows_2vars, 10.0, 1.0),
+            r6 = MAQ(rows_2fills, 10.0, 1.0)
+            @track G3 !MAQ([_crow("Bad Chem", "Variable", 10.0, -150.0, "mg")], 10.0, 1.0)[1] &&
+                      !MAQ(Dict{String,Any}[], 0.0, 1.0)[1] && !r3[1] && occursin("mandatory", r3[2]) &&
+                      occursin("Unit Error", r4[2]) && occursin("Exactly 3 Variables", r5[2]) && occursin("Maximum 1 Filler", r6[2])
         end
 
         # 29: Multi-unit stoichiometric percentage equivalence
-        let eq_pct = Lib_Mole.MOLE_GetPercentageEquivalent_DDEF(15.0, "%m", 100.0, 10.0, 10.0),
-            eq_mg  = Lib_Mole.MOLE_GetPercentageEquivalent_DDEF(10.0, "mg", 100.0, 10.0, 10.0),
-            eq_mm  = Lib_Mole.MOLE_GetPercentageEquivalent_DDEF(5.0, "mM", 100.0, 10.0, 10.0),
-            eq_zero_vol = Lib_Mole.MOLE_GetPercentageEquivalent_DDEF(10.0, "mg", 100.0, 0.0, 10.0),
-            eq_zero_mw  = Lib_Mole.MOLE_GetPercentageEquivalent_DDEF(10.0, "mg", 0.0, 10.0, 10.0)
+        let MGPE = Lib_Mole.MOLE_GetPercentageEquivalent_DDEF,
+            eq_pct = MGPE(15.0, "%m", 100.0, 10.0, 10.0),
+            eq_mg  = MGPE(10.0, "mg", 100.0, 10.0, 10.0),
+            eq_mm  = MGPE(5.0, "mM", 100.0, 10.0, 10.0),
+            eq_zero_vol = MGPE(10.0, "mg", 100.0, 0.0, 10.0),
+            eq_zero_mw  = MGPE(10.0, "mg", 0.0, 10.0, 10.0)
             @track G3 eq_pct == 15.0 && isapprox(eq_mg, 100.0; atol=1e-3) && isapprox(eq_mm, 50.0; atol=1e-3) &&
                       eq_zero_vol == 0.0 && eq_zero_mw == 0.0
         end
 
         # 30: Design matrix stoichiometric feasibility auditing
-        let X_feas = Float64.(Lib_Core.CORE_DesignBB15_DDEC),
-            meta_overflow = [
+        let meta_overflow = [
                 Dict("Name" => "Salt", "Role" => "Variable", "MW" => 58.44, "Unit" => "%m"),
                 Dict("Name" => "Acid", "Role" => "Variable", "MW" => 98.0, "Unit" => "%m"),
                 Dict("Name" => "Base", "Role" => "Variable", "MW" => 40.0, "Unit" => "%m"),
                 Dict("Name" => "Water", "Role" => "Filler", "MW" => 18.01, "Unit" => "%m")
             ],
-            meta_neg = [
-                Dict("Name" => "Salt", "Role" => "Variable", "MW" => 58.44, "Unit" => "%m"),
-                Dict("Name" => "Acid", "Role" => "Variable", "MW" => 98.0, "Unit" => "%m"),
-                Dict("Name" => "Base", "Role" => "Variable", "MW" => 40.0, "Unit" => "%m")
-            ],
-            (feas_ok, feas_msg) = Lib_Mole.MOLE_ValidateFeasibility_DDEF(X_feas .* 150.0, meta_overflow, 10.0, 1.0),
-            (feas_neg_ok, feas_neg_msg) = Lib_Mole.MOLE_ValidateFeasibility_DDEF([-1.0 1.0 1.0; 1.0 1.0 1.0], meta_neg, 10.0, 1.0)
+            (feas_ok, feas_msg) = Lib_Mole.MOLE_ValidateFeasibility_DDEF(X_bb15 .* 150.0, meta_overflow, 10.0, 1.0),
+            (feas_neg_ok, feas_neg_msg) = Lib_Mole.MOLE_ValidateFeasibility_DDEF([-1.0 1.0 1.0; 1.0 1.0 1.0], meta_overflow[1:3], 10.0, 1.0)
             @track G3 feas_ok == false && occursin("overflow", feas_msg) &&
                       feas_neg_ok == false && occursin("negative", feas_neg_msg)
         end
 
         # 31: Physical recipe matrix processing and batch audits
-        let rows_proc = [
-                Dict("Name" => "VarA", "Role" => "Variable", "L1" => 10.0, "L2" => 20.0, "L3" => 30.0, "MW" => 100.0, "Unit" => "%m"),
-                Dict("Name" => "VarB", "Role" => "Variable", "L1" => 10.0, "L2" => 20.0, "L3" => 30.0, "MW" => 120.0, "Unit" => "%m"),
-                Dict("Name" => "VarC", "Role" => "Variable", "L1" => 10.0, "L2" => 20.0, "L3" => 30.0, "MW" => 150.0, "Unit" => "%m"),
-                Dict("Name" => "Buffer", "Role" => "Fixed", "L1" => 5.0, "L2" => 5.0, "L3" => 5.0, "MW" => 100.0, "Unit" => "%m"),
-                Dict("Name" => "Solvent", "Role" => "Filler", "L1" => 0.0, "L2" => 0.0, "L3" => 0.0, "MW" => 18.0, "Unit" => "%m")
+        let MAB = Lib_Mole.MOLE_AuditBatch_DDEF,
+            rows_proc = [
+                _crow("VarA", "Variable", 10.0, 100.0, "%m"),
+                _crow("VarB", "Variable", 10.0, 120.0, "%m"),
+                _crow("VarC", "Variable", 10.0, 150.0, "%m"),
+                _crow("Buffer", "Fixed", 5.0, 100.0, "%m"),
+                _crow("Solvent", "Filler", 0.0, 18.0, "%m")
             ],
-            df_proc = Lib_Mole.MOLE_ProcessDesign_DDEF(Float64.(Lib_Core.CORE_DesignBB15_DDEC), rows_proc, 10.0, 1.0),
-            rows_fill = [
-                Dict("Name" => "Var A", "Role" => "Variable", "L1" => 10.0, "L2" => 10.0, "L3" => 10.0, "MW" => 500.0, "Unit" => "%m"),
-                Dict("Name" => "Saline", "Role" => "Filler", "L1" => 0.0, "L2" => 0.0, "L3" => 0.0, "MW" => 58.44, "Unit" => "%m")
+            df_proc = Lib_Mole.MOLE_ProcessDesign_DDEF(X_bb15, rows_proc, 10.0, 1.0),
+            rows_fill = [_crow("Var A", "Variable", 10.0, 500.0), _crow("Saline", "Filler", 0.0, 58.44)],
+            batch_res = MAB(rows_proc, X_bb15, 10.0, 1.0),
+            batch_bad_dim = MAB(rows_fill, X_bb15[:, 1:2], 10.0, 1.0),
+            rows_nonchem = [
+                _crow("Temp", "Variable", 10.0, 0.0, "°C"),
+                _crow("Press", "Variable", 1.0, 0.0, "bar"),
+                _crow("Time", "Variable", 5.0, 0.0, "min")
             ],
-            batch_res = Lib_Mole.MOLE_AuditBatch_DDEF(rows_proc, Float64.(Lib_Core.CORE_DesignBB15_DDEC), 10.0, 1.0),
-            batch_bad_dim = Lib_Mole.MOLE_AuditBatch_DDEF(rows_fill, Float64.(Lib_Core.CORE_DesignBB15_DDEC)[:, 1:2], 10.0, 1.0),
+            batch_nonchem = MAB(rows_nonchem, X_bb15, 10.0, 1.0),
             approx_ok = Lib_Mole.MOLE_ApproxEq_DDEF(1.0, 1.0),
             aud_mat_err = Lib_Mole.MOLE_AuditMatrix_DDEF(ones(5, 2), ["A", "B", "C"], [10.0, 20.0, 30.0], 10.0, 1.0),
-            rows_under = [
-                Dict("Name" => "A", "Role" => "Variable", "L1" => 0.01, "L2" => 0.01, "L3" => 0.01, "MW" => 100.0, "Unit" => "mg"),
-                Dict("Name" => "B", "Role" => "Variable", "L1" => 0.01, "L2" => 0.01, "L3" => 0.01, "MW" => 100.0, "Unit" => "mg"),
-                Dict("Name" => "C", "Role" => "Variable", "L1" => 0.01, "L2" => 0.01, "L3" => 0.01, "MW" => 100.0, "Unit" => "mg")
-            ],
+            rows_under = [_crow(c, "Variable", 0.01, 100.0, "mg") for c in ("A", "B", "C")],
             (_, rep_under, _, _, _) = Lib_Mole.MOLE_AuditQuick_DDEF(rows_under, 100.0, 10.0)
             @track G3 nrow(df_proc) == 15 && "MASS_VarA_mg" in names(df_proc) && "MASS_Solvent_mg" in names(df_proc) &&
                       batch_res["IsFeasible"] == true && length(batch_res["RunMasses"]) == 15 && approx_ok &&
+                      batch_nonchem["IsFeasible"] == true && length(batch_nonchem["RunMasses"]) == 15 &&
                       batch_bad_dim["IsFeasible"] == true && length(aud_mat_err) == 5 && all(==(0.0), aud_mat_err) &&
                       occursin("UNDER-CONCENTRATED", rep_under)
         end
 
         # 32: Mixed-unit stoichiometric recipe gravimetric audit
-        let rows_mixed = [
+        let MAQ = Lib_Mole.MOLE_AuditQuick_DDEF,
+            rows_mixed = [
                 Dict("Name" => "Peptide", "Role" => "Variable", "L1" => 5.0, "L2" => 10.0, "L3" => 15.0, "MW" => 1500.0, "Unit" => "mg"),
                 Dict("Name" => "Buffer", "Role" => "Variable", "L1" => 1.0, "L2" => 2.0, "L3" => 3.0, "MW" => 120.0, "Unit" => "mM"),
-                Dict("Name" => "Additive", "Role" => "Variable", "L1" => 1.0, "L2" => 2.0, "L3" => 3.0, "MW" => 60.0, "Unit" => "%m"),
-                Dict("Name" => "Water", "Role" => "Filler", "L1" => 0.0, "L2" => 0.0, "L3" => 0.0, "MW" => 18.0, "Unit" => "%m")
+                _crow("Additive", "Variable", 1.0, 60.0, "%m"), _crow("Water", "Filler", 0.0, 18.0, "%m")
             ],
-            (ok_m, rep_m, _, _, _) = Lib_Mole.MOLE_AuditQuick_DDEF(rows_mixed, 100.0, 10.0),
-            (_, rep_novol, _, _, _) = Lib_Mole.MOLE_AuditQuick_DDEF(rows_mixed, 0.0, 10.0),
-            rows_over = [
-                Dict("Name" => "A", "Role" => "Variable", "L1" => 100.0, "L2" => 100.0, "L3" => 100.0, "MW" => 10.0, "Unit" => "mg"),
-                Dict("Name" => "B", "Role" => "Variable", "L1" => 100.0, "L2" => 100.0, "L3" => 100.0, "MW" => 10.0, "Unit" => "mg"),
-                Dict("Name" => "C", "Role" => "Variable", "L1" => 100.0, "L2" => 100.0, "L3" => 100.0, "MW" => 10.0, "Unit" => "mg")
-            ],
-            (_, rep_overc, _, _, _) = Lib_Mole.MOLE_AuditQuick_DDEF(rows_over, 1.0, 1.0)
+            (ok_m, rep_m, _, _, _) = MAQ(rows_mixed, 100.0, 10.0),
+            (_, rep_novol, _, _, _) = MAQ(rows_mixed, 0.0, 10.0),
+            rows_over = [_crow(c, "Variable", 100.0, 10.0, "mg") for c in ("A", "B", "C")],
+            (_, rep_overc, _, _, _) = MAQ(rows_over, 1.0, 1.0)
             @track G3 ok_m == true && occursin("GRAVIMETRIC AUDIT", rep_m) &&
                        occursin("No liquid environment", rep_novol) && occursin("OVER-CONCENTRATED", rep_overc)
         end
 
         # 33: Forward and reverse radiochemical decay kinetics
-        let fwd = Lib_Mole.MOLE_CalcRadioDecay_DDEF(100.0, 67.71, "Minutes", 135.42; Reverse=false),
-            rev = Lib_Mole.MOLE_CalcRadioDecay_DDEF(25.0, 67.71, "Minutes", 135.42; Reverse=true),
-            fwd_d = Lib_Mole.MOLE_CalcRadioDecay_DDEF(100.0, 6.647, "Days", 6.647 * 1440.0; Reverse=false),
-            d_zero = Lib_Mole.MOLE_CalcRadioDecay_DDEF(100.0, 60.0, "Minutes", 0.0),
-            d_inf  = Lib_Mole.MOLE_CalcRadioDecay_DDEF(100.0, 1.0, "Minutes", 1e5)
+        let MCRD = Lib_Mole.MOLE_CalcRadioDecay_DDEF,
+            fwd = MCRD(100.0, 67.71, "Minutes", 135.42; Reverse=false),
+            rev = MCRD(25.0, 67.71, "Minutes", 135.42; Reverse=true),
+            fwd_d = MCRD(100.0, 6.647, "Days", 6.647 * 1440.0; Reverse=false),
+            d_zero = MCRD(100.0, 60.0, "Minutes", 0.0),
+            d_inf  = MCRD(100.0, 1.0, "Minutes", 1e5),
+            a_direct = MCRD(100.0, 67.71, "Minutes", 120.0),
+            a_staged = MCRD(MCRD(100.0, 67.71, "Minutes", 50.0), 67.71, "Minutes", 70.0),
+            semigroup_ok = isapprox(a_direct, a_staged; atol=1e-10)
             @track G3 isapprox(fwd, 25.0; atol=1e-3) && isapprox(rev, 100.0; atol=1e-3) && isapprox(fwd_d, 50.0; atol=1e-3) &&
-                      isapprox(d_zero, 100.0; atol=1e-3) && isapprox(d_inf, 0.0; atol=1e-6)
+                      isapprox(d_zero, 100.0; atol=1e-3) && isapprox(d_inf, 0.0; atol=1e-6) && semigroup_ok
         end
 
         # 34: Physical and temporal unit conversion validation
-        let t_sec  = Lib_Mole.MOLE_ConvertToMinutes_DDEF(120.0, "SEC"),
-            t_secs = Lib_Mole.MOLE_ConvertToMinutes_DDEF(120.0, "SECONDS"),
-            t_min  = Lib_Mole.MOLE_ConvertToMinutes_DDEF(10.0, "MIN"),
-            t_mins = Lib_Mole.MOLE_ConvertToMinutes_DDEF(10.0, "MINS"),
-            t_mtes = Lib_Mole.MOLE_ConvertToMinutes_DDEF(10.0, "MINUTES"),
-            t_hr   = Lib_Mole.MOLE_ConvertToMinutes_DDEF(2.0, "HR"),
-            t_hrs  = Lib_Mole.MOLE_ConvertToMinutes_DDEF(2.0, "HRS"),
-            t_hour = Lib_Mole.MOLE_ConvertToMinutes_DDEF(2.0, "HOUR"),
-            t_day  = Lib_Mole.MOLE_ConvertToMinutes_DDEF(1.0, "DAY"),
-            t_days = Lib_Mole.MOLE_ConvertToMinutes_DDEF(1.0, "DAYS"),
-            t_neg  = Lib_Mole.MOLE_ConvertToMinutes_DDEF(-5.0, "MINUTES"),
-            (m_ok, _, _)   = Lib_Mole.MOLE_ValidatePhysicalUnit_DDEF("5.0 mg", "Mass"),
-            (c_ok, _, _)   = Lib_Mole.MOLE_ValidatePhysicalUnit_DDEF("10.0 mM", "Concentration"),
-            (v_ok, _, _)   = Lib_Mole.MOLE_ValidatePhysicalUnit_DDEF("2.5 L", "Volume"),
-            (t_ok, _, _)   = Lib_Mole.MOLE_ValidatePhysicalUnit_DDEF("1.5 hr", "Time"),
-            (r_ok, _, _)   = Lib_Mole.MOLE_ValidatePhysicalUnit_DDEF("2.0", "Ratio"),
-            (d_ok, _, _)   = Lib_Mole.MOLE_ValidatePhysicalUnit_DDEF("1.0", "Dimensionless"),
-            (emp_ok, _, _) = Lib_Mole.MOLE_ValidatePhysicalUnit_DDEF("", "Volume"),
-            (mis_ok, _, _) = Lib_Mole.MOLE_ValidatePhysicalUnit_DDEF("5.0 mg", "Volume"),
-            (unk_ok, _, _) = Lib_Mole.MOLE_ValidatePhysicalUnit_DDEF("10.0", "UnknownDimension"),
-            (err_ok, _, _) = Lib_Mole.MOLE_ValidatePhysicalUnit_DDEF("illegal!#*unit", "Mass")
-            @track G3 t_sec == 2.0 && t_secs == 2.0 && t_min == 10.0 && t_mins == 10.0 && t_mtes == 10.0 &&
-                      t_hr == 120.0 && t_hrs == 120.0 && t_hour == 120.0 && t_day == 1440.0 && t_days == 1440.0 &&
-                      t_neg == 0.0 && Lib_Mole.MOLE_IsTimeUnit_DDEF("min") && !Lib_Mole.MOLE_IsTimeUnit_DDEF("mg") &&
-                      m_ok && c_ok && v_ok && t_ok && r_ok && d_ok && !emp_ok && !mis_ok && !unk_ok && !err_ok
+        let MCTM = Lib_Mole.MOLE_ConvertToMinutes_DDEF,
+            MVPU = Lib_Mole.MOLE_ValidatePhysicalUnit_DDEF,
+            t_converts_ok = all(MCTM(120.0, u) == 2.0 for u in ("SEC", "SECONDS")) &&
+                            all(MCTM(10.0, u) == 10.0 for u in ("MIN", "MINS", "MINUTES")) &&
+                            all(MCTM(2.0, u) == 120.0 for u in ("HR", "HRS", "HOUR")) &&
+                            all(MCTM(1.0, u) == 1440.0 for u in ("DAY", "DAYS")) &&
+                            MCTM(-5.0, "MINUTES") == 0.0,
+            mvpu_pos_ok = all(MVPU(u, d)[1] for (u, d) in (
+                ("5.0 mg", "Mass"), ("10.0 mM", "Concentration"), ("2.5 L", "Volume"),
+                ("1.5 hr", "Time"), ("2.0", "Ratio"), ("1.0", "Dimensionless")
+            )),
+            mvpu_neg_ok = all(!MVPU(u, d)[1] for (u, d) in (
+                ("", "Volume"), ("5.0 mg", "Volume"), ("10.0", "UnknownDimension"), ("illegal!#*unit", "Mass")
+            ))
+            @track G3 t_converts_ok && Lib_Mole.MOLE_IsTimeUnit_DDEF("min") && !Lib_Mole.MOLE_IsTimeUnit_DDEF("mg") &&
+                      mvpu_pos_ok && mvpu_neg_ok
         end
 
         # 35: Physical unit taxonomy and ingredient role types
-        let (u_mg, s_mg) = Lib_Mole.MOLE_GetUnitType_DDEF("mg"),
-            (u_mm, s_mm) = Lib_Mole.MOLE_GetUnitType_DDEF("mM"),
-            (u_pc, s_pc) = Lib_Mole.MOLE_GetUnitType_DDEF("%m"),
-            (u_rat, _)   = Lib_Mole.MOLE_GetUnitType_DDEF("ratio"),
-            (u_dash, _)  = Lib_Mole.MOLE_GetUnitType_DDEF("-"),
-            (u_molar, _) = Lib_Mole.MOLE_GetUnitType_DDEF("molar"),
-            (u_um, _)    = Lib_Mole.MOLE_GetUnitType_DDEF("μm"),
-            (u_umol, _)  = Lib_Mole.MOLE_GetUnitType_DDEF("umol/l"),
-            (u_oth, _)   = Lib_Mole.MOLE_GetUnitType_DDEF("unknown_dim_xyz"),
-            (u_mcg, s_mcg) = Lib_Mole.MOLE_GetUnitType_DDEF("10 mcg"),
-            (u_ug, s_ug)   = Lib_Mole.MOLE_GetUnitType_DDEF("microgram"),
-            (u_g, s_g)     = Lib_Mole.MOLE_GetUnitType_DDEF("g"),
-            (u_kg, s_kg)   = Lib_Mole.MOLE_GetUnitType_DDEF("kg"),
-            (u_err, _)     = Lib_Mole.MOLE_GetUnitType_DDEF("invalid#@!unit"),
-            pct_m        = Lib_Mole.MOLE_GetPercentageEquivalent_DDEF(10.0, "%m", 100.0, 10.0, 1.0),
-            pct_mg       = Lib_Mole.MOLE_GetPercentageEquivalent_DDEF(10.0, "mg", 100.0, 10.0, 1.0),
-            pct_mm       = Lib_Mole.MOLE_GetPercentageEquivalent_DDEF(10.0, "mM", 100.0, 10.0, 1.0),
-            pct_oth      = Lib_Mole.MOLE_GetPercentageEquivalent_DDEF(10.0, "unknown_unit", 100.0, 10.0, 1.0),
-            pct_zero     = Lib_Mole.MOLE_GetPercentageEquivalent_DDEF(10.0, "%m", 100.0, 0.0, 1.0),
-            rows_audit = [
-                Dict("Name" => "Var A", "Role" => "Variable", "L1" => 10.0, "L2" => 10.0, "L3" => 10.0, "MW" => 500.0, "Unit" => "%m"),
-                Dict("Name" => "Var B", "Role" => "Variable", "L1" => 10.0, "L2" => 10.0, "L3" => 10.0, "MW" => 400.0, "Unit" => "%m"),
-                Dict("Name" => "Var C", "Role" => "Variable", "L1" => 10.0, "L2" => 10.0, "L3" => 10.0, "MW" => 300.0, "Unit" => "%m"),
-                Dict("Name" => "Saline", "Role" => "Filler", "L1" => 0.0, "L2" => 0.0, "L3" => 0.0, "MW" => 58.44, "Unit" => "%m")
-            ],
-            parsed_t = Lib_Mole.MOLE_ParseTable_DDEF(rows_audit),
-            r_var = Lib_Mole.MOLE_IdentifyRole_DDEF("variable"),
-            r_fix = Lib_Mole.MOLE_IdentifyRole_DDEF("fixed"),
-            r_fil = Lib_Mole.MOLE_IdentifyRole_DDEF("filler"),
-            r_unk = Lib_Mole.MOLE_IdentifyRole_DDEF("unknown_role")
-            @track G3 u_mg isa Lib_Mole.MOLE_UnitMass_DDES && s_mg == 1.0 && u_mm isa Lib_Mole.MOLE_UnitConcentration_DDES &&
-                      u_pc isa Lib_Mole.MOLE_UnitMolar_DDES && u_rat isa Lib_Mole.MOLE_UnitMolar_DDES &&
-                      u_dash isa Lib_Mole.MOLE_UnitMolar_DDES && u_molar isa Lib_Mole.MOLE_UnitConcentration_DDES &&
-                      u_um isa Lib_Mole.MOLE_UnitConcentration_DDES && u_umol isa Lib_Mole.MOLE_UnitConcentration_DDES &&
-                      u_oth isa Lib_Mole.MOLE_UnitOther_DDES &&
-                      u_mcg isa Lib_Mole.MOLE_UnitMass_DDES && isapprox(s_mcg, 0.01; atol=1e-5) &&
-                      u_ug isa Lib_Mole.MOLE_UnitMass_DDES && u_g isa Lib_Mole.MOLE_UnitMass_DDES && s_g == 1000.0 &&
-                      u_kg isa Lib_Mole.MOLE_UnitMass_DDES && s_kg == 1e6 && u_err isa Lib_Mole.MOLE_UnitOther_DDES &&
-                      pct_m == 10.0 && pct_mg > 0.0 && pct_mm > 0.0 &&
-                      pct_oth == 0.0 && pct_zero == 0.0 &&
+        let MGUT = Lib_Mole.MOLE_GetUnitType_DDEF,
+            MGPE = Lib_Mole.MOLE_GetPercentageEquivalent_DDEF,
+            MIR = Lib_Mole.MOLE_IdentifyRole_DDEF,
+            MUMass = Lib_Mole.MOLE_UnitMass_DDES,
+            MUConc = Lib_Mole.MOLE_UnitConcentration_DDES,
+            MUMolar = Lib_Mole.MOLE_UnitMolar_DDES,
+            s_mcg = MGUT("10 mcg")[2],
+            s_g = MGUT("g")[2],
+            s_kg = MGUT("kg")[2],
+            pcts = (
+                MGPE(10.0, "%m", 100.0, 10.0, 1.0), MGPE(10.0, "mg", 100.0, 10.0, 1.0),
+                MGPE(10.0, "mM", 100.0, 10.0, 1.0), MGPE(10.0, "unknown_unit", 100.0, 10.0, 1.0),
+                MGPE(10.0, "%m", 100.0, 0.0, 1.0)
+            ),
+            parsed_t = Lib_Mole.MOLE_ParseTable_DDEF(rows_fill_std)
+            @track G3 MGUT("mg")[1] isa MUMass && MGUT("mg")[2] == 1.0 &&
+                      all(MGUT(u)[1] isa MUMolar for u in ("%m", "ratio", "-")) &&
+                      all(MGUT(u)[1] isa MUConc for u in ("mM", "molar", "μm", "umol/l")) &&
+                      all(MGUT(u)[1] isa MUMass for u in ("10 mcg", "microgram", "g", "kg")) &&
+                      all(MGUT(u)[1] isa Lib_Mole.MOLE_UnitOther_DDES for u in ("unknown_dim_xyz", "invalid#@!unit")) &&
+                      isapprox(s_mcg, 0.01; atol=1e-5) && s_g == 1000.0 && s_kg == 1e6 &&
+                      pcts[1] == 10.0 && pcts[2] > 0.0 && pcts[3] > 0.0 && pcts[4] == 0.0 && pcts[5] == 0.0 &&
                       length(parsed_t["Idx_Var"]) == 3 && length(parsed_t["Idx_Fill"]) == 1 &&
-                      r_var isa Lib_Mole.MOLE_RoleVariable_DDES && r_fix isa Lib_Mole.MOLE_RoleFixed_DDES &&
-                      r_fil isa Lib_Mole.MOLE_RoleFiller_DDES && r_unk isa Lib_Mole.MOLE_RoleFixed_DDES
+                      MIR("variable") isa Lib_Mole.MOLE_RoleVariable_DDES &&
+                      MIR("fixed") isa Lib_Mole.MOLE_RoleFixed_DDES &&
+                      MIR("filler") isa Lib_Mole.MOLE_RoleFiller_DDES &&
+                      MIR("unknown_role") isa Lib_Mole.MOLE_RoleFixed_DDES
         end
     end
     TRACKER["G3"].duration = round(time() - t_g3; digits=2)
@@ -1171,13 +1126,75 @@ const SUITE_START_TIME = time()
     Sys_Fast.FAST_ActiveGroup_DDEC[] = "G4"
     t_g4 = time()
     @testset "Group 4: Lib_Vise Statistical Modelling, OLS & Tournament" begin
+        C = Sys_Fast.FAST_Data_DDEC
         X_quad = Float64.(Lib_Core.CORE_DesignBB15_DDEC)
         Y_quad = [10.0 + 2.0*r[1] - 1.5*r[2] + 0.8*r[3] + 2.5*r[1]^2 - 3.0*r[2]^2 + 1.2*r[1]*r[2] for r in eachrow(X_quad)]
+        Y_lin_quad = [5.0 + 3.0*r[1] - 2.0*r[2] + 1.5*r[3] for r in eachrow(X_quad)]
         names_in = ["X1", "X2", "X3"]
+        b_unit3 = [-1.0 1.0; -1.0 1.0; -1.0 1.0]
+        X_rep10 = [1.0 2.0 3.0; 1.0 2.0 3.0; 4.0 5.0 6.0; 4.0 5.0 6.0; 7.0 8.0 9.0; 7.0 8.0 9.0; 10.0 11.0 12.0; 10.0 11.0 12.0; 13.0 14.0 15.0; 13.0 14.0 15.0]
+        Y_rep_diff = [1.0, 1.2, 2.0, 2.4, 3.0, 2.9, 4.0, 4.3, 5.0, 4.8]
+        m_quad_vise = Lib_Vise.VISE_Regress_DDEF(X_quad, Y_quad, "quadratic"; InNames=names_in)
+        m_lin_vise  = Lib_Vise.VISE_Regress_DDEF(X_quad, Y_lin_quad, "linear"; InNames=names_in)
+
+        _mock_model(; type="linear", r2_adj=0.95, q2=0.85, rmse=1.0, p=0.01, terms=["(Intercept)", "X1", "X2", "X3"],
+                    coefs=[1.0; zeros(length(terms)-1)], p_coefs=fill(p, length(terms)), vifs=fill(1.0, length(terms))) = Dict(
+            "Status"    => "OK",
+            "ModelType" => type,
+            "R2_Adj"    => r2_adj,
+            "Q2"        => q2,
+            "RMSE"      => rmse,
+            "P_Value"   => p,
+            "Coefs"     => coefs,
+            "TermNames" => terms,
+            "P_Coefs"   => p_coefs,
+            "VIFs"      => vifs
+        )
+
+        _mock_anova(; ss=[10.0, 1.0, 11.0], df=[9, 5, 14], p=0.03) = DataFrame(
+            Source = ["Model", "Residual", "Total"],
+            SS     = ss,
+            df     = df,
+            MS     = ss ./ df,
+            F      = [5.55, missing, missing],
+            P      = [p, missing, missing]
+        )
+
+        _mock_bundle(; models=[_mock_model()], anova=[_mock_anova()], vitals=Dict("D"=>0.72), normality=[Dict("p"=>0.35, "IsNormal"=>true)], extra...) = Dict{String, Any}(
+            "Phase" => "Phase1", "OutNames" => ["Yield"], "DisplayOutNames" => ["Yield (%)"],
+            "Models" => models, "ANOVA" => anova, "Vitals" => vitals, "Normality" => normality,
+            "Sensitivities" => [[0.5, 0.3, 0.2]], "InNames" => ["X1", "X2", "X3"],
+            "Goals" => [Dict("Name" => "Yield", "Type" => "Target", "Target" => 25.0, "Low" => 10.0, "High" => 40.0, "Weight" => 1.5)],
+            "Leaders" => DataFrame("EXP_ID" => ["EXP_01"], "Yield" => [24.5]),
+            "BestPoint" => [0.0, 0.0, 0.0], "BestScore" => 0.88, "Elapsed" => "0.2s",
+            (string(k) => v for (k, v) in extra)...
+        )
+
+        df_core = DataFrame(
+            C.COL_EXP_ID => ["EXP_$i" for i in 1:15],
+            C.COL_PHASE => fill("Phase1", 15),
+            C.PRE_VAR * "X1" => X_quad[:, 1],
+            C.PRE_VAR * "X2" => X_quad[:, 2],
+            C.PRE_VAR * "X3" => X_quad[:, 3],
+            C.PRE_RESULT * "Yield" => Y_quad,
+            C.PRE_RESULT * "Purity" => Y_lin_quad
+        )
+        cfg_core = Dict(
+            "Ingredients" => [
+                Dict("Name" => "X1", "Role" => C.ROLE_VAR, "Levels" => [-1.0, 0.0, 1.0]),
+                Dict("Name" => "X2", "Role" => C.ROLE_VAR, "Levels" => [-1.0, 0.0, 1.0]),
+                Dict("Name" => "X3", "Role" => C.ROLE_VAR, "Levels" => [-1.0, 0.0, 1.0])
+            ],
+            "Outputs" => [Dict("Name" => "Yield"), Dict("Name" => "Purity")]
+        )
+        goals_core = [
+            Dict{String,Any}("Response" => "Yield", "Type" => "Maximise", "Min" => 0.0, "Max" => 30.0, "Target" => 25.0, "Weight" => 1.0, "WeightVal" => 1.0),
+            Dict{String,Any}("Response" => "Purity", "Type" => "Maximise", "Min" => 0.0, "Max" => 20.0, "Target" => 15.0, "Weight" => 1.0, "WeightVal" => 1.0)
+        ]
 
         # 36: Quadratic response surface regression matrix fit
-        let m_q = Lib_Vise.VISE_Regress_DDEF(X_quad, Y_quad, "quadratic"; InNames=names_in)
-            @track G4 m_q["Status"] == "OK" && length(m_q["Coefs"]) == 10 && m_q["R2"] > 0.999
+        let
+            @track G4 m_quad_vise["Status"] == "OK" && length(m_quad_vise["Coefs"]) == 10 && m_quad_vise["R2"] > 0.999
         end
 
         # 37: Model parameter count and term names generation
@@ -1189,26 +1206,29 @@ const SUITE_START_TIME = time()
         end
 
         # 38: Index clamping and numeric boundary validation
-        let ci_1 = Lib_Vise.VISE_ClampIndex_DDEF(3, 10),
-            ci_2 = Lib_Vise.VISE_ClampIndex_DDEF(15.2, 10),
-            ci_3 = Lib_Vise.VISE_ClampIndex_DDEF(-5, 10)
+        let VCI = Lib_Vise.VISE_ClampIndex_DDEF,
+            ci_1 = VCI(3, 10),
+            ci_2 = VCI(15.2, 10),
+            ci_3 = VCI(-5, 10)
             @track G4 ci_1 == 3 && ci_2 == 10 && ci_3 == 1
         end
 
         # 39: Matrix preparation helpers and layout reshaping
-        let mat_nest = Lib_Vise.VISE_PrepareMatrix_DDEF([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]),
-            mat_flat = Lib_Vise.VISE_PrepareMatrix_DDEF([1.0, 2.0, 3.0, 4.0, 5.0, 6.0]),
-            mat_raw  = Lib_Vise.VISE_PrepareMatrix_DDEF([1.0, 2.0]),
-            mat_mat  = Lib_Vise.VISE_PrepareMatrix_DDEF([1.0 2.0; 3.0 4.0]),
-            mat_4    = Lib_Vise.VISE_PrepareMatrix_DDEF([1.0, 2.0, 3.0, 4.0])
+        let VPM = Lib_Vise.VISE_PrepareMatrix_DDEF,
+            mat_nest = VPM([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]),
+            mat_flat = VPM([1.0, 2.0, 3.0, 4.0, 5.0, 6.0]),
+            mat_raw  = VPM([1.0, 2.0]),
+            mat_mat  = VPM([1.0 2.0; 3.0 4.0]),
+            mat_4    = VPM([1.0, 2.0, 3.0, 4.0])
             @track G4 size(mat_nest) == (2, 3) && size(mat_flat) == (2, 3) &&
                       size(mat_raw) == (2,) && size(mat_mat) == (2, 2) && length(mat_4) == 4
         end
 
         # 40: Collinear input resilience and metric fallbacks
         let m_sentry = Lib_Vise.VISE_Regress_DDEF(ones(15, 3), ones(15), "linear"),
+            pred_trunc = Lib_Vise.VISE_Predict_DDEF(Dict("Status"=>"OK", "ModelType"=>"linear", "Coefs"=>fill(1.0, 10)), ones(3, 3)),
             (met_r2, met_adj, met_rmse, met_aic) = Lib_Vise.VISE_CalcMetrics_DDEF(fill(5.0, 4), fill(5.0, 4), 5)
-            @track G4 m_sentry["Status"] == "FAIL" &&
+            @track G4 m_sentry["Status"] == "FAIL" && length(pred_trunc) == 3 &&
                       met_r2 == 0.0 && met_adj == 0.0 && met_rmse == 0.0 && isinf(met_aic)
         end
 
@@ -1222,23 +1242,24 @@ const SUITE_START_TIME = time()
         end
 
         # 42: Linear multi-variable regression model matrix fit
-        let Y_lin = [5.0 + 3.0*r[1] - 2.0*r[2] + 1.5*r[3] for r in eachrow(X_quad)],
-            m_l = Lib_Vise.VISE_Regress_DDEF(X_quad, Y_lin, "linear"; InNames=names_in)
-            @track G4 m_l["Status"] == "OK" && length(m_l["Coefs"]) == 4 && m_l["R2"] > 0.999
+        let
+            @track G4 m_lin_vise["Status"] == "OK" && length(m_lin_vise["Coefs"]) == 4 && m_lin_vise["R2"] > 0.999
         end
 
         # 43: Adjusted R-squared relation and coefficient bounds
-        let m_q = Lib_Vise.VISE_Regress_DDEF(X_quad, Y_quad, "quadratic"; InNames=names_in)
-            @track G4 m_q["R2_Adj"] <= m_q["R2"] && m_q["R2"] <= 1.0
+        let
+            @track G4 m_quad_vise["R2_Adj"] <= m_quad_vise["R2"] <= 1.0
         end
 
         # 44: Cross-validation Q-squared predictive computation
-        let q2_clean = Lib_Vise.VISE_CrossValidate_DDEF(X_quad, Y_quad, "quadratic"),
-            q2_short = Lib_Vise.VISE_CrossValidate_DDEF(ones(2, 3), [1.0, 2.0], "linear"),
-            q2_three = Lib_Vise.VISE_CrossValidate_DDEF(ones(3, 3), [1.0, 2.0, 3.0], "linear"),
-            q2_flat  = Lib_Vise.VISE_CrossValidate_DDEF(randn(5, 3), fill(2.0, 5), "linear"),
-            q2_err   = Lib_Vise.VISE_CrossValidate_DDEF(fill(NaN, 5, 3), randn(5), "linear")
-            @track G4 q2_clean > 0.90 && q2_clean <= 1.0 && isnan(q2_short) && isnan(q2_three) && q2_flat == 0.0 && isnan(q2_err)
+        let VCV = Lib_Vise.VISE_CrossValidate_DDEF,
+            q2_clean = VCV(X_quad, Y_quad, "quadratic"),
+            q2_short = VCV(ones(2, 3), [1.0, 2.0], "linear"),
+            q2_three = VCV(ones(3, 3), [1.0, 2.0, 3.0], "linear"),
+            q2_flat  = VCV(randn(5, 3), fill(2.0, 5), "linear"),
+            q2_h_sing = VCV(fill(Inf, 5, 3), [1.0, 2.0, 3.0, 4.0, 5.0], "linear"),
+            q2_err   = VCV(fill(NaN, 5, 3), randn(5), "linear")
+            @track G4 q2_clean > 0.90 && q2_clean <= 1.0 && isnan(q2_short) && isnan(q2_three) && q2_flat == 0.0 && isnan(q2_err) && isnan(q2_h_sing)
         end
 
         # 45: Outlier leverage detection in cross-validation set
@@ -1250,14 +1271,11 @@ const SUITE_START_TIME = time()
         end
 
         # 46: ANOVA sum of squares variance partitioning check
-        let m_q = Lib_Vise.VISE_Regress_DDEF(X_quad, Y_quad, "quadratic"; InNames=names_in),
-            anova_t = Lib_Vise.VISE_GenANOVATable_DDEF(m_q, X_quad, Y_quad),
+        let anova_t = Lib_Vise.VISE_GenANOVATable_DDEF(m_quad_vise, X_quad, Y_quad),
             ss_mod  = anova_t.SS[findfirst(==("Model"), anova_t.Source)],
             ss_res  = anova_t.SS[findfirst(==("Residual"), anova_t.Source)],
             ss_tot  = anova_t.SS[findfirst(==("Total"), anova_t.Source)],
-            Y_lin = [5.0 + 3.0*r[1] - 2.0*r[2] + 1.5*r[3] for r in eachrow(X_quad)],
-            m_l = Lib_Vise.VISE_Regress_DDEF(X_quad, Y_lin, "linear"; InNames=names_in),
-            anova_l = Lib_Vise.VISE_GenANOVATable_DDEF(m_l, X_quad, Y_lin),
+            anova_l = Lib_Vise.VISE_GenANOVATable_DDEF(m_lin_vise, X_quad, Y_lin_quad),
             ss_l_mod = anova_l.SS[findfirst(==("Model"), anova_l.Source)],
             ss_l_res = anova_l.SS[findfirst(==("Residual"), anova_l.Source)],
             ss_l_tot = anova_l.SS[findfirst(==("Total"), anova_l.Source)]
@@ -1266,28 +1284,24 @@ const SUITE_START_TIME = time()
         end
 
         # 47: ANOVA lack of fit and pure error partition checks
-        let m_q = Lib_Vise.VISE_Regress_DDEF(X_quad, Y_quad, "quadratic"; InNames=names_in),
-            anova_t = Lib_Vise.VISE_GenANOVATable_DDEF(m_q, X_quad, Y_quad),
+        let anova_t = Lib_Vise.VISE_GenANOVATable_DDEF(m_quad_vise, X_quad, Y_quad),
             ss_lof = anova_t.SS[findfirst(==("Lack of Fit"), anova_t.Source)],
             ss_pe  = anova_t.SS[findfirst(==("Pure Error"), anova_t.Source)],
             ss_res = anova_t.SS[findfirst(==("Residual"), anova_t.Source)],
-            X_rep = [1.0 2.0 3.0; 1.0 2.0 3.0; 4.0 5.0 6.0; 4.0 5.0 6.0; 7.0 8.0 9.0; 7.0 8.0 9.0; 10.0 11.0 12.0; 10.0 11.0 12.0; 13.0 14.0 15.0; 13.0 14.0 15.0],
-            Y_rep_diff = [1.0, 1.2, 2.0, 2.4, 3.0, 2.9, 4.0, 4.3, 5.0, 4.8],
-            m_rep = Lib_Vise.VISE_Regress_DDEF(X_rep, Y_rep_diff, "linear"),
-            anova_rep = Lib_Vise.VISE_GenANOVATable_DDEF(m_rep, X_rep, Y_rep_diff),
+            m_rep = Lib_Vise.VISE_Regress_DDEF(X_rep10, Y_rep_diff, "linear"),
+            anova_rep = Lib_Vise.VISE_GenANOVATable_DDEF(m_rep, X_rep10, Y_rep_diff),
             f_lof = anova_rep.F[findfirst(==("Lack of Fit"), anova_rep.Source)],
             p_lof = anova_rep.P[findfirst(==("Lack of Fit"), anova_rep.Source)]
             @track G4 isapprox(ss_lof + ss_pe, ss_res; atol=1e-3) && !ismissing(f_lof) && !ismissing(p_lof) && f_lof > 0.0
         end
 
         # 48: Lack of fit evaluation without experimental repeat
-        let X_no_rep = [1.0 2.0 3.0; 4.0 5.0 6.0; 7.0 8.0 9.0; 10.0 11.0 12.0],
-            (f_lof_z, p_lof_z) = Lib_Vise.VISE_TestLOF_DDEF(hcat(ones(4), X_no_rep), [1.0, 2.0, 3.0, 4.0]),
-            X_rep = [1.0 2.0 3.0; 1.0 2.0 3.0; 4.0 5.0 6.0; 4.0 5.0 6.0; 7.0 8.0 9.0; 7.0 8.0 9.0; 10.0 11.0 12.0; 10.0 11.0 12.0; 13.0 14.0 15.0; 13.0 14.0 15.0],
+        let VTLOF = Lib_Vise.VISE_TestLOF_DDEF,
+            X_no_rep = [1.0 2.0 3.0; 4.0 5.0 6.0; 7.0 8.0 9.0; 10.0 11.0 12.0],
+            (f_lof_z, p_lof_z) = VTLOF(hcat(ones(4), X_no_rep), [1.0, 2.0, 3.0, 4.0]),
             Y_rep_zero = [1.0, 1.0, 2.0, 2.0, 3.0, 3.0, 4.0, 4.0, 5.0, 5.0],
-            (f_zero_pe, p_zero_pe) = Lib_Vise.VISE_TestLOF_DDEF(hcat(ones(10), X_rep), Y_rep_zero),
-            Y_rep_diff = [1.0, 1.2, 2.0, 2.4, 3.0, 2.9, 4.0, 4.3, 5.0, 4.8],
-            (f_rep, p_rep) = Lib_Vise.VISE_TestLOF_DDEF(hcat(ones(10), X_rep), Y_rep_diff),
+            (f_zero_pe, p_zero_pe) = VTLOF(hcat(ones(10), X_rep10), Y_rep_zero),
+            (f_rep, p_rep) = VTLOF(hcat(ones(10), X_rep10), Y_rep_diff),
             m_no_rep = Lib_Vise.VISE_Regress_DDEF(X_no_rep, [1.0, 2.0, 3.0, 4.0], "linear"),
             anova_no_rep = Lib_Vise.VISE_GenANOVATable_DDEF(m_no_rep, X_no_rep, [1.0, 2.0, 3.0, 4.0])
             @track G4 isnan(f_lof_z) && isnan(p_lof_z) && f_zero_pe == 999.0 && p_zero_pe == 0.0 && isfinite(f_rep) && isfinite(p_rep) &&
@@ -1295,55 +1309,54 @@ const SUITE_START_TIME = time()
         end
 
         # 49: Variance inflation factor collinearity screening
-        let Y_lin = [5.0 + 3.0*r[1] - 2.0*r[2] + 1.5*r[3] for r in eachrow(X_quad)],
-            m_l = Lib_Vise.VISE_Regress_DDEF(X_quad, Y_lin, "linear"; InNames=names_in),
+        let VCVIF = Lib_Vise.VISE_CalcVIF_DDEF,
             X_coll = copy(X_quad)
             X_coll[:, 2] = 0.999 * X_coll[:, 1] + 0.001 * randn(15)
             m_coll = Lib_Vise.VISE_Regress_DDEF(X_coll, Y_quad, "linear"; InNames=names_in)
-            vif_short = Lib_Vise.VISE_CalcVIF_DDEF(ones(10, 1))
-            vif_sing  = Lib_Vise.VISE_CalcVIF_DDEF(hcat(ones(10), ones(10, 3)))
-            vif_const = Lib_Vise.VISE_CalcVIF_DDEF(hcat(ones(10), fill(5.0, 10), randn(10)))
-            vif_tikh  = Lib_Vise.VISE_CalcVIF_DDEF(hcat(ones(10), collect(1.0:10.0), collect(1.0:10.0)))
-            @track G4 all(v -> isapprox(v, 1.0; atol=1e-2), m_l["VIFs"]) && any(v -> v > 10.0, m_coll["VIFs"]) &&
+            vif_short = VCVIF(ones(10, 1))
+            vif_sing  = VCVIF(hcat(ones(10), ones(10, 3)))
+            vif_const = VCVIF(hcat(ones(10), fill(5.0, 10), randn(10)))
+            vif_tikh  = VCVIF(hcat(ones(10), collect(1.0:10.0), collect(1.0:10.0)))
+            @track G4 all(v -> isapprox(v, 1.0; atol=1e-2), m_lin_vise["VIFs"]) && any(v -> v > 10.0, m_coll["VIFs"]) &&
                       isempty(vif_short) && length(vif_sing) == 4 && vif_const[2] == 999.0 && vif_tikh[2] >= 1.0
         end
 
         # 50: Regression residual normality distribution tests
-        let m_q = Lib_Vise.VISE_Regress_DDEF(X_quad, Y_quad, "quadratic"; InNames=names_in),
-            norm_test = Lib_Vise.VISE_TestNormality_DDEF(m_q, X_quad, Y_quad),
-            norm_empty = Lib_Vise.VISE_TestNormality_DDEF(Dict{String,Any}("Coefs" => Float64[]), X_quad, Y_quad),
-            norm_const = Lib_Vise.VISE_TestNormality_DDEF(Dict{String,Any}("Coefs" => [1.0, 0.0, 0.0, 0.0]), ones(2, 3), [1.0, 1.0])
+        let VTN = Lib_Vise.VISE_TestNormality_DDEF,
+            norm_test = VTN(m_quad_vise, X_quad, Y_quad),
+            norm_empty = VTN(Dict{String,Any}("Coefs" => Float64[]), X_quad, Y_quad),
+            norm_const = VTN(Dict{String,Any}("Coefs" => [1.0, 0.0, 0.0, 0.0]), ones(2, 3), [1.0, 1.0])
             @track G4 haskey(norm_test, "p") && haskey(norm_test, "IsNormal") &&
                       isnan(norm_empty["p"]) && !norm_empty["IsNormal"] &&
                       isnan(norm_const["p"]) && !norm_const["IsNormal"]
         end
 
         # 51: Response surface model sensitivity gradient sweep
-        let m_q = Lib_Vise.VISE_Regress_DDEF(X_quad, Y_quad, "quadratic"; InNames=names_in),
+        let VAS = Lib_Vise.VISE_AnalyseSensitivity_DDEF,
             m_l = Lib_Vise.VISE_Regress_DDEF(X_quad, Y_quad, "linear"; InNames=names_in),
-            sens_q = Lib_Vise.VISE_AnalyseSensitivity_DDEF(m_q, [0.0, 0.0, 0.0], X_quad),
-            sens_l = Lib_Vise.VISE_AnalyseSensitivity_DDEF(m_l, [-1.0, 1.0, 0.5], X_quad),
+            sens_q = VAS(m_quad_vise, [0.0, 0.0, 0.0], X_quad),
+            sens_l = VAS(m_l, [-1.0, 1.0, 0.5], X_quad),
             m_flat = Dict{String, Any}("ModelType" => "linear", "Status" => "OK", "Coefs" => [5.0, 0.0, 0.0, 0.0]),
-            sens_flat = Lib_Vise.VISE_AnalyseSensitivity_DDEF(m_flat, [0.0, 0.0, 0.0], X_quad)
+            sens_flat = VAS(m_flat, [0.0, 0.0, 0.0], X_quad)
             @track G4 length(sens_q) == 3 && all(isfinite, sens_q) && length(sens_l) == 3 && all(isfinite, sens_l) &&
                       isapprox(sens_flat[1], 1.0/3.0; atol=1e-3)
         end
 
         # 52: Statistical model response point prediction check
-        let m_q = Lib_Vise.VISE_Regress_DDEF(X_quad, Y_quad, "quadratic"; InNames=names_in),
-            p_val = Lib_Vise.VISE_Predict_DDEF(m_q, [0.0, 0.0, 0.0]),
-            p_mat = Lib_Vise.VISE_Predict_DDEF(m_q, X_quad[1:3, :])
+        let p_val = Lib_Vise.VISE_Predict_DDEF(m_quad_vise, [0.0, 0.0, 0.0]),
+            p_mat = Lib_Vise.VISE_Predict_DDEF(m_quad_vise, X_quad[1:3, :])
             @track G4 length(p_val) == 1 && isapprox(p_val[1], 10.0; atol=1e-2) && length(p_mat) == 3
         end
 
         # 53: Model selection tournament via corrected AICc score
-        let Y_lin = [5.0 + 3.0*r[1] - 2.0*r[2] + 1.5*r[3] for r in eachrow(X_quad)],
-            (best_m_q, _) = Lib_Vise.VISE_SelectBestModel_DDEF(X_quad, Y_quad, names_in),
-            (best_m_l, _) = Lib_Vise.VISE_SelectBestModel_DDEF(X_quad, Y_lin, names_in),
-            (sel_lin, _)  = Lib_Vise.VISE_SelectBestModel_DDEF(X_quad, Y_lin, names_in, "linear"),
-            (sel_quad, _) = Lib_Vise.VISE_SelectBestModel_DDEF(X_quad, Y_quad, names_in, "quadratic"),
-            (sel_fail, log_fail) = Lib_Vise.VISE_SelectBestModel_DDEF(ones(5, 3), ones(5), names_in),
-            (sel_empty, _) = Lib_Vise.VISE_SelectBestModel_DDEF(X_quad, Y_lin, names_in, "")
+        let VSBM = Lib_Vise.VISE_SelectBestModel_DDEF,
+            Y_lin = Y_lin_quad,
+            (best_m_q, _) = VSBM(X_quad, Y_quad, names_in),
+            (best_m_l, _) = VSBM(X_quad, Y_lin, names_in),
+            (sel_lin, _)  = VSBM(X_quad, Y_lin, names_in, "linear"),
+            (sel_quad, _) = VSBM(X_quad, Y_quad, names_in, "quadratic"),
+            (sel_fail, log_fail) = VSBM(ones(5, 3), ones(5), names_in),
+            (sel_empty, _) = VSBM(X_quad, Y_lin, names_in, "")
             @track G4 best_m_q["ModelType"] == "quadratic" && best_m_l["ModelType"] == "linear" &&
                       sel_lin["ModelType"] == "linear" && sel_quad["ModelType"] == "quadratic" &&
                       sel_fail["Status"] == "FAIL" && occursin("Collinear Matrix", log_fail) &&
@@ -1351,28 +1364,31 @@ const SUITE_START_TIME = time()
         end
 
         # 54: Radio-decay DCYP modifier extraction and toggles
-        let cfg_decay = Dict("Ingredients" => [
+        let VEDCYP = Lib_Vise.VISE_ExtractDCYP_DDEF,
+            cfg_decay = Dict("Ingredients" => [
                 Dict("Name" => "ReactionTime", "Unit" => "min"),
                 Dict("Name" => "Ga-68", "HalfLife" => 67.71, "HalfLifeUnit" => "min", "IsRadioactive" => true),
                 Dict("Name" => "FixedPrecursor", "Role" => "Fixed", "HalfLife" => 67.71, "HalfLifeUnit" => "min", "IsRadioactive" => true)
             ]),
-            opts_decay = Dict("RadioOpts" => Dict("Apply" => true, "DCYP" => Dict("Enabled" => true, "Isotope" => "Ga-68"))),
-            opts_dcyp_off = Dict("RadioOpts" => Dict("Apply" => true, "DCYP" => Dict("Enabled" => false))),
-            opts_dcyp_str = Dict("RadioOpts" => Dict("Apply" => true, "DCYP" => Dict("Enabled" => "ON", "Isotope" => "Ga-68"))),
-            opts_dcyp_no_time = Dict("RadioOpts" => Dict("Apply" => true, "DCYP" => Dict("Enabled" => true, "Isotope" => "Ga-68"))),
+            _ro(en) = Dict("RadioOpts" => Dict("Apply" => true, "DCYP" => Dict("Enabled" => en, "Isotope" => "Ga-68"))),
             cfg_no_time = Dict("Ingredients" => [Dict("Name" => "Temp", "Unit" => "C"), Dict("Name" => "Ga-68", "HalfLife" => 67.71, "IsRadioactive" => true)]),
             cfg_zero_hl = Dict("Ingredients" => [Dict("Name" => "ReactionTime", "Unit" => "min"), Dict("Name" => "Ga-68", "HalfLife" => 0.0, "IsRadioactive" => true)]),
-            d_mods = Lib_Vise.VISE_ExtractDCYP_DDEF(["ReactionTime", "Temp", "Conc"], ["Yield"], cfg_decay, opts_decay),
-            d_mods_off = Lib_Vise.VISE_ExtractDCYP_DDEF(["ReactionTime", "Temp", "Conc"], ["Yield"], cfg_decay, opts_dcyp_off),
-            d_mods_str = Lib_Vise.VISE_ExtractDCYP_DDEF(["ReactionTime", "Temp", "Conc"], ["Yield"], cfg_decay, opts_dcyp_str),
-            d_mods_no_t = Lib_Vise.VISE_ExtractDCYP_DDEF(["Temp", "Conc"], ["Yield"], cfg_no_time, opts_dcyp_no_time),
-            d_mods_zhl  = Lib_Vise.VISE_ExtractDCYP_DDEF(["ReactionTime", "Temp"], ["Yield"], cfg_zero_hl, opts_decay)
+            d_mods = VEDCYP(["ReactionTime", "Temp", "Conc"], ["Yield"], cfg_decay, _ro(true)),
+            d_mods_off = VEDCYP(["ReactionTime", "Temp", "Conc"], ["Yield"], cfg_decay, Dict("RadioOpts" => Dict("Apply" => true, "DCYP" => Dict("Enabled" => false)))),
+            d_mods_str = VEDCYP(["ReactionTime", "Temp", "Conc"], ["Yield"], cfg_decay, _ro("ON")),
+            d_mods_raw_str = VEDCYP(["ReactionTime"], ["Yield"], cfg_decay, Dict("RadioOpts" => Dict("Apply" => true, "DCYP" => "ON"))),
+            d_mods_raw_bool = VEDCYP(["ReactionTime"], ["Yield"], cfg_decay, Dict("RadioOpts" => Dict("Apply" => true, "DCYP" => true))),
+            d_mods_no_t = VEDCYP(["Temp", "Conc"], ["Yield"], cfg_no_time, _ro(true)),
+            d_mods_zhl  = VEDCYP(["ReactionTime", "Temp"], ["Yield"], cfg_zero_hl, _ro(true))
             @track G4 length(d_mods) == 1 && d_mods[1].IsotopeName == "Ga-68" && isempty(d_mods_off) &&
+                      length(d_mods_raw_str) == 1 && length(d_mods_raw_bool) == 1 &&
                       length(d_mods_str) == 1 && isempty(d_mods_no_t) && isempty(d_mods_zhl)
         end
 
         # 55: Forward and reverse radio-decay matrix correction
-        let X_test = [100.0 20.0 5.0],
+        let VAFRD = Lib_Vise.VISE_ApplyFRDecay_DDEF,
+            FALog = Sys_Fast.FAST_Log_DDEF,
+            X_test = [100.0 20.0 5.0],
             Y_test = [50.0 25.0],
             in_n = ["Ga-68", "Temp", "pH"],
             out_n = ["ProductActivity", "Purity%"],
@@ -1380,8 +1396,11 @@ const SUITE_START_TIME = time()
                 "TIME_FORW_MINS_Ga-68" => [67.71],
                 "TIME_FORW_MINS_FixedPrecursor" => [67.71],
                 "TIME_REVE_MINS_Ga-68" => [67.71],
+                "TIME_FORW_MINS_Fixed" => [67.71],
+                "VARIA_Fixed" => [40.0],
                 "FIXED_FixedPrecursor" => [20.0],
                 "RESULT_ProductActivity" => [50.0],
+                "ACTUAL_Fixed" => [missing],
                 "ACTUAL_FixedPrecursor" => [missing]
             ),
             cfg_test = Dict(
@@ -1397,29 +1416,31 @@ const SUITE_START_TIME = time()
                 "REVE" => Dict("Enabled" => true, "ProductActivity" => Dict("Source" => "Ga-68"), "Purity%" => Dict("Source" => "Ga-68"))
             )),
             opts_no_radio = Dict("RadioOpts" => Dict("Apply" => false)),
-            C = Sys_Fast.FAST_Data_DDEC,
-            Log = Sys_Fast.FAST_Log_DDEF,
-            audit = Lib_Vise.VISE_ApplyFRDecay_DDEF(X_test, Y_test, in_n, out_n, df_test, cfg_test, opts_test, C, Log),
-            audit_off = Lib_Vise.VISE_ApplyFRDecay_DDEF(X_test, Y_test, in_n, out_n, df_test, cfg_test, opts_no_radio, C, Log),
-            audit_nil = Lib_Vise.VISE_ApplyFRDecay_DDEF(X_test, Y_test, in_n, out_n, df_test, cfg_test, opts_test, C, Log; mask=falses(1))
+            audit = VAFRD(X_test, Y_test, in_n, out_n, df_test, cfg_test, opts_test, C, FALog),
+            audit_off = VAFRD(X_test, Y_test, in_n, out_n, df_test, cfg_test, opts_no_radio, C, FALog),
+            audit_nil = VAFRD(X_test, Y_test, in_n, out_n, df_test, cfg_test, opts_test, C, FALog; mask=falses(1))
             @track G4 length(audit) >= 3 && isapprox(X_test[1, 1], 50.0; atol=1e-2) && isapprox(Y_test[1, 1], 100.0; atol=1e-2) &&
-                      isapprox(Y_test[1, 2], 50.0; atol=1e-2) && isempty(audit_off) && isempty(audit_nil)
+                      isapprox(Y_test[1, 2], 50.0; atol=1e-2) && !ismissing(df_test[1, :ACTUAL_Fixed]) && df_test[1, :ACTUAL_Fixed] > 0.0 &&
+                      isempty(audit_off) && isempty(audit_nil)
         end
 
         # 56: High-density grid search within parameter bounds
-        let m_q = Lib_Vise.VISE_Regress_DDEF(X_quad, Y_quad, "quadratic"; InNames=names_in),
+        let VRGS = Lib_Vise.VISE_RunGridSearch_DDEF,
+            m_q = copy(m_quad_vise),
             g_search = Dict{String, Any}("Type" => "Maximise", "Min" => 0.0, "Max" => 30.0, "Target" => 25.0, "Weight" => 1.0, "WeightVal" => 1.0),
             g_zero = Dict{String, Any}("Type" => "Target", "Min" => 0.0, "Max" => 10.0, "Target" => 1000.0, "Weight" => 1.0, "WeightVal" => 1.0)
             m_q["Goal"] = g_search
-            grid_out = Lib_Vise.VISE_RunGridSearch_DDEF([m_q], [g_search], [-1.0 1.0; -1.0 1.0; -1.0 1.0]; Steps=5)
-            grid_empty_models = Lib_Vise.VISE_RunGridSearch_DDEF(Dict{String,Any}[], Dict{String,Any}[], [-1.0 1.0; -1.0 1.0; -1.0 1.0]; Steps=2)
+            grid_out = VRGS([m_q], [g_search], b_unit3; Steps=5)
+            grid_empty_models = VRGS(Dict{String,Any}[], Dict{String,Any}[], b_unit3; Steps=2)
             m_zero = copy(m_q); m_zero["Goal"] = g_zero
-            grid_zero = Lib_Vise.VISE_RunGridSearch_DDEF([m_zero], [g_zero], [-1.0 1.0; -1.0 1.0; -1.0 1.0]; Steps=2)
+            grid_zero = VRGS([m_zero], [g_zero], b_unit3; Steps=2)
             mod_dcyp_t = [Lib_Core.CORE_ModifierDCYP_DDES(1, log(2.0) / 67.71, "Ga-68")]
-            grid_dcyp = Lib_Vise.VISE_RunGridSearch_DDEF([m_q], [g_search], [-1.0 1.0; -1.0 1.0; -1.0 1.0]; Steps=2, ModifiersDCYP=mod_dcyp_t)
+            m_nan = Dict{String, Any}("ModelType" => "linear", "Status" => "OK", "Coefs" => [NaN, 0.0, 0.0, 0.0], "Goal" => g_search)
+            grid_nan = VRGS([m_nan], [g_search], b_unit3; Steps=2)
+            grid_dcyp = VRGS([m_q], [g_search], b_unit3; Steps=2, ModifiersDCYP=mod_dcyp_t)
             pop_dcyp = Lib_Vise.VISE_GenPredictions_DDEF([0.0 0.0 0.0; 1.0 1.0 1.0], [10.0; 20.0], [m_q], [g_search]; ModifiersDCYP=mod_dcyp_t)
             @track G4 size(grid_out, 1) > 0 && size(grid_empty_models, 1) > 0 && size(grid_zero, 1) > 0 &&
-                      size(grid_dcyp, 1) > 0 && length(pop_dcyp[2]) == 2
+                      size(grid_nan, 1) > 0 && size(grid_dcyp, 1) > 0 && length(pop_dcyp[2]) == 2
         end
 
         # 57: Underdetermined regression system error resilience
@@ -1428,8 +1449,9 @@ const SUITE_START_TIME = time()
         end
 
         # 58: Experimental matrix ingestion with missing values
-        let C = Sys_Fast.FAST_Data_DDEC,
-            Log = Sys_Fast.FAST_Log_DDEF,
+        let VEM = Lib_Vise.VISE_ExtractMatrices_DDEF,
+            VRN = Lib_Vise.VISE_ResolveName_DDEF,
+            FALog = Sys_Fast.FAST_Log_DDEF,
             df_raw = DataFrame(
                 "EXP_ID" => ["R1", "R2", "R3", "R4"],
                 C.PRE_VAR * "Temp" => [20.0, 40.0, 60.0, 80.0],
@@ -1437,7 +1459,7 @@ const SUITE_START_TIME = time()
                 C.PRE_RESULT * "Yield" => [75.0, "", 88.0, missing]
             ),
             cfg = Dict("Ingredients" => [Dict("Name" => "Temp"), Dict("Name" => "Time")], "Outputs" => [Dict("Name" => "Yield")]),
-            (X_c, Y_c, in_n, out_n, mask) = Lib_Vise.VISE_ExtractMatrices_DDEF(df_raw, cfg, C, Log),
+            (X_c, Y_c, in_n, out_n, mask) = VEM(df_raw, cfg, C, FALog),
             df_4vars = DataFrame(
                 "EXP_ID" => ["R1", "R2"],
                 C.PRE_VAR * "A" => [1.0, 2.0],
@@ -1446,140 +1468,103 @@ const SUITE_START_TIME = time()
                 C.PRE_VAR * "D" => [7.0, 8.0],
                 C.PRE_RESULT * "Y" => [10.0, 20.0]
             ),
-            (X_4, Y_4, _, _, _) = Lib_Vise.VISE_ExtractMatrices_DDEF(df_4vars, cfg, C, Log),
+            (X_4, Y_4, _, _, _) = VEM(df_4vars, cfg, C, FALog),
             df_empty_ingest = DataFrame("EXP_ID" => ["R1"]),
-            (X_e, Y_e, _, _, _) = Lib_Vise.VISE_ExtractMatrices_DDEF(df_empty_ingest, cfg, C, Log),
+            (X_e, Y_e, _, _, _) = VEM(df_empty_ingest, cfg, C, FALog),
             df_all_nan = DataFrame(
                 "EXP_ID" => ["R1", "R2"],
                 C.PRE_VAR * "Temp" => [20.0, 40.0],
                 C.PRE_VAR * "Time" => [10.0, 20.0],
                 C.PRE_RESULT * "Yield" => [NaN, NaN]
             ),
-            (X_nan, Y_nan, _, _, mask_nan) = Lib_Vise.VISE_ExtractMatrices_DDEF(df_all_nan, cfg, C, Log)
+            (X_nan, Y_nan, _, _, mask_nan) = VEM(df_all_nan, cfg, C, FALog),
+            res_n1 = VRN("VARIA_Temp", "VARIA_", [Dict("Name" => "Temp")], C),
+            res_n2 = VRN("Temp", "VARIA_", [Dict("Name" => "Temp", "Unit" => "C")], C),
+            res_n3 = VRN("Temp_C", "VARIA_", [Dict("Name" => "Temp", "Unit" => "C")], C)
             @track G4 size(X_c) == (2, 2) && size(Y_c) == (2, 1) && mask == [true, false, true, false] &&
-                      size(X_4, 2) == 3 && size(Y_4, 2) == 1 &&
+                      size(X_4, 2) == 3 && size(Y_4, 2) == 1 && res_n1 == "Temp" && res_n2 == "Temp" && res_n3 == "Temp" &&
                       isempty(X_e) && isempty(Y_e) && isempty(X_nan) && all(.!mask_nan)
         end
 
         # 59: Multi-response regression ensemble model training
-        let Y_lin = [5.0 + 3.0*r[1] - 2.0*r[2] + 1.5*r[3] for r in eachrow(X_quad)],
-            Log = Sys_Fast.FAST_Log_DDEF,
-            ens_models = Lib_Vise.VISE_TrainEnsemble_DDEF(X_quad, hcat(Y_quad, Y_lin), names_in, "auto", Dict{String, Any}[], Log)
-            @track G4 length(ens_models) == 2 && ens_models[1]["Status"] == "OK" && ens_models[2]["Status"] == "OK"
+        let ens_models = Lib_Vise.VISE_TrainEnsemble_DDEF(X_quad, hcat(Y_quad, Y_lin_quad), names_in, "auto", Dict{String, Any}[], Sys_Fast.FAST_Log_DDEF),
+            ens_fail = Lib_Vise.VISE_TrainEnsemble_DDEF(ones(2, 3), ones(5, 1), ["A", "B", "C"], "linear", Dict{String,Any}[], Sys_Fast.FAST_Log_DDEF)
+            @track G4 length(ens_models) == 2 && ens_models[1]["Status"] == "OK" && ens_models[2]["Status"] == "OK" &&
+                      ens_fail[1]["Status"] == "FAIL"
         end
 
         # 60: Scientific core optimization execution pipelines
-        let Y_lin = [5.0 + 3.0*r[1] - 2.0*r[2] + 1.5*r[3] for r in eachrow(X_quad)],
-            C = Sys_Fast.FAST_Data_DDEC,
-            df_core = DataFrame(
-                C.COL_EXP_ID => ["EXP_$i" for i in 1:15],
-                C.COL_PHASE => fill("Phase1", 15),
-                C.PRE_VAR * "X1" => X_quad[:, 1],
-                C.PRE_VAR * "X2" => X_quad[:, 2],
-                C.PRE_VAR * "X3" => X_quad[:, 3],
-                C.PRE_RESULT * "Yield" => Y_quad,
-                C.PRE_RESULT * "Purity" => Y_lin
+        let VEI = Lib_Vise.VISE_ExecuteInternal_DDEF,
+            (core_res, _) = VEI(
+                deepcopy(df_core), cfg_core, "Phase1", goals_core, "quadratic";
+                Opts=Dict{String,Any}("MaxTime" => 0.05, "GridSteps" => 11)
             ),
-            cfg_core = Dict(
-                "Ingredients" => [
-                    Dict("Name" => "X1", "Role" => C.ROLE_VAR, "Levels" => [-1.0, 0.0, 1.0]),
-                    Dict("Name" => "X2", "Role" => C.ROLE_VAR, "Levels" => [-1.0, 0.0, 1.0]),
-                    Dict("Name" => "X3", "Role" => C.ROLE_VAR, "Levels" => [-1.0, 0.0, 1.0])
-                ],
-                "Outputs" => [Dict("Name" => "Yield"), Dict("Name" => "Purity")]
+            (core_few, _) = VEI(df_core[1:2, :], cfg_core, "Phase1", goals_core, "quadratic"),
+            (core_prio, _) = VEI(
+                deepcopy(df_core), cfg_core, "Phase1", goals_core, "quadratic";
+                Opts=Dict{String,Any}("Mode" => :Priority, "MaxTime" => 0.05, "GridSteps" => 11)
             ),
-            goals_core = [
-                Dict{String,Any}("Response" => "Yield", "Type" => "Maximise", "Min" => 0.0, "Max" => 30.0, "Target" => 25.0, "Weight" => 1.0, "WeightVal" => 1.0),
-                Dict{String,Any}("Response" => "Purity", "Type" => "Maximise", "Min" => 0.0, "Max" => 20.0, "Target" => 15.0, "Weight" => 1.0, "WeightVal" => 1.0)
-            ],
-            (core_res, _) = Lib_Vise.VISE_ExecuteInternal_DDEF(deepcopy(df_core), cfg_core, "Phase1", goals_core, "quadratic"; Opts=Dict{String,Any}("MaxTime" => 0.05)),
-            (core_few, _) = Lib_Vise.VISE_ExecuteInternal_DDEF(df_core[1:2, :], cfg_core, "Phase1", goals_core, "quadratic"),
-            (core_prio, _) = Lib_Vise.VISE_ExecuteInternal_DDEF(deepcopy(df_core), cfg_core, "Phase1", goals_core, "quadratic"; Opts=Dict{String,Any}("Mode" => :Priority, "MaxTime" => 0.05)),
-            (core_def, _) = Lib_Vise.VISE_ExecuteInternal_DDEF(deepcopy(df_core), cfg_core, "Phase1", goals_core, "quadratic"; Opts=Dict{String,Any}("Mode" => :Deferred, "MaxTime" => 0.05)),
-            (core_no_opt, _) = Lib_Vise.VISE_ExecuteInternal_DDEF(deepcopy(df_core), cfg_core, "Phase1", goals_core, "quadratic"; Optim=false)
+            (core_def, _) = VEI(
+                deepcopy(df_core), cfg_core, "Phase1", goals_core, "quadratic";
+                Opts=Dict{String,Any}("Mode" => :Deferred, "MaxTime" => 0.05, "GridSteps" => 11)
+            ),
+            (core_no_opt, _) = VEI(deepcopy(df_core), cfg_core, "Phase1", goals_core, "quadratic"; Optim=false)
             @track G4 core_res["Status"] == "OK" && core_few["Status"] == "FAIL" &&
                       core_prio["Status"] == "OK" && core_def["Status"] == "OK" && core_no_opt["Status"] == "OK"
         end
 
         # 61: Markdown scientific synthesis report generations
-        let Y_lin = [5.0 + 3.0*r[1] - 2.0*r[2] + 1.5*r[3] for r in eachrow(X_quad)],
-            C = Sys_Fast.FAST_Data_DDEC,
-            df_core = DataFrame(
-                C.COL_EXP_ID => ["EXP_$i" for i in 1:15],
-                C.COL_PHASE => fill("Phase1", 15),
-                C.PRE_VAR * "X1" => X_quad[:, 1],
-                C.PRE_VAR * "X2" => X_quad[:, 2],
-                C.PRE_VAR * "X3" => X_quad[:, 3],
-                C.PRE_RESULT * "Yield" => Y_quad,
-                C.PRE_RESULT * "Purity" => Y_lin
-            ),
-            cfg_core = Dict(
-                "Ingredients" => [
-                    Dict("Name" => "X1", "Role" => C.ROLE_VAR, "Levels" => [-1.0, 0.0, 1.0]),
-                    Dict("Name" => "X2", "Role" => C.ROLE_VAR, "Levels" => [-1.0, 0.0, 1.0]),
-                    Dict("Name" => "X3", "Role" => C.ROLE_VAR, "Levels" => [-1.0, 0.0, 1.0])
-                ],
-                "Outputs" => [Dict("Name" => "Yield"), Dict("Name" => "Purity")]
-            ),
-            goals_core = [
-                Dict{String,Any}("Response" => "Yield", "Type" => "Maximise", "Min" => 0.0, "Max" => 30.0, "Target" => 25.0, "Weight" => 1.0, "WeightVal" => 1.0),
-                Dict{String,Any}("Response" => "Purity", "Type" => "Maximise", "Min" => 0.0, "Max" => 20.0, "Target" => 15.0, "Weight" => 1.0, "WeightVal" => 1.0)
-            ],
+        let VGSR = Lib_Vise.VISE_GenSciReport_DDEF,
             (core_res, _) = Lib_Vise.VISE_ExecuteInternal_DDEF(deepcopy(df_core), cfg_core, "Phase1", goals_core, "quadratic"; Opts=Dict{String,Any}("MaxTime" => 0.05)),
-            rep_md = Lib_Vise.VISE_GenSciReport_DDEF(core_res),
-            rep_empty = Lib_Vise.VISE_GenSciReport_DDEF(merge(deepcopy(core_res), Dict("BestPoint" => []))),
-            b_lin_hi = Dict{String, Any}(
-                "Phase" => "Phase1", "OutNames" => ["Yield"], "DisplayOutNames" => ["Yield (%)"],
-                "Models" => [Dict("Status" => "OK", "ModelType" => "linear", "R2_Adj" => 0.85, "Q2" => 0.80, "RMSE" => 0.5, "P_Value" => 0.001,
-                                  "Coefs" => [10.0, 2.5, 3.0, 1.2], "TermNames" => ["(Intercept)", "X1", "X2", "X3"],
-                                  "P_Coefs" => [0.001, 0.002, 0.008, 0.02], "VIFs" => [1.0, 1.0, 1.0, 1.0])],
-                "ANOVA" => [DataFrame(
+            rep_md = VGSR(core_res),
+            rep_empty = VGSR(merge(deepcopy(core_res), Dict("BestPoint" => []))),
+            b_lin_hi = _mock_bundle(
+                models = [merge(_mock_model(r2_adj=0.85, q2=0.80, rmse=0.5, p=0.001), Dict(
+                    "Coefs" => [10.0, 2.5, 3.0, 1.2], "P_Coefs" => [0.001, 0.002, 0.008, 0.02]
+                ))],
+                anova = [DataFrame(
                     Source = ["Model", "Lack of Fit", "Pure Error", "Residual", "Total"],
-                    SS = [120.5, 4.2, 2.1, 6.3, 126.8],
-                    df = [3, 2, 4, 6, 9],
-                    MS = [40.17, 2.1, 0.525, 1.05, 14.09],
-                    F = [38.25, 4.0, missing, missing, missing],
-                    P = [0.0002, 0.11, missing, missing, missing]
+                    SS = [120.5, 4.2, 2.1, 6.3, 126.8], df = [3, 2, 4, 6, 9], MS = [40.17, 2.1, 0.525, 1.05, 14.09],
+                    F = [38.25, 4.0, missing, missing, missing], P = [0.0002, 0.11, missing, missing, missing]
                 )],
-                "Vitals" => Dict("D" => 0.72, "A" => 0.4, "G" => 0.5, "I" => 0.4, "Condition" => 45.0, "MaxVIF" => 1.0, "LOF" => 0.25),
-                "Normality" => [Dict("p" => 0.35, "IsNormal" => true)],
-                "Sensitivities" => [[0.5, 0.3, 0.2]], "InNames" => ["X1", "X2", "X3"],
-                "Goals" => [Dict("Name" => "Yield", "Type" => "Target", "Target" => 25.0, "Low" => 10.0, "High" => 40.0, "Weight" => 1.5)],
-                "Leaders" => DataFrame("EXP_ID" => ["EXP_01"], "Yield" => [24.5]),
-                "BestPoint" => [0.0, 0.0, 0.0], "BestScore" => 0.88, "Elapsed" => "0.2s"
+                vitals = Dict("D" => 0.72, "A" => 0.4, "G" => 0.5, "I" => 0.4, "Condition" => 45.0, "MaxVIF" => 1.0, "LOF" => 0.25)
             ),
-            rep_lin_hi = Lib_Vise.VISE_GenSciReport_DDEF(b_lin_hi),
+            rep_lin_hi = VGSR(b_lin_hi),
             b_lin_lo = merge(b_lin_hi, Dict("Vitals" => Dict("D" => 0.45, "Condition" => 250.0, "MaxVIF" => 3.5, "LOF" => 0.15))),
-            rep_lin_lo = Lib_Vise.VISE_GenSciReport_DDEF(b_lin_lo),
-            b_severe = Dict{String, Any}(
-                "Phase" => "Phase1", "OutNames" => ["Yield"], "DisplayOutNames" => ["Yield (%)"],
-                "Models" => [Dict("Status" => "OK", "ModelType" => "quadratic", "R2_Adj" => 0.90, "Q2" => -0.15, "RMSE" => 2.5, "P_Value" => 0.12,
-                                  "Coefs" => zeros(10), "TermNames" => ["(Intercept)"; ["X$i" for i in 1:9]],
-                                  "P_Coefs" => fill(0.25, 10), "VIFs" => [1.0; fill(15.0, 9)])],
-                "ANOVA" => [DataFrame(
+            rep_lin_lo = VGSR(b_lin_lo),
+            b_severe = _mock_bundle(
+                models = [_mock_model(type="quadratic", r2_adj=0.90, q2=-0.15, rmse=2.5, p=0.12,
+                                      terms=["(Intercept)"; ["X$i" for i in 1:9]], coefs=zeros(10),
+                                      p_coefs=fill(0.25, 10), vifs=[1.0; fill(15.0, 9)])],
+                anova = [DataFrame(
                     Source = ["Model", "Lack of Fit", "Pure Error", "Residual", "Total"],
-                    SS = [80.0, 40.0, 1.0, 41.0, 121.0],
-                    df = [9, 3, 2, 5, 14],
-                    MS = [8.89, 13.33, 0.5, 8.2, 8.64],
-                    F = [1.08, 26.66, missing, missing, missing],
-                    P = [0.45, 0.036, missing, missing, missing]
+                    SS = [80.0, 40.0, 1.0, 41.0, 121.0], df = [9, 3, 2, 5, 14], MS = [8.89, 13.33, 0.5, 8.2, 8.64],
+                    F = [1.08, 26.66, missing, missing, missing], P = [0.45, 0.036, missing, missing, missing]
                 )],
-                "Vitals" => Dict("D" => 0.25, "Condition" => 2500.0, "MaxVIF" => 15.0, "LOF" => 0.01),
-                "Normality" => [Dict("p" => 0.002, "IsNormal" => false)],
-                "Goals" => [], "BestPoint" => [1.0, 1.0, 1.0], "BestScore" => 0.35, "BoundaryWarnings" => ["X1 at boundary limit"], "Elapsed" => "0.3s"
+                vitals = Dict("D" => 0.25, "Condition" => 2500.0, "MaxVIF" => 15.0, "LOF" => 0.01),
+                normality = [Dict("p" => 0.002, "IsNormal" => false)],
+                Goals = [], BestPoint = [1.0, 1.0, 1.0], BestScore = 0.35, BoundaryWarnings = ["X1 at boundary limit"], Elapsed = "0.3s"
             ),
-            rep_severe = Lib_Vise.VISE_GenSciReport_DDEF(b_severe),
-            b_gap = merge(b_lin_hi, Dict("Models" => [Dict("Status" => "OK", "ModelType" => "linear", "R2_Adj" => 0.88, "Q2" => 0.55, "RMSE" => 1.0, "P_Value" => 0.01, "Coefs" => [1.0, 0.0, 0.0, 0.0], "TermNames" => ["(Intercept)", "X1", "X2", "X3"], "P_Coefs" => fill(0.01, 4), "VIFs" => fill(1.0, 4))])),
-            rep_gap = Lib_Vise.VISE_GenSciReport_DDEF(b_gap),
-            b_low_q2 = merge(b_lin_hi, Dict("Models" => [Dict("Status" => "OK", "ModelType" => "linear", "R2_Adj" => 0.45, "Q2" => 0.35, "RMSE" => 1.0, "P_Value" => 0.01, "Coefs" => [1.0, 0.0, 0.0, 0.0], "TermNames" => ["(Intercept)", "X1", "X2", "X3"], "P_Coefs" => fill(0.01, 4), "VIFs" => fill(1.0, 4))])),
-            rep_low_q2 = Lib_Vise.VISE_GenSciReport_DDEF(b_low_q2),
-            rep_low = Lib_Vise.VISE_GenSciReport_DDEF(merge(b_lin_hi, Dict("BestScore" => 0.42))),
-            rep_mid = Lib_Vise.VISE_GenSciReport_DDEF(merge(b_lin_hi, Dict("BestScore" => 0.65))),
+            rep_severe = VGSR(b_severe),
+            b_quad_hi = merge(b_severe, Dict(
+                "Vitals" => Dict("D" => 0.48, "Condition" => 80.0, "MaxVIF" => 6.0, "LOF" => NaN),
+                "Models" => [_mock_model(type="quadratic", r2_adj=0.90, q2=NaN, rmse=1.0, p=0.0001,
+                                         terms=["(Intercept)"; ["X$i" for i in 1:9]], coefs=zeros(10),
+                                         p_coefs=fill(0.0005, 10), vifs=[1.0; fill(6.0, 9)])],
+                "ANOVA" => [_mock_anova()]
+            )),
+            rep_quad_hi = VGSR(b_quad_hi),
+            b_gap = merge(b_lin_hi, Dict("Models" => [_mock_model(r2_adj=0.88, q2=0.55)])),
+            rep_gap = VGSR(b_gap),
+            b_low_q2 = merge(b_lin_hi, Dict("Models" => [_mock_model(r2_adj=0.45, q2=0.35)])),
+            rep_low_q2 = VGSR(b_low_q2),
+            rep_low = VGSR(merge(b_lin_hi, Dict("BestScore" => 0.42))),
+            rep_mid = VGSR(merge(b_lin_hi, Dict("BestScore" => 0.65))),
             sample_rep = "# Diagnostics\n| Output | P-Value |\n| Yield | <0.0001 |\n* Note: (κ < 100) satisfies (p < 0.05).\n<span class=\"badge\">Tagged Content</span>",
-            clean_rx = replace(sample_rep, r"</?[a-zA-Z][a-zA-Z0-9]*\b[^>]*>" => ""),
-            clean_math = replace(clean_rx, "&lt;" => "<", "&gt;" => ">"),
-            preserves_math = occursin("<0.0001", clean_math) && occursin("(κ < 100)", clean_math) && occursin("(p < 0.05)", clean_math) && !occursin("<span", clean_math)
+            clean_math = replace(replace(sample_rep, r"</?[a-zA-Z][a-zA-Z0-9]*\b[^>]*>" => ""), "&lt;" => "<", "&gt;" => ">"),
+            preserves_math = all(s -> occursin(s, clean_math), ("<0.0001", "(κ < 100)", "(p < 0.05)")) && !occursin("<span", clean_math)
             @track G4 !isempty(rep_md) && occursin("not conducted", rep_empty) && occursin("Adequate efficiency", rep_lin_hi) &&
+                      occursin("High efficiency", rep_quad_hi) &&
                       occursin("Low efficiency", rep_lin_lo) && occursin("Severe multicollinearity", rep_severe) &&
                       occursin("Overfitted", rep_severe) && occursin("exceeds 0.20", rep_gap) &&
                       occursin("Low (0 ≤ Q² < 0.50)", rep_low_q2) && occursin("significant compromise", rep_low) &&
@@ -1595,22 +1580,22 @@ const SUITE_START_TIME = time()
         end
 
         # 63: Column name resolution and DataFrame widening ops
-        let C = Sys_Fast.FAST_Data_DDEC,
-            res_n1 = Lib_Vise.VISE_ResolveName_DDEF("VARIA_X1_mg", "VARIA_", [Dict("Name" => "X1", "Unit" => "mg")], C),
-            res_n2 = Lib_Vise.VISE_ResolveName_DDEF("VARIA_X2", "VARIA_", [Dict("Name" => "X2", "Unit" => "-")], C),
-            res_n3 = Lib_Vise.VISE_ResolveName_DDEF("X3", "", [Dict("Name" => "X3")], C),
-            res_n4 = Lib_Vise.VISE_ResolveName_DDEF("", "VARIA_", [], C),
-            res_n5 = Lib_Vise.VISE_ResolveName_DDEF("VARIA_X1 mg", "VARIA_", [Dict("Name" => "X1", "Unit" => "mg")], C),
-            res_n6 = Lib_Vise.VISE_ResolveName_DDEF("VARIA_X1_extra", "VARIA_", [Dict("Name" => "X1", "Unit" => "mg")], C),
-            res_n7 = Lib_Vise.VISE_ResolveName_DDEF("X1_mg", "VARIA_", [Dict("Name" => "X1", "Unit" => "mg")], C),
-            res_n8 = Lib_Vise.VISE_ResolveName_DDEF("VARIA_UnknownCol", "VARIA_", [], C),
+        let VRN = Lib_Vise.VISE_ResolveName_DDEF,
+            VICA! = Lib_Vise.VISE_InsertColumnAfter_DDEF!,
+            x1_ingr = [Dict("Name" => "X1", "Unit" => "mg")],
+            vrn_ok = VRN("VARIA_X1_mg", "VARIA_", x1_ingr, C) == "X1" &&
+                     VRN("VARIA_X2", "VARIA_", [Dict("Name" => "X2", "Unit" => "-")], C) == "X2" &&
+                     VRN("X3", "", [Dict("Name" => "X3")], C) == "X3" &&
+                     isempty(VRN("", "VARIA_", [], C)) &&
+                     all(VRN(c, "VARIA_", x1_ingr, C) == "X1" for c in ("VARIA_X1 mg", "VARIA_X1_extra", "X1_mg")) &&
+                     VRN("VARIA_UnknownCol", "VARIA_", [], C) == "UnknownCol",
             df_col_ops = DataFrame("A" => ["1.0", "", missing], "B" => [1.0, 2.0, 3.0]),
             col_ops_ok = try
                 Lib_Vise.VISE_WidenColumnFloat_DDEF!(df_col_ops, :A)
                 Lib_Vise.VISE_WidenColumnFloat_DDEF!(df_col_ops, :NewCol)
-                Lib_Vise.VISE_InsertColumnAfter_DDEF!(df_col_ops, "B", "A")
-                Lib_Vise.VISE_InsertColumnAfter_DDEF!(df_col_ops, "A", "A")
-                Lib_Vise.VISE_InsertColumnAfter_DDEF!(df_col_ops, "Z", "A")
+                VICA!(df_col_ops, "B", "A")
+                VICA!(df_col_ops, "A", "A")
+                VICA!(df_col_ops, "Z", "A")
                 "NewCol" in names(df_col_ops)
             catch
                 false
@@ -1646,57 +1631,35 @@ const SUITE_START_TIME = time()
                 X_fwd_rev, Y_fwd_rev, ["Precursor", "X2", "X3"], ["Yield"],
                 df_fwd_rev, cfg_fwd_rev, opts_fwd_rev, C, Sys_Fast.FAST_Log_DDEF
             )
-            @track G4 res_n1 == "X1" && res_n2 == "X2" && res_n3 == "X3" && isempty(res_n4) &&
-                      res_n5 == "X1" && res_n6 == "X1" && res_n7 == "X1" && res_n8 == "UnknownCol" && col_ops_ok &&
+            @track G4 vrn_ok && col_ops_ok &&
                       length(mods_dcyp_extr) == 1 && length(audit_fwd_rev) >= 1 && any(c -> startswith(c, "ACTUAL_Yield"), names(df_fwd_rev)) &&
                       !ismissing(df_fwd_rev[1, :ACTUAL_Precursor])
         end
 
         # 64: Excel multi-sheet execution and export workflows
-        let Y_lin = [5.0 + 3.0*r[1] - 2.0*r[2] + 1.5*r[3] for r in eachrow(X_quad)],
-            C = Sys_Fast.FAST_Data_DDEC,
-            df_core = DataFrame(
-                C.COL_EXP_ID => ["EXP_$i" for i in 1:15],
-                C.COL_PHASE => fill("Phase1", 15),
-                C.PRE_VAR * "X1" => X_quad[:, 1],
-                C.PRE_VAR * "X2" => X_quad[:, 2],
-                C.PRE_VAR * "X3" => X_quad[:, 3],
-                C.PRE_RESULT * "Yield" => Y_quad,
-                C.PRE_RESULT * "Purity" => Y_lin
-            ),
-            cfg_core = Dict(
-                "Ingredients" => [
-                    Dict("Name" => "X1", "Role" => C.ROLE_VAR, "Levels" => [-1.0, 0.0, 1.0]),
-                    Dict("Name" => "X2", "Role" => C.ROLE_VAR, "Levels" => [-1.0, 0.0, 1.0]),
-                    Dict("Name" => "X3", "Role" => C.ROLE_VAR, "Levels" => [-1.0, 0.0, 1.0])
-                ],
-                "Outputs" => [Dict("Name" => "Yield"), Dict("Name" => "Purity")]
-            ),
-            goals_core = [
-                Dict{String,Any}("Response" => "Yield", "Type" => "Maximise", "Min" => 0.0, "Max" => 30.0, "Target" => 25.0, "Weight" => 1.0, "WeightVal" => 1.0),
-                Dict{String,Any}("Response" => "Purity", "Type" => "Maximise", "Min" => 0.0, "Max" => 20.0, "Target" => 15.0, "Weight" => 1.0, "WeightVal" => 1.0)
-            ],
-            (core_res, _) = Lib_Vise.VISE_ExecuteInternal_DDEF(deepcopy(df_core), cfg_core, "Phase1", goals_core, "quadratic"; Opts=Dict{String,Any}("MaxTime" => 0.05)),
-            opts_radio_disp = Dict{String, Any}("MaxTime" => 0.05, "RadioOpts" => Dict(
+        let FACT = Sys_Fast.FAST_CleanTransient_DDEF,
+            FATR = Sys_Fast.FAST_TempRoot_DDEC,
+            VEI = Lib_Vise.VISE_ExecuteInternal_DDEF,
+            VExec = Lib_Vise.VISE_Execute_DDEF,
+            VETE = Lib_Vise.VISE_ExportToExcel_DDEF,
+            (core_res, _) = VEI(deepcopy(df_core), cfg_core, "Phase1", goals_core, "quadratic"; Opts=Dict{String,Any}("MaxTime" => 0.05, "GridSteps" => 11)),
+            opts_radio_disp = Dict{String, Any}("MaxTime" => 0.05, "GridSteps" => 11, "RadioOpts" => Dict(
                 "Apply" => true,
                 "FORW" => Dict("Enabled" => true, "X1" => Dict("Name" => "X1_Radio", "Unit" => "mg")),
                 "REVE" => Dict("Enabled" => true, "Yield" => Dict("Name" => "Yield_Radio", "Unit" => "%"))
             )),
-            (core_radio, _) = Lib_Vise.VISE_ExecuteInternal_DDEF(deepcopy(df_core), cfg_core, "Phase1", goals_core, "linear"; Opts=opts_radio_disp, RenderMode=:Minimal),
+            (core_radio, _) = VEI(deepcopy(df_core), cfg_core, "Phase1", goals_core, "linear"; Opts=opts_radio_disp, RenderMode=:Minimal),
             (fail_mod, _) = Lib_Vise.VISE_SelectBestModel_DDEF(zeros(5, 3), rand(5), ["X1", "X2", "X3"], "Auto"),
             cv_short = Lib_Vise.VISE_CrossValidate_DDEF(rand(3, 2), rand(3), "linear"),
             df_multi = vcat(df_core, DataFrame(
-                C.COL_EXP_ID => ["EXP_P2_01", "EXP_P2_02"],
-                C.COL_PHASE => ["Phase2", "Phase2"],
-                C.PRE_VAR * "X1" => [0.0, 1.0],
-                C.PRE_VAR * "X2" => [0.0, 1.0],
-                C.PRE_VAR * "X3" => [0.0, 1.0],
-                C.PRE_RESULT * "Yield" => [15.0, 18.0],
-                C.PRE_RESULT * "Purity" => [12.0, 14.0]
+                C.COL_EXP_ID => ["EXP_P2_01", "EXP_P2_02"], C.COL_PHASE => fill("Phase2", 2),
+                C.PRE_VAR * "X1" => [0.0, 1.0], C.PRE_VAR * "X2" => [0.0, 1.0], C.PRE_VAR * "X3" => [0.0, 1.0],
+                C.PRE_RESULT * "Yield" => [15.0, 18.0], C.PRE_RESULT * "Purity" => [12.0, 14.0]
             ); cols=:union),
-            t_core_xlsx = joinpath(Sys_Fast.FAST_TempRoot_DDEC, "DOECISORY_TEMP_VISE_EXEC.xlsx"),
-            t_exp_xlsx  = joinpath(Sys_Fast.FAST_TempRoot_DDEC, "DOECISORY_TEMP_VISE_EXP.xlsx"),
-            t_exp_full = joinpath(Sys_Fast.FAST_TempRoot_DDEC, "DOECISORY_TEMP_EXP_FULL.xlsx"),
+            t_core_xlsx = joinpath(FATR, "DOECISORY_TEMP_VISE_EXEC.xlsx"),
+            t_exp_xlsx  = joinpath(FATR, "DOECISORY_TEMP_VISE_EXP.xlsx"),
+            t_exp_dup   = joinpath(FATR, "DOECISORY_TEMP_VISE_DUP.xlsx"),
+            t_exp_full = joinpath(FATR, "DOECISORY_TEMP_EXP_FULL.xlsx"),
             rad_audit = [
                 Dict("Name" => "Ga-68", "Type" => "FORW (Fixed)", "HalfLife" => 67.71, "Unit" => "min", "AvgDeltaT" => 30.0, "AvgDF" => 0.73, "IsCorrected" => true),
                 Dict("Name" => "Lu-177", "Type" => "REVE (Product)", "HalfLife" => 6.647, "Unit" => "days", "AvgDeltaT" => 60.0, "AvgDF" => 0.99, "IsCorrected" => false)
@@ -1707,47 +1670,46 @@ const SUITE_START_TIME = time()
                 "BestScore" => 0.95
             )),
             rep_full_md = Lib_Vise.VISE_GenSciReport_DDEF(bundle_full_vise),
-            fail_samples = Lib_Vise.VISE_ExecuteInternal_DDEF(df_core[1:2, :], cfg_core, "Phase1", goals_core)[1],
-            exp_full_ok = Lib_Vise.VISE_ExportToExcel_DDEF(bundle_full_vise, t_exp_full)
-            Sys_Fast.FAST_CleanTransient_DDEF(t_exp_full)
-            Sys_Fast.FAST_CleanTransient_DDEF(t_core_xlsx)
-            Sys_Fast.FAST_CleanTransient_DDEF(t_exp_xlsx)
+            fail_samples = VEI(df_core[1:2, :], cfg_core, "Phase1", goals_core)[1],
+            exp_full_ok = VETE(bundle_full_vise, t_exp_full)
+            foreach(FACT, (t_exp_full, t_core_xlsx, t_exp_xlsx))
             Sys_Fast.FAST_WriteExcel_DDEF(t_core_xlsx, Dict(
                 C.SHEET_DATA => df_multi,
                 C.SHEET_CONFIG => DataFrame("PARAMETER" => ["MasterConfig"], "VALUE_JSON" => [JSON3.write(cfg_core)])
             ))
-            exec_res = Lib_Vise.VISE_Execute_DDEF(t_core_xlsx, "Phase1", goals_core, "quadratic"; Opts=Dict{String,Any}("MaxTime" => 0.2, "GridSteps" => 21), ConfigUpdates=Dict{String,Any}("CustomParam" => "MergedVal"), Optim=true)
-            exec_no_opt = Lib_Vise.VISE_Execute_DDEF(t_core_xlsx, "Phase1", goals_core, "quadratic"; Optim=false)
-            exec_bad_phase = Lib_Vise.VISE_Execute_DDEF(t_core_xlsx, "PhaseNonExistent", goals_core)
-            exp_ok = Lib_Vise.VISE_ExportToExcel_DDEF(core_res, t_exp_xlsx)
-            exp_bad = Lib_Vise.VISE_ExportToExcel_DDEF(core_res, Sys_Fast.FAST_TempRoot_DDEC)
-            Sys_Fast.FAST_CleanTransient_DDEF(t_core_xlsx)
-            Sys_Fast.FAST_CleanTransient_DDEF(t_exp_xlsx)
+            exec_res = VExec(
+                t_core_xlsx, "Phase1", goals_core, "quadratic";
+                Opts=Dict{String,Any}("MaxTime" => 0.2, "GridSteps" => 21),
+                ConfigUpdates=Dict{String,Any}("CustomParam" => "MergedVal"),
+                Optim=true
+            )
+            exec_no_opt = VExec(t_core_xlsx, "Phase1", goals_core, "quadratic"; Optim=false)
+            exec_bad_phase = VExec(t_core_xlsx, "PhaseNonExistent", goals_core)
+            exp_ok = VETE(core_res, t_exp_xlsx)
+            exp_bad = VETE(core_res, FATR)
+            bundle_dup = merge(deepcopy(core_res), Dict(
+                "OutNames" => ["Yield", "Yield"],
+                "DisplayOutNames" => ["Yield", "Yield"],
+                "Leaders" => [Dict("EXP_ID" => "L1", "SCORE" => 0.95)]
+            ))
+            exp_dup_ok = VETE(bundle_dup, t_exp_dup)
+            foreach(FACT, (t_exp_dup, t_core_xlsx, t_exp_xlsx))
             @track G4 exec_res["Status"] == "OK" && exec_no_opt["Status"] == "OK" && haskey(exec_no_opt, "_Hidden_Sheets") &&
-                      exec_bad_phase["Status"] == "FAIL" && exp_ok && !exp_bad && exp_full_ok &&
+                      exec_bad_phase["Status"] == "FAIL" && exp_ok && !exp_bad && exp_full_ok && exp_dup_ok &&
                       contains(rep_full_md, "Radiochemical Decay Corrections") && fail_samples["Status"] == "FAIL" &&
                       core_radio["Status"] == "OK" && fail_mod["Status"] == "FAIL" && isnan(cv_short)
         end
 
         # 65: Phase data extraction and row partition filters
-        let C = Sys_Fast.FAST_Data_DDEC,
-            df_core = DataFrame(
-                C.COL_EXP_ID => ["EXP_$i" for i in 1:15],
-                C.COL_PHASE => fill("Phase1", 15),
-                C.PRE_VAR * "X1" => X_quad[:, 1],
-                C.PRE_VAR * "X2" => X_quad[:, 2],
-                C.PRE_VAR * "X3" => X_quad[:, 3],
-                C.PRE_RESULT * "Yield" => Y_quad,
-                C.PRE_RESULT * "Purity" => fill(10.0, 15)
-            ),
+        let VLPD = Lib_Vise.VISE_LoadPhaseData_DDEF,
             t_ph_xlsx = joinpath(Sys_Fast.FAST_TempRoot_DDEC, "DOECISORY_TEMP_PHASE_LOAD.xlsx"),
             _ = Sys_Fast.FAST_WriteExcel_DDEF(t_ph_xlsx, Dict(C.SHEET_DATA => df_core)),
-            df_ph_file  = Lib_Vise.VISE_LoadPhaseData_DDEF(t_ph_xlsx, "Phase1", C),
+            df_ph_file  = VLPD(t_ph_xlsx, "Phase1", C),
             _ = Sys_Fast.FAST_CleanTransient_DDEF(t_ph_xlsx),
-            df_ph_empty = Lib_Vise.VISE_LoadPhaseData_DDEF(DataFrame(), "Phase1", C),
-            df_ph_all   = Lib_Vise.VISE_LoadPhaseData_DDEF(df_core, "", C),
-            df_ph_p1    = Lib_Vise.VISE_LoadPhaseData_DDEF(df_core, "Phase1", C),
-            df_ph_noph  = Lib_Vise.VISE_LoadPhaseData_DDEF(DataFrame("A" => [1.0]), "Phase1", C)
+            df_ph_empty = VLPD(DataFrame(), "Phase1", C),
+            df_ph_all   = VLPD(df_core, "", C),
+            df_ph_p1    = VLPD(df_core, "Phase1", C),
+            df_ph_noph  = VLPD(DataFrame("A" => [1.0]), "Phase1", C)
             @track G4 isempty(df_ph_empty) && nrow(df_ph_all) == 15 && nrow(df_ph_p1) == 15 &&
                       nrow(df_ph_file) == 15 && nrow(df_ph_noph) == 1
         end
@@ -1763,12 +1725,19 @@ const SUITE_START_TIME = time()
         X_arts = Float64.(Lib_Core.CORE_DesignBB15_DDEC)
         Y_arts = [10.0 + 2.0*r[1] for r in eachrow(X_arts)]
         model_arts = Lib_Vise.VISE_Regress_DDEF(X_arts, Y_arts, "linear"; InNames=["X1", "X2", "X3"])
+        g_max50 = [Dict("Type" => "Maximise", "Min" => 0.0, "Max" => 50.0)]
+        names_x3 = ["X1", "X2", "X3"]
+        base_rend_args = (
+            [model_arts], X_arts, reshape(Y_arts, :, 1), names_x3, ["Yield"],
+            g_max50, [0.95], [0.90]
+        )
 
         # 66: Pareto effect chart and significance threshold
         let p_pareto = Lib_Arts.ARTS_RenderPareto_DDEF(model_arts, "Yield", 0.9, 0.8),
             p_fail = Lib_Arts.ARTS_Draw_DDEF(Lib_Arts.ARTS_PlotPareto_DDES(), Dict("Status" => "FAIL"), "Yield", 0.0, 0.0),
-            p_nocoef = Lib_Arts.ARTS_Draw_DDEF(Lib_Arts.ARTS_PlotPareto_DDES(), Dict("Status" => "OK", "Coefs" => Float64[]), "Yield", 0.0, 0.0)
-            @track G5 p_pareto isa PlotlyJS.Plot && p_fail isa PlotlyJS.Plot && p_nocoef isa PlotlyJS.Plot
+            p_nocoef = Lib_Arts.ARTS_Draw_DDEF(Lib_Arts.ARTS_PlotPareto_DDES(), Dict("Status" => "OK", "Coefs" => Float64[]), "Yield", 0.0, 0.0),
+            p_terms_arb = Lib_Arts.ARTS_FormatParetoTerms_DDEF(["A", "B", "C", "D"])
+            @track G5 p_pareto isa PlotlyJS.Plot && p_fail isa PlotlyJS.Plot && p_nocoef isa PlotlyJS.Plot && length(p_terms_arb) == 4
         end
 
         # 67: Fit diagnostic observed versus predicted plots
@@ -1791,8 +1760,11 @@ const SUITE_START_TIME = time()
 
         # 70: Response surface 2D contour and slice profiles
         let p_cont = Lib_Arts.ARTS_RenderContour_DDEF(model_arts, X_arts, [1, 2], ["X1", "X2"], "Yield"),
-            p_slice = Lib_Arts.ARTS_RenderSlice_DDEF(model_arts, X_arts, [1, 2], ["X1", "X2"], "Yield")
-            @track G5 p_cont isa PlotlyJS.Plot && p_slice isa PlotlyJS.Plot && length(Lib_Arts.ARTS_SlicePairs_DDEC) == 6
+            p_slice = Lib_Arts.ARTS_RenderSlice_DDEF(model_arts, X_arts, [1, 2], ["X1", "X2"], "Yield"),
+            prep_mat_tup = Lib_Arts.ARTS_PrepareMatrix_DDEF((1, 2, 3)),
+            (_, _, g_buff) = Lib_Arts.ARTS_BuildGrid_DDEF(X_arts, 1, 2, 10, zeros(200, 3))
+            @track G5 p_cont isa PlotlyJS.Plot && p_slice isa PlotlyJS.Plot && length(Lib_Arts.ARTS_SlicePairs_DDEC) == 6 &&
+                      length(prep_mat_tup) == 3 && size(g_buff, 1) == 100
         end
 
         # 71: Factor interaction matrix and trend line plots
@@ -1815,16 +1787,16 @@ const SUITE_START_TIME = time()
         end
 
         # 73: Design sweet spot space and candidate zone maps
-        let (p_oz, oz_pct) = Lib_Arts.ARTS_RenderOptimalZone_DDEF([model_arts], [Dict("Type"=>"Maximise", "Min"=>0.0, "Max"=>50.0)], X_arts, ["X1", "X2", "X3"]),
-            (p_fs, fs_pct) = Lib_Arts.ARTS_RenderFeasibleSpace_DDEF([model_arts], [Dict("Type"=>"Maximise", "Min"=>0.0, "Max"=>50.0)], X_arts, ["X1", "X2", "X3"]),
-            (p_ss, ss_pct) = Lib_Arts.ARTS_RenderSweetSpot_DDEF([model_arts], [Dict("Type"=>"Maximise", "Min"=>0.0, "Max"=>50.0)], X_arts, ["X1", "X2", "X3"]),
-            p_sp = Lib_Arts.ARTS_RenderDesignSpace_DDEF([model_arts], [Dict("Type"=>"Maximise", "Min"=>0.0, "Max"=>50.0)], X_arts, [1, 2], ["X1", "X2", "X3"]),
-            (p_ca, ca_pct) = Lib_Arts.ARTS_RenderCandidates_DDEF([model_arts], [Dict("Type"=>"Maximise", "Min"=>0.0, "Max"=>50.0)], X_arts, [1, 2], ["X1", "X2", "X3"]),
+        let (p_oz, oz_pct) = Lib_Arts.ARTS_RenderOptimalZone_DDEF([model_arts], g_max50, X_arts, names_x3),
+            (p_fs, fs_pct) = Lib_Arts.ARTS_RenderFeasibleSpace_DDEF([model_arts], g_max50, X_arts, names_x3),
+            (p_ss, ss_pct) = Lib_Arts.ARTS_RenderSweetSpot_DDEF([model_arts], g_max50, X_arts, names_x3),
+            p_sp = Lib_Arts.ARTS_RenderDesignSpace_DDEF([model_arts], g_max50, X_arts, [1, 2], names_x3),
+            (p_ca, ca_pct) = Lib_Arts.ARTS_RenderCandidates_DDEF([model_arts], g_max50, X_arts, [1, 2], names_x3),
             m_nan = Dict("Status" => "OK", "ModelType" => "linear", "Coefs" => [NaN, NaN, NaN, NaN]),
-            (p_fs_nan, _) = Lib_Arts.ARTS_RenderFeasibleSpace_DDEF([m_nan], [Dict("Type"=>"Maximise", "Min"=>0.0, "Max"=>50.0)], X_arts, ["X1", "X2", "X3"]),
-            (p_oz_nan, _) = Lib_Arts.ARTS_RenderOptimalZone_DDEF([m_nan], [Dict("Type"=>"Maximise", "Min"=>0.0, "Max"=>50.0)], X_arts, ["X1", "X2", "X3"]),
-            (p_ss_nan, _) = Lib_Arts.ARTS_RenderSweetSpot_DDEF([m_nan], [Dict("Type"=>"Maximise", "Min"=>0.0, "Max"=>50.0)], X_arts, ["X1", "X2", "X3"]),
-            (p_ca_nan, _) = Lib_Arts.ARTS_RenderCandidates_DDEF([m_nan], [Dict("Type"=>"Maximise", "Min"=>0.0, "Max"=>50.0)], X_arts, [1, 2], ["X1", "X2", "X3"])
+            (p_fs_nan, _) = Lib_Arts.ARTS_RenderFeasibleSpace_DDEF([m_nan], g_max50, X_arts, names_x3),
+            (p_oz_nan, _) = Lib_Arts.ARTS_RenderOptimalZone_DDEF([m_nan], g_max50, X_arts, names_x3),
+            (p_ss_nan, _) = Lib_Arts.ARTS_RenderSweetSpot_DDEF([m_nan], g_max50, X_arts, names_x3),
+            (p_ca_nan, _) = Lib_Arts.ARTS_RenderCandidates_DDEF([m_nan], g_max50, X_arts, [1, 2], names_x3)
             @track G5 p_oz isa PlotlyJS.Plot && p_fs isa PlotlyJS.Plot && p_ss isa PlotlyJS.Plot &&
                       p_sp isa PlotlyJS.Plot && p_ca isa PlotlyJS.Plot &&
                       p_fs_nan isa PlotlyJS.Plot && p_oz_nan isa PlotlyJS.Plot &&
@@ -1833,26 +1805,29 @@ const SUITE_START_TIME = time()
         end
 
         # 74: Visual orchestrator multi-mode render pipelines
-        let g_full = Lib_Arts.ARTS_Render_DDEF([model_arts], X_arts, reshape(Y_arts, :, 1), ["X1", "X2", "X3"], ["Yield"], [Dict("Type"=>"Maximise", "Min"=>0.0, "Max"=>50.0)], [0.95], [0.90], Dict("Mode" => :Full), DataFrame(), [[0.5, 0.3, 0.2]], [Y_arts .- 10.0]),
-            g_prio = Lib_Arts.ARTS_Render_DDEF([model_arts], X_arts, reshape(Y_arts, :, 1), ["X1", "X2", "X3"], ["Yield"], [Dict("Type"=>"Maximise", "Min"=>0.0, "Max"=>50.0)], [0.95], [0.90], Dict("Mode" => :Priority)),
-            g_def  = Lib_Arts.ARTS_Render_DDEF([model_arts], X_arts, reshape(Y_arts, :, 1), ["X1", "X2", "X3"], ["Yield"], [Dict("Type"=>"Maximise", "Min"=>0.0, "Max"=>50.0)], [0.95], [0.90], Dict("Mode" => :Deferred))
+        let ARend = Lib_Arts.ARTS_Render_DDEF,
+            APP = Lib_Arts.ARTS_PlotPriority_DDEC,
+            g_full = ARend(base_rend_args..., Dict("Mode" => :Full), DataFrame(), [[0.5, 0.3, 0.2]], [Y_arts .- 10.0]),
+            g_prio = ARend(base_rend_args..., Dict("Mode" => :Priority)),
+            g_def  = ARend(base_rend_args..., Dict("Mode" => :Deferred))
             @track G5 length(g_full) >= 5 && length(g_prio) >= 2 && length(g_def) >= 3 &&
-                      length(Lib_Arts.ARTS_PlotPriority_DDEC) == 15 &&
-                      Lib_Arts.ARTS_PlotPriority_DDEC["SweetSpot"] == 15 &&
-                      Lib_Arts.ARTS_PlotPriority_DDEC["FeasibleSpace"] == 13
+                      length(APP) == 15 &&
+                      APP["SweetSpot"] == 15 &&
+                      APP["FeasibleSpace"] == 13
         end
 
         # 75: Viridis colour scale, hex alpha, and grid maths
-        let ds = Lib_Arts.ARTS_Downsample_DDEF(X_arts, 5, 2),
+        let APM = Lib_Arts.ARTS_PrepareMatrix_DDEF,
+            ds = Lib_Arts.ARTS_Downsample_DDEF(X_arts, 5, 2),
             (gx1, gx2, gmat) = Lib_Arts.ARTS_BuildGrid_DDEF(X_arts, 1, 2, 10),
             sm = Lib_Arts.ARTS_SmoothMatrix_DDEF(rand(5, 5), 2),
             sm_nan = Lib_Arts.ARTS_SmoothMatrix_DDEF([1.0 2.0 NaN; 4.0 NaN 6.0; 7.0 8.0 9.0], 1),
             rgba = Lib_Arts.ARTS_HexToRGBA_DDEF("#112233", 0.5),
             av = Lib_Arts.ARTS_GenAlphaViridis_DDEF(0.5),
             bl = Lib_Arts.ARTS_BuildBaseLayout_DDEF("Test Base Layout"; height=450),
-            p_mat = Lib_Arts.ARTS_PrepareMatrix_DDEF([1.0, 2.0, 3.0]),
-            p_vvec = Lib_Arts.ARTS_PrepareMatrix_DDEF([[1.0, 2.0], [3.0, 4.0]]),
-            p_subm = Lib_Arts.ARTS_PrepareMatrix_DDEF(view(ones(3, 3), 1:2, 1:2)),
+            p_mat = APM([1.0, 2.0, 3.0]),
+            p_vvec = APM([[1.0, 2.0], [3.0, 4.0]]),
+            p_subm = APM(view(ones(3, 3), 1:2, 1:2)),
             p_str = Lib_Arts.ARTS_PrepareStringVector_DDEF(["A", "B"]),
             p_syms = Lib_Arts.ARTS_PrepareStringVector_DDEF([:A, :B]),
             p_flt = Lib_Arts.ARTS_PrepareFloatVector_DDEF([1.0, 2.0]),
@@ -1876,212 +1851,291 @@ const SUITE_START_TIME = time()
     # ==========================================================================
     Sys_Fast.FAST_ActiveGroup_DDEC[] = "G6"
     t_g6 = time()
+    struct FLOW_BoundaryCustom_DDES <: Sys_Flow.FLOW_AbstractBoundaryMode_DDET end
     @testset "Group 6: Sys_Flow ACTA Adaptive Transitions & Space Map" begin
-        # 76: ASTM affine transformation and boundary clamping
-        let map_mid = Sys_Flow.FLOW_ApplyASTM_DDEF(10.0, 1.5, 5.0),
-            map_zero = Sys_Flow.FLOW_ApplyASTM_DDEF(0.0, 1.5, 5.0),
-            (ok_b, val_b, _) = Sys_Flow.FLOW_ValidateASTM_DDEF(95.0, 0.0, 90.0),
-            (ok_lo, val_lo, _) = Sys_Flow.FLOW_ValidateASTM_DDEF(-10.0, 0.0, 100.0),
-            (ok_hi, val_hi, _) = Sys_Flow.FLOW_ValidateASTM_DDEF(150.0, 0.0, 100.0),
-            src_nil  = Sys_Flow.FLOW_ResolveSource_DDEF(nothing),
-            src_any  = Sys_Flow.FLOW_ResolveSource_DDEF(123),
-            src_tok  = Sys_Flow.FLOW_ResolveSource_DDEF("NON_EXISTENT_TOKEN_XYZ")
-            @track G6 map_mid == 20.0 && map_zero == 5.0 && !ok_b && val_b == 90.0 &&
-                      !ok_lo && val_lo == 0.0 && !ok_hi && val_hi == 100.0 &&
-                      isempty(src_nil) && isempty(src_any) && isempty(src_tok)
-        end
+        C = Sys_Fast.FAST_Data_DDEC
+        df_leads = DataFrame(
+            "EXP_ID" => ["RUN_01", "RUN_02"],
+            "SCORE"  => [0.82, 0.94],
+            "PHASE"  => ["Phase1", "Phase1"],
+            "X1"     => [15.0, 20.0],
+            "X2"     => [1.5, 2.0],
+            "X3"     => [150.0, 200.0]
+        )
+        _flow_cfg(ingr) = DataFrame("PARAMETER" => ["MasterConfig"], "VALUE_JSON" => [JSON3.write(Dict(
+            "Ingredients" => ingr, "Global" => Dict("Volume" => 10.0, "Conc" => 1.0)
+        ))])
+        _std_flow_ingr = [
+            Dict("Name" => "X1", "Role" => C.ROLE_VAR, "Levels" => [10.0, 20.0, 30.0]),
+            Dict("Name" => "X2", "Role" => C.ROLE_VAR, "Levels" => [1.0, 2.0, 3.0]),
+            Dict("Name" => "X3", "Role" => C.ROLE_VAR, "Levels" => [100.0, 200.0, 300.0])
+        ]
 
-        # 77: ASTM boundary status, telemetry alert and range contraction dispatch
-        let b_lo      = Sys_Flow.FLOW_ValidateBoundaryStatus_DDEF(2.0, 0.0, 100.0),
-            b_hi      = Sys_Flow.FLOW_ValidateBoundaryStatus_DDEF(98.0, 0.0, 100.0),
-            b_sf      = Sys_Flow.FLOW_ValidateBoundaryStatus_DDEF(50.0, 0.0, 100.0),
-            tag_safe  = Sys_Flow.FLOW_GetActionTag_DDEF(Sys_Flow.FLOW_BoundarySafe_DDES()),
-            tag_low   = Sys_Flow.FLOW_GetActionTag_DDEF(Sys_Flow.FLOW_BoundaryLower_DDES()),
-            alert_low = Sys_Flow.FLOW_CheckBoundaryAlert_DDEF(Sys_Flow.FLOW_BoundaryLower_DDES())[2],
-            rng_sf    = Sys_Flow.FLOW_ContractRange_DDEF(Sys_Flow.FLOW_BoundarySafe_DDES(), 10.0, 0.5),
-            rng_lo    = Sys_Flow.FLOW_ContractRange_DDEF(Sys_Flow.FLOW_BoundaryLower_DDES(), 10.0, 0.5)
-            @track G6 b_lo isa Sys_Flow.FLOW_BoundaryLower_DDES &&
-                      b_hi isa Sys_Flow.FLOW_BoundaryUpper_DDES &&
-                      b_sf isa Sys_Flow.FLOW_BoundarySafe_DDES &&
-                      tag_safe == "CONTRACTION" && tag_low == "TRANS_AUTO" &&
-                      occursin("LOWER", alert_low) &&
-                      rng_sf == 5.0 && rng_lo == 10.0
+        # 76: ASTM affine transformation and boundary alignment
+        let FLVASTM = Sys_Flow.FLOW_ValidateASTM_DDEF,
+            FLRS = Sys_Flow.FLOW_ResolveSource_DDEF,
+            map_mid = Sys_Flow.FLOW_ApplyASTM_DDEF(10.0, 1.5, 5.0),
+            map_zero = Sys_Flow.FLOW_ApplyASTM_DDEF(0.0, 1.5, 5.0),
+            v_b   = FLVASTM(95.0, 0.0, 90.0),
+            v_lo  = FLVASTM(-10.0, 0.0, 100.0),
+            v_hi  = FLVASTM(150.0, 0.0, 100.0),
+            v_unb = FLVASTM(50.0, -Inf, Inf),
+            v_inv = FLVASTM(50.0, 100.0, 20.0),
+            src_empty = all(isempty, (FLRS(nothing), FLRS(123), FLRS("NON_EXISTENT_TOKEN_XYZ")))
+            @track G6 map_mid == 20.0 && map_zero == 5.0 &&
+                      !v_b[1] && v_b[2] == 90.0 &&
+                      !v_lo[1] && v_lo[2] == 0.0 &&
+                      !v_hi[1] && v_hi[2] == 100.0 &&
+                      v_unb[1] && v_unb[2] == 50.0 &&
+                      !v_inv[1] && occursin("Invalid", v_inv[3]) &&
+                      src_empty
+        end
+        
+        # 77: ASTM boundary status and telemetry alert mapping
+        let FLCBM = Sys_Flow.FLOW_ClassifyBoundaryMode_DDEF,
+            FLGAT = Sys_Flow.FLOW_GetActionTag_DDEF,
+            FLCBA = Sys_Flow.FLOW_CheckBoundaryAlert_DDEF,
+            FLCR = Sys_Flow.FLOW_ContractRange_DDEF,
+            FLMC = Sys_Flow.FLOW_ModeContract_DDES,
+            FLMTL = Sys_Flow.FLOW_ModeTranslateLower_DDES,
+            FLMTU = Sys_Flow.FLOW_ModeTranslateUpper_DDES,
+            FLMSU = Sys_Flow.FLOW_ModeSeekUpper_DDES,
+            FLMSL = Sys_Flow.FLOW_ModeSeekLower_DDES,
+            b_lo      = FLCBM(2.0, 0.0, 100.0),
+            b_hi      = FLCBM(98.0, 0.0, 100.0),
+            b_sf      = FLCBM(50.0, 0.0, 100.0),
+            b_seek_hi = FLCBM(98.0, 0.0, 100.0, 0.0, 100.0),
+            b_seek_lo = FLCBM(2.0, 0.0, 100.0, 0.0, 100.0),
+            modes     = (FLMC(), FLMTL(), FLMTU(), FLMSU(), FLMSL(), FLOW_BoundaryCustom_DDES()),
+            tags      = [FLGAT(m) for m in (modes[1], modes[2], modes[4], modes[5], modes[6])],
+            alerts    = [FLCBA(m)[2] for m in modes],
+            rngs      = [FLCR(m, 10.0, 0.5) for m in modes]
+            @track G6 b_lo isa FLMTL && b_hi isa FLMTU && b_sf isa FLMC &&
+                      b_seek_hi isa FLMSU && b_seek_lo isa FLMSL &&
+                      tags == ["CONTRACTION", "TRANS_LOWER", "SEEK_UPPER", "SEEK_LOWER", "CONTRACTION"] &&
+                      occursin("centre", alerts[1]) && occursin("lower boundary", alerts[2]) &&
+                      occursin("upper boundary", alerts[3]) && occursin("shifted outward", alerts[3]) &&
+                      occursin("upper limit", alerts[4]) && occursin("lower limit", alerts[5]) &&
+                      occursin("operational", alerts[6]) &&
+                      rngs == [5.0, 5.0, 5.0, 1.0, 1.0, 5.0]
         end
 
         # 78: Leader proximity evaluation and threshold checks
-        let ask_mid  = Sys_Flow.FLOW_AuditLeader_DDEF(50.0, [0.0, 50.0, 100.0]),
-            ask_low  = Sys_Flow.FLOW_AuditLeader_DDEF(1.0, [0.0, 50.0, 100.0]),
-            ask_safe = Sys_Flow.FLOW_AuditLeader_DDEF(20.0, [10.0, 20.0, 30.0]),
-            ask_edge_lo = Sys_Flow.FLOW_AuditLeader_DDEF(10.1, [10.0, 20.0, 30.0]),
-            ask_edge_hi = Sys_Flow.FLOW_AuditLeader_DDEF(29.9, [10.0, 20.0, 30.0])
+        let FLAL = Sys_Flow.FLOW_AuditLeader_DDEF,
+            ask_mid  = FLAL(50.0, [0.0, 50.0, 100.0]),
+            ask_low  = FLAL(1.0, [0.0, 50.0, 100.0]),
+            ask_safe = FLAL(20.0, [10.0, 20.0, 30.0]),
+            ask_edge_lo = FLAL(10.1, [10.0, 20.0, 30.0]),
+            ask_edge_hi = FLAL(29.9, [10.0, 20.0, 30.0])
             @track G6 ask_mid[1] == true && ask_low[1] == false &&
                       ask_safe[1] == true && ask_edge_lo[1] == false && ask_edge_hi[1] == false
         end
 
-        # 79: Adaptive range contraction, clamping and multi-variable profiling via ACTA
-        let z_rng = Sys_Flow.FLOW_CalcACTA_DDEF(50.0, [0.0, 50.0, 100.0], 0.5, 0.0, 0.0),
-            s_rng = Sys_Flow.FLOW_CalcACTA_DDEF(98.0, [0.0, 50.0, 100.0], 1.0, 0.2, 0.0),
-            c_rng = Sys_Flow.FLOW_CalcACTA_DDEF(2.0, [0.0, 50.0, 100.0], 1.0, 0.2, 0.0),
-            u_neg = Sys_Flow.FLOW_CalcACTA_DDEF(99.0, [0.0, 50.0, 100.0], 0.8, -0.2, -10.0),
-            l_pos = Sys_Flow.FLOW_CalcACTA_DDEF(1.0, [0.0, 50.0, 100.0], 0.8, 0.2, 0.0),
-            r2    = Sys_Flow.FLOW_CalcACTA_DDEF(9.5, [0.0, 5.0, 10.0], 0.8, 0.1, 0.0),
-            r3    = Sys_Flow.FLOW_CalcACTA_DDEF(105.0, [100.0, 200.0, 300.0], 0.6, 0.1, 0.0)
+        # 79: Adaptive range contraction and boundary seeking
+        let FLCACTA = Sys_Flow.FLOW_CalcACTA_DDEF,
+            FLEACTA = Sys_Flow.FLOW_ExecuteACTA_DDEF,
+            lvl100 = [0.0, 50.0, 100.0],
+            z_rng = FLCACTA(50.0, lvl100, 0.5, 0.0, 0.0),
+            s_rng = FLCACTA(98.0, lvl100, 1.0, 0.2, 0.0),
+            c_rng = FLCACTA(2.0, lvl100, 1.0, 0.2, 0.0),
+            r2    = FLCACTA(9.5, [0.0, 5.0, 10.0], 0.8, 0.1, 0.0),
+            r3    = FLCACTA(105.0, [100.0, 200.0, 300.0], 0.6, 0.1, 0.0),
+            l_mid = FLEACTA(Sys_Flow.FLOW_ModeTranslateLower_DDES(), -10.0, lvl100, 0.5),
+            s_up_clamp = FLEACTA(Sys_Flow.FLOW_ModeSeekUpper_DDES(), 99.0, lvl100, 0.5, 95.0, 100.0),
+            s_lo_clamp = FLEACTA(Sys_Flow.FLOW_ModeSeekLower_DDES(), 1.0, lvl100, 0.5, 0.0, 5.0),
+            len3_ok = all(x -> length(x) == 3, (
+                FLCACTA(99.0, lvl100, 0.8, -0.2, -10.0),
+                FLCACTA(1.0, lvl100, 0.8, 0.2, 0.0),
+                Sys_Flow.FLOW_SeekCeiling_DDEF(50.0, 0.0, Inf),
+                Sys_Flow.FLOW_SeekCeiling_DDEF(95.0, 0.0, 100.0, 0.0),
+                Sys_Flow.FLOW_SeekFloor_DDEF(50.0, -Inf, 100.0),
+                Sys_Flow.FLOW_SeekFloor_DDEF(5.0, 0.0, 100.0, 0.0),
+                l_mid,
+                FLCACTA(50.0, lvl100, 0.5, 0.1; MinLimit=0.0, MaxLimit=100.0),
+                FLCACTA(50.0, lvl100, 0.5, 0.0, 100.0)
+            )),
+            shifts_ok = all(Sys_Flow.FLOW_ShiftWindow_DDEF(95.0, 20.0, lb, 100.0)[3] == 100.0 for lb in (0.0, -Inf)) &&
+                        all(Sys_Flow.FLOW_ShiftWindow_DDEF(5.0, 20.0, 0.0, ub)[1] == 0.0 for ub in (100.0, Inf))
             @track G6 (z_rng[3] - z_rng[1]) == 50.0 && s_rng[2] > 98.0 && c_rng[1] >= 0.0 &&
-                      length(u_neg) == 3 && length(l_pos) == 3 &&
-                      r2[2] > 9.5 && r3[1] >= 0.0
+                      len3_ok && r2[2] > 9.5 && r3[1] >= 0.0 &&
+                      FLCACTA(100.0, lvl100, 1.0, 0.0, 0.0, Inf) == [50.0, 100.0, 150.0] &&
+                      FLCACTA(96.0, lvl100, 1.0, 0.0, 0.0, 100.0) == [90.0, 95.0, 100.0] &&
+                      FLCACTA(4.0, lvl100, 1.0, 0.0, 0.0, 100.0) == [0.0, 5.0, 10.0] &&
+                      Sys_Flow.FLOW_SeekCeiling_DDEF(95.0, 90.0, 100.0, 20.0)[1] == 90.0 &&
+                      Sys_Flow.FLOW_SeekFloor_DDEF(5.0, 0.0, 10.0, 20.0)[3] == 10.0 &&
+                      shifts_ok &&
+                      FLEACTA(Sys_Flow.FLOW_ModeContract_DDES(), 50.0, [40.0, 50.0, 60.0], 1.0, 45.0, 55.0) == [45.0, 50.0, 55.0] &&
+                      FLEACTA(Sys_Flow.FLOW_ModeTranslateUpper_DDES(), 160.0, lvl100, 0.5, 120.0, 200.0) == [120.0, 160.0, 200.0] &&
+                      l_mid[2] == -10.0 &&
+                      FLEACTA(Sys_Flow.FLOW_ModeTranslateLower_DDES(), -60.0, lvl100, 0.5, -50.0, -20.0) == [-50.0, -60.0, -20.0] &&
+                      FLEACTA(Sys_Flow.FLOW_ModeSeekUpper_DDES(), 94.0, lvl100, 0.5, -Inf, 100.0) == [88.0, 94.0, 100.0] &&
+                      s_up_clamp[1] == 95.0 && s_up_clamp[3] == 100.0 &&
+                      s_lo_clamp[1] == 0.0 && s_lo_clamp[3] == 5.0 &&
+                      FLEACTA(FLOW_BoundaryCustom_DDES(), 50.0, [40.0, 50.0, 60.0], 0.5, 0.0, 100.0) == [45.0, 50.0, 55.0]
         end
 
-        # 80: Method traits, spatial direction and state dispatch helpers
-        let m_df      = Sys_Flow.FLOW_ResolveMethod_DDEF(" df14 "),
+        # 80: Method traits, direction and state dispatch helpers
+        let FLRS = Sys_Flow.FLOW_ResolveSource_DDEF,
+            m_df      = Sys_Flow.FLOW_ResolveMethod_DDEF(" df14 "),
             m_un      = Sys_Flow.FLOW_ResolveMethod_DDEF("UNKNOWN"),
             d_map     = Sys_Flow.FLOW_GetDirectionMap_DDEF(m_df, ["A", "B", "C"], [1, -1, 1]),
-            d_nil     = Sys_Flow.FLOW_GetDirectionMap_DDEF(m_df, ["A", "B", "C"], nothing),
             s_dir     = Sys_Flow.FLOW_GetStoredDirection_DDEF(m_df, [1, -1, 1]),
             u_dir     = Sys_Flow.FLOW_GetStoredDirection_DDEF(m_un, [1, -1, 1]),
             fb        = [Dict{String,Any}("Name" => "A")],
-            cfg_nil   = Sys_Flow.FLOW_ResolveConfig_DDEF(nothing, fb),
-            cfg_empty = Sys_Flow.FLOW_ResolveConfig_DDEF([], fb),
             d_norm    = Sys_Flow.FLOW_FormatStringDict_DDEF(Dict(:k => 1, :sub => Dict(:inner => 2))),
-            res_nil   = Sys_Flow.FLOW_ResolveSource_DDEF(nothing),
-            res_str   = Sys_Flow.FLOW_ResolveSource_DDEF("   "),
-            res_store = Sys_Flow.FLOW_ResolveSource_DDEF(Dict("filepath" => "dummy.xlsx")),
-            fcfg_nil  = Sys_Fast.FAST_ReadConfig_DDEF(nothing),
             safe_k    = Sys_Fast.FAST_SafeGet_DDEF(Dict("Name" => "TestVar"), "Name")
             @track G6 m_df isa Lib_Core.CORE_MethodDF14_DDES &&
                       m_un isa Lib_Core.CORE_MethodTL09_DDES &&
                       s_dir == [1, -1, 1] && isnothing(u_dir) &&
-                      d_map["B"] == -1 && isnothing(d_nil) &&
+                      d_map["B"] == -1 && isnothing(Sys_Flow.FLOW_GetDirectionMap_DDEF(m_df, ["A", "B", "C"], nothing)) &&
                       Sys_Flow.FLOW_IsTruthy_DDEF(" True ") && !Sys_Flow.FLOW_IsTruthy_DDEF(nothing) &&
                       !Sys_Flow.FLOW_IsValidFile_DDEF(nothing) && !Sys_Flow.FLOW_IsFilled_DDEF("") &&
-                      d_norm["k"] == 1 && d_norm["sub"]["inner"] == 2 && cfg_nil === fb && cfg_empty === fb &&
-                      res_nil == "" && res_str == "" && res_store == "" && isempty(fcfg_nil) && safe_k == "TestVar"
+                      d_norm["k"] == 1 && d_norm["sub"]["inner"] == 2 &&
+                      Sys_Flow.FLOW_ResolveConfig_DDEF(nothing, fb) === fb &&
+                      Sys_Flow.FLOW_ResolveConfig_DDEF([], fb) === fb &&
+                      all(isempty, (FLRS(nothing), FLRS("   "), FLRS(Dict("filepath" => "dummy.xlsx")), Sys_Fast.FAST_ReadConfig_DDEF(nothing))) &&
+                      safe_k == "TestVar"
         end
 
         # 81: Candidate extraction and leader ranking from file
         let temp_lead_file = joinpath(Sys_Fast.FAST_TempRoot_DDEC, "DOECISORY_TEMP_LEADERS.xlsx")
             Sys_Fast.FAST_CleanTransient_DDEF(temp_lead_file)
-            df_leads = DataFrame(
-                "EXP_ID" => ["RUN_01", "RUN_02"],
-                "SCORE" => [0.82, 0.94],
-                "PHASE" => ["Phase1", "Phase1"],
-                "X1" => [20.0, 20.0],
-                "X2" => [2.0, 2.0],
-                "X3" => [200.0, 200.0]
-            )
-            Sys_Fast.FAST_WriteExcel_DDEF(temp_lead_file, Dict(Sys_Fast.FAST_Data_DDEC.PREFIX_LEADERS * "Phase1" => df_leads))
+            Sys_Fast.FAST_WriteExcel_DDEF(temp_lead_file, Dict(C.PREFIX_LEADERS * "Phase1" => df_leads))
             cand_list = Sys_Flow.FLOW_GetCandidates_DDEF(temp_lead_file, "Phase1")
             Sys_Fast.FAST_CleanTransient_DDEF(temp_lead_file)
-            @track G6 length(cand_list) == 2 && cand_list[1]["Score"] == 0.94
+            @track G6 length(cand_list) == 2 &&
+                      cand_list[1]["EXP_ID"] == "RUN_02" && cand_list[1]["Score"] == 0.94 && cand_list[1]["X1"] == 20.0 &&
+                      cand_list[2]["EXP_ID"] == "RUN_01" && cand_list[2]["Score"] == 0.82 && cand_list[2]["X1"] == 15.0 &&
+                      cand_list[1]["Score"] > cand_list[2]["Score"] &&
+                      cand_list[1]["PHASE"] == "Phase1"
         end
 
         # 82: Next phase IPKT configuration build and contract
-        let temp_lead_file = joinpath(Sys_Fast.FAST_TempRoot_DDEC, "DOECISORY_TEMP_LEADERS.xlsx"),
-            C_flow = Sys_Fast.FAST_Data_DDEC
+        let FLAP = Sys_Flow.FLOW_AdvancePhase_DDEF,
+            FLPP = Sys_Flow.FLOW_PhasePrimary_DDES,
+            temp_lead_file = joinpath(Sys_Fast.FAST_TempRoot_DDEC, "DOECISORY_TEMP_LEADERS.xlsx")
             Sys_Fast.FAST_CleanTransient_DDEF(temp_lead_file)
-            df_leads = DataFrame("EXP_ID" => ["RUN_01", "RUN_02"], "SCORE" => [0.82, 0.94], "PHASE" => ["Phase1", "Phase1"], "X1" => [20.0, 20.0], "X2" => [2.0, 2.0], "X3" => [200.0, 200.0])
-            df_cfg_flow = DataFrame("PARAMETER" => ["MasterConfig"], "VALUE_JSON" => [JSON3.write(Dict(
-                "Ingredients" => [
-                    Dict("Name" => "X1", "Role" => C_flow.ROLE_VAR, "Levels" => [10.0, 20.0, 30.0]),
-                    Dict("Name" => "X2", "Role" => C_flow.ROLE_VAR, "Levels" => [1.0, 2.0, 3.0]),
-                    Dict("Name" => "X3", "Role" => C_flow.ROLE_VAR, "Levels" => [100.0, 200.0, 300.0])
-                ],
-                "Global" => Dict("Volume" => 10.0, "Conc" => 1.0)
-            ))])
-            Sys_Fast.FAST_WriteExcel_DDEF(temp_lead_file, Dict(C_flow.SHEET_CONFIG => df_cfg_flow, C_flow.PREFIX_LEADERS * "Phase1" => df_leads))
-            next_phase_res = Sys_Flow.FLOW_BuildIPKT_DDEF(temp_lead_file, "Phase1", "RUN_02", 0.5, 0.0)
-            old_span1 = next_phase_res["OldConfig"][1]["Levels"][3] - next_phase_res["OldConfig"][1]["Levels"][1]
-            new_span1 = next_phase_res["NewConfig"][1]["Levels"][3] - next_phase_res["NewConfig"][1]["Levels"][1]
+            df_cfg_flow = _flow_cfg([
+                merge(_std_flow_ingr[1], Dict("Alpha" => 1.5, "Beta" => 5.0, "Min" => 0.0, "Max" => 100.0)),
+                Dict("Name" => "X2", "Role" => C.ROLE_VAR, "L1" => 1.0, "L2" => 2.0, "L3" => 3.0),
+                _std_flow_ingr[3]
+            ])
+            Sys_Fast.FAST_WriteExcel_DDEF(temp_lead_file, Dict(C.SHEET_CONFIG => df_cfg_flow, C.PREFIX_LEADERS * "Phase1" => df_leads))
+            next_phase_res = Sys_Flow.FLOW_BuildIPKT_DDEF(temp_lead_file, "Phase1", "RUN_02", 0.5)
+            old_span2 = next_phase_res["OldConfig"][2]["Levels"][3] - next_phase_res["OldConfig"][2]["Levels"][1]
+            new_span2 = next_phase_res["NewConfig"][2]["Levels"][3] - next_phase_res["NewConfig"][2]["Levels"][1]
             Sys_Fast.FAST_CleanTransient_DDEF(temp_lead_file)
-            ph1_next = Sys_Flow.FLOW_AdvancePhase_DDEF("Phase1")
-            ph2_next = Sys_Flow.FLOW_AdvancePhase_DDEF("Phase2")
-            ph3_next = Sys_Flow.FLOW_AdvancePhase_DDEF("Phase3")
-            ph_c_next = Sys_Flow.FLOW_AdvancePhase_DDEF("Phase 10")
-            ph_t1 = Sys_Flow.FLOW_AdvancePhase_DDEF(Sys_Flow.FLOW_PhasePrimary_DDES())
-            ph_t2 = Sys_Flow.FLOW_AdvancePhase_DDEF(Sys_Flow.FLOW_PhaseSecondary_DDES())
-            ph_t3 = Sys_Flow.FLOW_AdvancePhase_DDEF(Sys_Flow.FLOW_PhaseTertiary_DDES())
-            ph_raw = Sys_Flow.FLOW_GetPhaseType_DDEF(Sys_Flow.FLOW_PhasePrimary_DDES())
+            ph1_next = FLAP("Phase1")
+            ph2_next = FLAP("Phase2")
+            ph3_next = FLAP("Phase3")
+            ph_c_next = FLAP("Phase 10")
+            ph_t1 = FLAP(FLPP())
+            ph_t2 = FLAP(Sys_Flow.FLOW_PhaseSecondary_DDES())
+            ph_t3 = FLAP(Sys_Flow.FLOW_PhaseTertiary_DDES())
+            ph_raw = Sys_Flow.FLOW_GetPhaseType_DDEF(FLPP())
             @track G6 next_phase_res["Status"] == "OK" && next_phase_res["TargetPhase"] == "Phase2" &&
-                      isapprox(new_span1, old_span1 * 0.5; atol=1e-3) && next_phase_res["LeaderScore"] == 0.94 &&
+                      isapprox(new_span2, old_span2 * 0.5; atol=1e-3) && next_phase_res["LeaderScore"] == 0.94 &&
+                      next_phase_res["NewConfig"][1]["EffectiveLeader"] == 35.0 &&
+                      next_phase_res["NewConfig"][1]["OldLevels"] == [20.0, 35.0, 50.0] &&
                       ph1_next == "Phase2" && ph2_next == "Phase3" && ph3_next == "Phase4" &&
                       ph_c_next == "Phase11" && ph_t1 == "Phase2" && ph_t2 == "Phase3" && ph_t3 == "Phase4" &&
-                      ph_raw isa Sys_Flow.FLOW_PhasePrimary_DDES
+                      ph_raw isa FLPP
         end
 
         # 83: Phase transition fallback and missing data audit
-        let temp_lead_file = joinpath(Sys_Fast.FAST_TempRoot_DDEC, "DOECISORY_TEMP_LEADERS.xlsx"),
-            C_flow = Sys_Fast.FAST_Data_DDEC
+        let FLGC = Sys_Flow.FLOW_GetCandidates_DDEF,
+            FLBIPKT = Sys_Flow.FLOW_BuildIPKT_DDEF,
+            temp_lead_file = joinpath(Sys_Fast.FAST_TempRoot_DDEC, "DOECISORY_TEMP_LEADERS.xlsx")
             Sys_Fast.FAST_CleanTransient_DDEF(temp_lead_file)
-            df_leads = DataFrame("EXP_ID" => ["RUN_01", "RUN_02"], "SCORE" => [0.82, 0.94], "PHASE" => ["Phase1", "Phase1"], "X1" => [20.0, 20.0], "X2" => [2.0, 2.0], "X3" => [200.0, 200.0])
-            df_cfg_flow = DataFrame("PARAMETER" => ["MasterConfig"], "VALUE_JSON" => [JSON3.write(Dict(
-                "Ingredients" => [
-                    Dict("Name" => "X1", "Role" => C_flow.ROLE_VAR, "Levels" => [10.0, 20.0, 30.0]),
-                    Dict("Name" => "X2", "Role" => C_flow.ROLE_VAR, "Levels" => [1.0, 2.0, 3.0]),
-                    Dict("Name" => "X3", "Role" => C_flow.ROLE_VAR, "Levels" => [100.0, 200.0, 300.0])
-                ],
-                "Global" => Dict("Volume" => 10.0, "Conc" => 1.0)
-            ))])
-            Sys_Fast.FAST_WriteExcel_DDEF(temp_lead_file, Dict(C_flow.SHEET_CONFIG => df_cfg_flow, C_flow.PREFIX_LEADERS * "Phase1" => df_leads))
-            cands = Sys_Flow.FLOW_GetCandidates_DDEF(temp_lead_file, "Phase1")
-            cands_empty = Sys_Flow.FLOW_GetCandidates_DDEF(nothing, "Phase1")
-            cands_nophase = Sys_Flow.FLOW_GetCandidates_DDEF(temp_lead_file, nothing)
-            bad_lead_res = Sys_Flow.FLOW_BuildIPKT_DDEF(temp_lead_file, "Phase1", "NON_EXISTENT_LEADER", 0.5, 0.0)
-            nil_file_res = Sys_Flow.FLOW_BuildIPKT_DDEF(nothing, "Phase1", "RUN_01", 0.5, 0.0)
-            nil_phase_res = Sys_Flow.FLOW_BuildIPKT_DDEF(temp_lead_file, "", "RUN_01", 0.5, 0.0)
+            df_cfg_flow = _flow_cfg(_std_flow_ingr)
+            Sys_Fast.FAST_WriteExcel_DDEF(temp_lead_file, Dict(C.SHEET_CONFIG => df_cfg_flow, C.PREFIX_LEADERS * "Phase1" => df_leads))
+            cands = FLGC(temp_lead_file, "Phase1")
+            cands_empty = FLGC(nothing, "Phase1")
+            cands_nophase = FLGC(temp_lead_file, nothing)
+            cands_nonexistent = FLGC(temp_lead_file, "NonExistentPhase")
+            bad_lead_res = FLBIPKT(temp_lead_file, "Phase1", "NON_EXISTENT_LEADER", 0.5)
+            nil_file_res = FLBIPKT(nothing, "Phase1", "RUN_01", 0.5)
+            nil_phase_res = FLBIPKT(temp_lead_file, "", "RUN_01", 0.5)
+            df_bad_json = DataFrame("PARAMETER" => ["MasterConfig"], "VALUE_JSON" => [JSON3.write(Dict("Ingredients" => 42))])
+            Sys_Fast.FAST_WriteExcel_DDEF(temp_lead_file, Dict(C.SHEET_CONFIG => df_bad_json, C.PREFIX_LEADERS * "Phase1" => df_leads))
+            bad_json_res = FLBIPKT(temp_lead_file, "Phase1", "RUN_02", 0.5)
             Sys_Fast.FAST_CleanTransient_DDEF(temp_lead_file)
             @track G6 bad_lead_res["Status"] == "OK" && bad_lead_res["LeaderScore"] == 0.94 &&
                       nil_file_res["Status"] == "FAIL" && nil_phase_res["Status"] == "FAIL" &&
-                      length(cands) == 2 && isempty(cands_empty) && isempty(cands_nophase)
+                      bad_json_res["Status"] == "FAIL" && occursin("loss", bad_json_res["Message"]) &&
+                      length(cands) == 2 && isempty(cands_empty) && isempty(cands_nophase) && isempty(cands_nonexistent)
         end
 
         # 84: Phase transition visualisation and chart payload
-        let old_conf_m = [
-                Dict("Name" => "Temp", "Role" => Sys_Fast.FAST_Data_DDEC.ROLE_VAR, "Levels" => [20.0, 50.0, 80.0]),
-                Dict("Name" => "Time", "Role" => Sys_Fast.FAST_Data_DDEC.ROLE_VAR, "Levels" => [10.0, 20.0, 30.0]),
-                Dict("Name" => "Dose", "Role" => Sys_Fast.FAST_Data_DDEC.ROLE_VAR, "Levels" => [1.0, 2.0, 3.0])
+        let FLRIPKT = Sys_Flow.FLOW_RenderIPKT_DDEF,
+            old_conf_m = [
+                Dict("Name" => "Temp", "Role" => C.ROLE_VAR, "Levels" => [20.0, 50.0, 80.0]),
+                Dict("Name" => "Time", "Role" => C.ROLE_VAR, "Levels" => [10.0, 20.0, 30.0]),
+                Dict("Name" => "Dose", "Role" => C.ROLE_VAR, "Levels" => [1.0, 2.0, 3.0])
             ],
             new_conf_m = [
-                Dict("Name" => "Temp", "Role" => Sys_Fast.FAST_Data_DDEC.ROLE_VAR, "Levels" => [35.0, 50.0, 65.0]),
-                Dict("Name" => "Time", "Role" => Sys_Fast.FAST_Data_DDEC.ROLE_VAR, "Levels" => [20.0, 25.0, 30.0]),
-                Dict("Name" => "Catalyst", "Role" => Sys_Fast.FAST_Data_DDEC.ROLE_VAR, "Levels" => [1.5, 2.0, 2.5], "IsReplaced" => true)
+                Dict("Name" => "Temp", "Role" => C.ROLE_VAR, "Levels" => [35.0, 50.0, 65.0]),
+                Dict("Name" => "Time", "Role" => C.ROLE_VAR, "Levels" => [20.0, 25.0, 30.0]),
+                Dict("Name" => "Catalyst", "Role" => C.ROLE_VAR, "Levels" => [1.5, 2.0, 2.5], "IsReplaced" => true)
             ],
-            shift_up = [
-                Dict("Name" => "Temp", "Role" => Sys_Fast.FAST_Data_DDEC.ROLE_VAR, "Levels" => [100.0, 110.0, 120.0]),
-                Dict("Name" => "Time", "Role" => Sys_Fast.FAST_Data_DDEC.ROLE_VAR, "Levels" => [10.0, 20.0, 30.0]),
-                Dict("Name" => "Dose", "Role" => Sys_Fast.FAST_Data_DDEC.ROLE_VAR, "Levels" => [1.0, 2.0, 3.0])
-            ],
-            shift_lo = [
-                Dict("Name" => "Temp", "Role" => Sys_Fast.FAST_Data_DDEC.ROLE_VAR, "Levels" => [-60.0, -50.0, -40.0]),
-                Dict("Name" => "Time", "Role" => Sys_Fast.FAST_Data_DDEC.ROLE_VAR, "Levels" => [10.0, 20.0, 30.0]),
-                Dict("Name" => "Dose", "Role" => Sys_Fast.FAST_Data_DDEC.ROLE_VAR, "Levels" => [1.0, 2.0, 3.0])
-            ],
-            shift_wide = [
-                Dict("Name" => "Temp", "Role" => Sys_Fast.FAST_Data_DDEC.ROLE_VAR, "Levels" => [-100.0, 50.0, 200.0]),
-                Dict("Name" => "Time", "Role" => Sys_Fast.FAST_Data_DDEC.ROLE_VAR, "Levels" => [10.0, 20.0, 30.0]),
-                Dict("Name" => "Dose", "Role" => Sys_Fast.FAST_Data_DDEC.ROLE_VAR, "Levels" => [1.0, 2.0, 3.0])
-            ],
-            rend_trans = Sys_Flow.FLOW_RenderIPKT_DDEF(old_conf_m, new_conf_m, [50.0, 20.0, 2.0]; Method="DF14", Direction=[1, -1, 1]),
-            rend_auto  = Sys_Flow.FLOW_RenderIPKT_DDEF(old_conf_m, new_conf_m, [50.0, 20.0, 2.0]; Method="TL09"),
-            rend_up    = Sys_Flow.FLOW_RenderIPKT_DDEF(old_conf_m, shift_up, [110.0, 20.0, 2.0]),
-            rend_lo    = Sys_Flow.FLOW_RenderIPKT_DDEF(old_conf_m, shift_lo, [-50.0, 20.0, 2.0]),
-            rend_wide  = Sys_Flow.FLOW_RenderIPKT_DDEF(old_conf_m, shift_wide, [50.0, 20.0, 2.0]),
-            rend_empty = Sys_Flow.FLOW_RenderIPKT_DDEF([], [], [])
+            shift_up   = [Dict("Name" => "Temp", "Role" => C.ROLE_VAR, "Levels" => [100.0, 110.0, 120.0]), old_conf_m[2:3]...],
+            shift_lo   = [Dict("Name" => "Temp", "Role" => C.ROLE_VAR, "Levels" => [-60.0, -50.0, -40.0]), old_conf_m[2:3]...],
+            shift_wide = [Dict("Name" => "Temp", "Role" => C.ROLE_VAR, "Levels" => [-100.0, 50.0, 200.0]), old_conf_m[2:3]...],
+            rend_trans = FLRIPKT(old_conf_m, new_conf_m, [50.0, 20.0, 2.0]; Method="DF14", Direction=[1, -1, 1]),
+            rend_auto  = FLRIPKT(old_conf_m, new_conf_m, [50.0, 20.0, 2.0]; Method="TL09"),
+            rend_up    = FLRIPKT(old_conf_m, shift_up, [110.0, 20.0, 2.0]),
+            rend_lo    = FLRIPKT(old_conf_m, shift_lo, [-50.0, 20.0, 2.0]),
+            rend_wide  = FLRIPKT(old_conf_m, shift_wide, [50.0, 20.0, 2.0]),
+            rend_empty = FLRIPKT([], [], []),
+            conf_scale = [Dict("Name" => "Temp", "Role" => C.ROLE_VAR, "Levels" => [0.0, 50.0, 100.0])],
+            rend_free  = FLRIPKT(conf_scale, [Dict("Name" => "Temp", "Role" => C.ROLE_VAR, "Levels" => [50.0, 100.0, 150.0])], [100.0]),
+            rend_seek  = FLRIPKT(conf_scale, [Dict("Name" => "Temp", "Role" => C.ROLE_VAR, "Levels" => [90.0, 95.0, 100.0], "Min" => 0.0, "Max" => 100.0)], [100.0]),
+            rend_eff_lead = FLRIPKT(
+                [Dict("Name" => "Temp", "Role" => C.ROLE_VAR, "Levels" => [10.0, 20.0, 30.0])],
+                [Dict("Name" => "Temp", "Role" => C.ROLE_VAR, "Levels" => [15.0, 20.0, 25.0], "EffectiveLeader" => 22.0)],
+                [20.0]
+            ),
+            rend_astm_lead = FLRIPKT(
+                [Dict("Name" => "Temp", "Role" => C.ROLE_VAR, "Levels" => [10.0, 20.0, 30.0])],
+                [Dict("Name" => "Temp", "Role" => C.ROLE_VAR, "Levels" => [15.0, 20.0, 25.0], "Alpha" => 1.5, "Beta" => 5.0, "Min" => 10.0, "Max" => 25.0)],
+                [30.0]
+            ),
+            rend_astm_lo = FLRIPKT(
+                [Dict("Name" => "Temp", "Role" => C.ROLE_VAR, "Levels" => [10.0, 20.0, 30.0])],
+                [Dict("Name" => "Temp", "Role" => C.ROLE_VAR, "Levels" => [15.0, 20.0, 25.0], "Min" => 15.0, "Max" => 50.0)],
+                [5.0]
+            ),
+            t_free     = [t for t in rend_free["data"] if get(t, :name, "") == "Target"][1],
+            l_seek     = [t for t in rend_seek["data"] if get(t, :name, "") == "Leader"][1]
             @track G6 haskey(rend_trans, "data") && haskey(rend_trans, "layout") && length(rend_trans["data"]) >= 3 &&
                       haskey(rend_auto, "data") && haskey(rend_empty, "layout") &&
-                      haskey(rend_up, "data") && haskey(rend_lo, "data") && haskey(rend_wide, "data")
+                      haskey(rend_up, "data") && haskey(rend_lo, "data") && haskey(rend_wide, "data") &&
+                      haskey(rend_eff_lead, "data") && haskey(rend_astm_lead, "data") && haskey(rend_astm_lo, "data") &&
+                      t_free[:x] == [0.0, 1.90] && haskey(l_seek, :x) && !isempty(l_seek[:x])
         end
 
         # 85: Phase parameter inheritance and commitment audit
-        let conf_sample = [Dict("Name" => "Precursor", "Role" => Sys_Fast.FAST_Data_DDEC.ROLE_VAR, "Levels" => [10.0, 20.0, 30.0], "MW" => 1435.0, "Unit" => "mg")],
-            next_conf = Sys_Flow.FLOW_ApplyACTA_DDEF(Dict("OldConfig" => conf_sample, "Vals" => [20.0]), 0.5, 0.0),
-            t_lead = joinpath(Sys_Fast.FAST_TempRoot_DDEC, "DOECISORY_TEMP_LEAD_WRITE.xlsx"),
-            t_build = joinpath(Sys_Fast.FAST_TempRoot_DDEC, "DOECISORY_TEMP_FLOW_BUILD.xlsx")
-            Sys_Fast.FAST_CleanTransient_DDEF(t_lead)
+        let FACT = Sys_Fast.FAST_CleanTransient_DDEF,
+            FATR = Sys_Fast.FAST_TempRoot_DDEC,
+            FLCIPKT = Sys_Flow.FLOW_CommitIPKT_DDEF,
+            FLAACTA = Sys_Flow.FLOW_ApplyACTA_DDEF,
+            conf_sample = [Dict("Name" => "Precursor", "Role" => C.ROLE_VAR, "Levels" => [10.0, 20.0, 30.0], "MW" => 1435.0, "Unit" => "mg")],
+            conf_astm   = [Dict(
+                "Name" => "Precursor", "Role" => C.ROLE_VAR, "Levels" => [10.0, 20.0, 30.0],
+                "Alpha" => 2.0, "Beta" => 50.0, "Min" => 0.0, "Max" => 80.0
+            )],
+            next_conf   = FLAACTA(Dict("OldConfig" => conf_sample, "Vals" => [20.0]), 0.5),
+            acta_astm   = FLAACTA(Dict("OldConfig" => conf_astm, "Vals" => [20.0]), 0.5),
+            t_lead      = joinpath(FATR, "DOECISORY_TEMP_LEAD_WRITE.xlsx"),
+            t_build     = joinpath(FATR, "DOECISORY_TEMP_FLOW_BUILD.xlsx")
+            FACT(t_lead)
             df_to_write = DataFrame("EXP_ID" => ["P1_01"], "SCORE" => [0.95], "PHASE" => ["Phase1"])
-            ok_write = Sys_Flow.FLOW_WriteLeaders_DDEF(t_lead, "Phase1", df_to_write)
-            df_read_lead = Sys_Fast.FAST_ReadExcel_DDEF(t_lead, Sys_Fast.FAST_Data_DDEC.PREFIX_LEADERS * "Phase1")
-            Sys_Fast.FAST_CleanTransient_DDEF(t_lead)
+            ok_write    = Sys_Flow.FLOW_WriteLeaders_DDEF(t_lead, "Phase1", df_to_write)
+            err_write   = Sys_Flow.FLOW_WriteLeaders_DDEF(FATR, "Phase1", df_to_write)
+            df_read_lead = Sys_Fast.FAST_ReadExcel_DDEF(t_lead, C.PREFIX_LEADERS * "Phase1")
+            FACT(t_lead)
 
-            Sys_Fast.FAST_CleanTransient_DDEF(t_build)
+            FACT(t_build)
             df_init = DataFrame("EXP_ID" => ["EXP_P1_01", "EXP_P1_02"], "PHASE" => ["Phase1", "Phase1"], "Temp" => [25.0, 50.0], "Yield" => [70.0, 92.0])
             df_cfg = DataFrame("PARAMETER" => ["MasterConfig"], "VALUE_JSON" => [JSON3.write(Dict(
                 "Ingredients" => [
@@ -2094,47 +2148,43 @@ const SUITE_START_TIME = time()
             ))])
             df_lead = DataFrame("EXP_ID" => ["EXP_P1_02"], "SCORE" => [0.92], "PHASE" => ["Phase1"], "Temp" => [50.0], "Time" => [20.0], "Dose" => [2.0])
             Sys_Fast.FAST_WriteExcel_DDEF(t_build, Dict(
-                Sys_Fast.FAST_Data_DDEC.SHEET_DATA => df_init,
-                Sys_Fast.FAST_Data_DDEC.SHEET_CONFIG => df_cfg,
-                Sys_Fast.FAST_Data_DDEC.PREFIX_LEADERS * "Phase1" => df_lead
+                C.SHEET_DATA => df_init,
+                C.SHEET_CONFIG => df_cfg,
+                C.PREFIX_LEADERS * "Phase1" => df_lead
             ))
-            res_build = Sys_Flow.FLOW_CommitIPKT_DDEF(t_build, "Phase1", "EXP_P1_02", 0.5, "TL09", 0.0)
-            res_df14  = Sys_Flow.FLOW_CommitIPKT_DDEF(t_build, "Phase1", "EXP_P1_02", 0.5, "DF14", 0.0; Direction=[-1, 1, -1])
-            res_custom = Sys_Flow.FLOW_CommitIPKT_DDEF(t_build, "Phase1", "EXP_P1_02", 0.5, "DF14", 0.0;
+            res_build = FLCIPKT(t_build, "Phase1", "EXP_P1_02", 0.5, "TL09")
+            res_df14  = FLCIPKT(t_build, "Phase1", "EXP_P1_02", 0.5, "DF14"; Direction=[-1, 1, -1])
+            res_custom = FLCIPKT(t_build, "Phase1", "EXP_P1_02", 0.5, "DF14";
                 Direction=[1, -1, 1], ProjectName="FlowProject",
                 CustomConfig=[
                     Dict("Name" => "Temp", "Role" => "Variable", "Levels" => [30.0, 50.0, 70.0], "MW" => 100.0, "Unit" => "%m"),
                     Dict("Name" => "Time", "Role" => "Variable", "Levels" => [15.0, 20.0, 25.0], "MW" => 50.0, "Unit" => "min"),
-                    Dict("Name" => "Dose", "Role" => "Variable", "Levels" => [1.5, 2.0, 2.5], "MW" => 20.0, "Unit" => "mCi", "IsRadioactive" => true, "HalfLife" => 67.71),
+                    Dict("Name" => "Dose", "Role" => "Variable", "Levels" => [1.5, 2.0, 2.5],
+                         "MW" => 20.0, "Unit" => "mCi", "IsRadioactive" => true, "HalfLife" => 67.71),
                     Dict("Name" => "Saline", "Role" => "Filler", "Levels" => [0.0, 0.0, 0.0], "MW" => 58.44, "Unit" => "%m")
                 ])
-            res_bad_vars = Sys_Flow.FLOW_CommitIPKT_DDEF(t_build, "Phase1", "EXP_P1_02", 0.5, "TL09", 0.0;
-                CustomConfig=[Dict("Name" => "Temp", "Role" => "Variable", "Levels" => [30.0, 50.0, 70.0])])
-            res_bad_chem = Sys_Flow.FLOW_CommitIPKT_DDEF(t_build, "Phase1", "EXP_P1_02", 0.5, "TL09", 0.0;
-                CustomConfig=[
-                    Dict("Name" => "A", "Role" => "Variable", "Levels" => [80.0, 80.0, 80.0], "MW" => 100.0, "Unit" => "%m"),
-                    Dict("Name" => "B", "Role" => "Variable", "Levels" => [80.0, 80.0, 80.0], "MW" => 100.0, "Unit" => "%m"),
-                    Dict("Name" => "C", "Role" => "Variable", "Levels" => [80.0, 80.0, 80.0], "MW" => 100.0, "Unit" => "%m"),
-                    Dict("Name" => "Fill", "Role" => "Filler", "Levels" => [0.0, 0.0, 0.0], "MW" => 18.0, "Unit" => "%m")
-                ])
-            res_bad   = Sys_Flow.FLOW_CommitIPKT_DDEF(nothing, "Phase1")
-            flow_src_any = Sys_Flow.FLOW_ResolveSource_DDEF(123)
-            flow_val_any = Sys_Flow.FLOW_IsValidFile_DDEF(123)
-            flow_src_trans = Sys_Flow.FLOW_ResolveSource_DDEF(Dict("DataHandle" => "nonexistent_transient_key"))
-            flow_val_trans = Sys_Flow.FLOW_IsValidFile_DDEF(Dict("DataHandle" => "nonexistent_transient_key"))
-            flow_dict_any = Sys_Flow.FLOW_FormatStringDict_DDEF("not_a_dict")
-            flow_iter_dict = collect(Sys_Flow.FLOW_IterateEntries_DDEF(Dict("k" => 1)))
-            flow_truth_real = Sys_Flow.FLOW_IsTruthy_DDEF(1)
+            bad_ipkts_ok = all(FLCIPKT(t_build, "Phase1", "EXP_P1_02", 0.5, "TL09"; CustomConfig=cfg)["Status"] == "FAIL" for cfg in (
+                [Dict("Name" => "Temp", "Role" => "Variable", "Levels" => [30.0, 50.0, 70.0])],
+                [[Dict("Name" => "$c", "Role" => "Variable", "Levels" => fill(80.0, 3), "MW" => 100.0, "Unit" => "%m") for c in ("A", "B", "C")];
+                 [Dict("Name" => "Fill", "Role" => "Filler", "Levels" => zeros(3), "MW" => 18.0, "Unit" => "%m")]]
+            )) && FLCIPKT(nothing, "Phase1")["Status"] == "FAIL"
+            src_val_ok = isempty(Sys_Flow.FLOW_ResolveSource_DDEF(123)) && !Sys_Flow.FLOW_IsValidFile_DDEF(123) &&
+                         isempty(Sys_Flow.FLOW_ResolveSource_DDEF(Dict("DataHandle" => "nonexistent_transient_key"))) &&
+                         !Sys_Flow.FLOW_IsValidFile_DDEF(Dict("DataHandle" => "nonexistent_transient_key"))
             conf_l123 = [Dict("Name" => "VarL", "Role" => "Variable", "L1" => 10.0, "L2" => 20.0, "L3" => 30.0)]
-            acta_l123 = Sys_Flow.FLOW_ApplyACTA_DDEF(Dict("OldConfig" => conf_l123, "Vals" => [20.0]), 0.5, 0.0)
+            acta_l123 = FLAACTA(Dict("OldConfig" => conf_l123, "Vals" => [20.0]), 0.5)
             lead_empty_vars = Lib_Core.CORE_ExtractLeader_DDEF(t_build, "Phase1", "EXP_P1_02", String[])
-            Sys_Fast.FAST_CleanTransient_DDEF(t_build)
+            cfg_disk = Sys_Fast.FAST_ReadConfig_DDEF(t_build)
+            FACT(t_build)
             @track G6 next_conf[1]["Name"] == "Precursor" && next_conf[1]["MW"] == 1435.0 && next_conf[1]["Unit"] == "mg" &&
-                      ok_write == true && nrow(df_read_lead) == 1 && df_read_lead.SCORE[1] == 0.95 &&
+                      acta_astm[1]["Alpha"] == 1.0 && acta_astm[1]["Beta"] == 0.0 && acta_astm[1]["EffectiveLeader"] == 80.0 &&
+                      ok_write == true && !err_write && nrow(df_read_lead) == 1 && df_read_lead.SCORE[1] == 0.95 &&
                       res_build["Status"] == "OK" && res_df14["Status"] == "OK" && res_custom["Status"] == "OK" &&
-                      res_bad_vars["Status"] == "FAIL" && res_bad_chem["Status"] == "FAIL" && res_bad["Status"] == "FAIL" &&
-                      flow_src_any == "" && !flow_val_any && flow_src_trans == "" && !flow_val_trans &&
-                      isempty(flow_dict_any) && length(flow_iter_dict) == 1 && flow_truth_real &&
+                      cfg_disk["Global"]["ProjectName"] == "FlowProject" && cfg_disk["Global"]["Phase"] == "Phase2" &&
+                      bad_ipkts_ok && src_val_ok &&
+                      isempty(Sys_Flow.FLOW_FormatStringDict_DDEF("not_a_dict")) &&
+                      length(collect(Sys_Flow.FLOW_IterateEntries_DDEF(Dict("k" => 1)))) == 1 &&
+                      Sys_Flow.FLOW_IsTruthy_DDEF(1) &&
                       length(acta_l123[1]["Levels"]) == 3 &&
                       lead_empty_vars["ID"] == "EXP_P1_02"
         end
@@ -2158,21 +2208,23 @@ const SUITE_START_TIME = time()
         end
 
         # 87: System and scientific audit dashboard tree layout
-        let audit_sys = Gui_Base.BASE_BuildSystemAudit_DDEF(),
+        let BHLO = Gui_Base.BASE_HandleLoadingOverlay_DDEF,
+            BVUN = Gui_Base.BASE_ValidateUniqueNames_DDEF,
+            audit_sys = Gui_Base.BASE_BuildSystemAudit_DDEF(),
             audit_sci = Gui_Base.BASE_BuildSciAudit_DDEF(),
             g_panel = Gui_Base.BASE_BuildGlassPanel_DDEF("Test Panel", "Content"),
             b_modal = Gui_Base.BASE_BuildModal_DDEF("test_modal", "Title", "Body", "Footer"),
-            (u_ok, _) = Gui_Base.BASE_ValidateUniqueNames_DDEF(["A", "B"], "Factor"),
-            (u_dup, _) = Gui_Base.BASE_ValidateUniqueNames_DDEF(["A", "A"], "Factor"),
-            (u_emp, _) = Gui_Base.BASE_ValidateUniqueNames_DDEF(["", "B"], "Factor"),
+            (u_ok, _) = BVUN(["A", "B"], "Factor"),
+            (u_dup, _) = BVUN(["A", "A"], "Factor"),
+            (u_emp, _) = BVUN(["", "B"], "Factor"),
             fig_mock = Dict{String, Any}("layout" => Dict{String, Any}(
                 "scene" => Dict{String, Any}("xaxis" => Dict{String, Any}(), "yaxis" => Dict{String, Any}(), "zaxis" => Dict{String, Any}()),
                 "xaxis" => Dict{String, Any}(), "yaxis" => Dict{String, Any}()
             )),
             white_fig = Gui_Base.BASE_ApplyPlotlyWhite_DDEF!(fig_mock),
-            (ov_style0, ov_poll0) = Gui_Base.BASE_HandleLoadingOverlay_DDEF(0),
-            (ov_style16, ov_poll16) = Gui_Base.BASE_HandleLoadingOverlay_DDEF(20),
-            (ov_style_rdy, ov_poll_rdy) = Gui_Base.BASE_HandleLoadingOverlay_DDEF(nothing),
+            (ov_style0, ov_poll0) = BHLO(0),
+            (ov_style16, ov_poll16) = BHLO(20),
+            (ov_style_rdy, ov_poll_rdy) = BHLO(nothing),
             d_table = Gui_Base.BASE_BuildDataTable_DDEF("tbl_mock", [Dict("name" => "C1", "id" => "C1")], [Dict("C1" => 1)]),
             safe_nil_rows = Gui_Base.BASE_SafeRows_DDEF(nothing),
             safe_any_rows = Gui_Base.BASE_SafeRows_DDEF([Dict(:a => 1)]),
@@ -2190,37 +2242,37 @@ const SUITE_START_TIME = time()
         end
 
         # 88: Deck and Lens primary application view layouts
-        let deck_layout = Gui_Deck.DECK_BuildLayout_DDEF(),
+        let BWA = Gui_Base.BASE_WarmupApp_DDEF,
+            DGDR = Gui_Deck.DECK_GetDefaultRow_DDEF,
+            deck_layout = Gui_Deck.DECK_BuildLayout_DDEF(),
             lens_layout = Gui_Lens.LENS_BuildLayout_DDEF(),
             header_comp = Gui_Base.BASE_BuildPageHeader_DDEF("Test Header", "Subtext description"),
-            navbar_comp = Gui_Base.BASE_BuildNavbar_DDEF(),
-            full_layout = Gui_Base.BASE_BuildLayout_DDEF(),
-            btn_act = Gui_Base.BASE_BuildActionButton_DDEF("btn_act", "Action", "fas fa-check"),
-            btn_nxt = Gui_Base.BASE_BuildNextButton_DDEF("btn_nxt", "Next"),
-            btn_ico = Gui_Base.BASE_BuildIconButton_DDEF("btn_ico", "fas fa-sync"; tip="Sync tooltip"),
-            st_icon = Gui_Base.BASE_BuildStatusIcon_DDEF("●", "st_ico"; tip="Status tooltip", glow=true),
-            c_group = Gui_Base.BASE_BuildControlGroup_DDEF("Label", "Input"),
-            tb_hdr = Gui_Base.BASE_BuildTableHeader_DDEF("Col"; style=Dict("backgroundColor" => "var(--colour-val0-purwhi)")),
-            sep_el = Gui_Base.BASE_BuildSeparator_DDEF(),
-            sb_hdr = Gui_Base.BASE_BuildSidebarHeader_DDEF("Side"; icon="fas fa-bars"),
-            up_el = Gui_Base.BASE_BuildUpload_DDEF("up_id", "Upload", "fas fa-upload"),
-            g_right = Gui_Base.BASE_BuildGlassPanel_DDEF("Panel", "Content"; right_node=html_span("Right")),
-            r_id = Gui_Base.BASE_BuildIDRow_DDEF(1, Gui_Deck.DECK_GetDefaultRow_DDEF(1), true, true),
-            r_id_rad = Gui_Base.BASE_BuildIDRow_DDEF(1, Dict("Name" => "RadioChem", "Role" => "Variable", "MW" => 150.0, "HalfLife" => 67.71, "IsRadioactive" => true), true),
-            r_lvl = Gui_Base.BASE_BuildLevelRow_DDEF(1, Gui_Deck.DECK_GetDefaultRow_DDEF(1), true),
-            r_lim = Gui_Base.BASE_BuildLimitsRow_DDEF(1, Gui_Deck.DECK_GetDefaultRow_DDEF(1), true),
-            r_goal = Gui_Base.BASE_BuildGoalRow_DDEF(1),
-            _ = Gui_Base.BASE_WarmupApp_DDEF(),
-            _ = (ENV["DOECISORY_DEV"] = "true"; Gui_Base.BASE_WarmupApp_DDEF(); delete!(ENV, "DOECISORY_DEV")),
-            _ = (ENV["DOECISORY_FAST_BOOT"] = "true"; Gui_Base.BASE_WarmupApp_DDEF(); delete!(ENV, "DOECISORY_FAST_BOOT"))
+            comps = (
+                Gui_Base.BASE_BuildNavbar_DDEF(),
+                Gui_Base.BASE_BuildLayout_DDEF(),
+                Gui_Base.BASE_BuildActionButton_DDEF("btn_act", "Action", "fas fa-check"),
+                Gui_Base.BASE_BuildNextButton_DDEF("btn_nxt", "Next"),
+                Gui_Base.BASE_BuildIconButton_DDEF("btn_ico", "fas fa-sync"; tip="Sync tooltip"),
+                Gui_Base.BASE_BuildStatusIcon_DDEF("●", "st_ico"; tip="Status tooltip", glow=true),
+                Gui_Base.BASE_BuildGlassPanel_DDEF("Panel", "Content"; right_node=html_span("Right")),
+                Gui_Base.BASE_BuildIDRow_DDEF(1, Dict("Name" => "RadioChem", "Role" => "Variable", "MW" => 150.0, "HalfLife" => 67.71, "IsRadioactive" => true), true),
+                Gui_Base.BASE_BuildIDRow_DDEF(1, DGDR(1), true, true),
+                Gui_Base.BASE_BuildLevelRow_DDEF(1, DGDR(1), true),
+                Gui_Base.BASE_BuildLimitsRow_DDEF(1, DGDR(1), true),
+                Gui_Base.BASE_BuildGoalRow_DDEF(1),
+                Gui_Base.BASE_BuildControlGroup_DDEF("Label", "Input"),
+                Gui_Base.BASE_BuildTableHeader_DDEF("Col"; style=Dict("backgroundColor" => "var(--colour-val0-purwhi)")),
+                Gui_Base.BASE_BuildSeparator_DDEF(),
+                Gui_Base.BASE_BuildSidebarHeader_DDEF("Side"; icon="fas fa-bars"),
+                Gui_Base.BASE_BuildUpload_DDEF("up_id", "Upload", "fas fa-upload")
+            ),
+            _ = BWA(),
+            _ = (ENV["DOECISORY_DEV"] = "true"; BWA(); delete!(ENV, "DOECISORY_DEV")),
+            _ = (ENV["DOECISORY_FAST_BOOT"] = "true"; BWA(); delete!(ENV, "DOECISORY_FAST_BOOT"))
             @track G7 (deck_layout isa DashBootstrapComponents.Component || deck_layout isa Dash.Component) &&
                       (lens_layout isa DashBootstrapComponents.Component || lens_layout isa Dash.Component) &&
                       (header_comp isa DashBootstrapComponents.Component || header_comp isa Dash.Component) &&
-                      navbar_comp isa Dash.Component && full_layout isa Dash.Component &&
-                      btn_act isa Dash.Component && btn_nxt isa Dash.Component &&
-                      btn_ico isa Dash.Component && st_icon isa Dash.Component &&
-                      g_right isa Dash.Component && r_id_rad isa Dash.Component &&
-                      r_id isa Dash.Component && r_lvl isa Dash.Component && r_lim isa Dash.Component && r_goal isa Dash.Component
+                      all(c isa Dash.Component for c in comps)
         end
 
         # 89: Headless Dash application initialisation routine
@@ -2237,55 +2289,50 @@ const SUITE_START_TIME = time()
         end
 
         # 91: Multi-page URL router dispatch and view resolution
-        let routing_root = Gui_Base.BASE_RoutePage_DDEF("/"),
-            routing_deck = Gui_Base.BASE_RoutePage_DDEF("/design"),
-            routing_lens = Gui_Base.BASE_RoutePage_DDEF("/analysis"),
-            routing_any  = Gui_Base.BASE_RoutePage_DDEF("/unregistered_portal_slug"),
-            diag_open    = Gui_Base.BASE_RegisterDiagnostics_DDEF(1, 0, false; mock_trigger="btn-open-sys-audit"),
-            diag_close   = Gui_Base.BASE_RegisterDiagnostics_DDEF(0, 1, true; mock_trigger="btn-close-diagnostics"),
-            diag_idle    = Gui_Base.BASE_RegisterDiagnostics_DDEF(0, 0, false; mock_trigger="other"),
-            diag_nil     = Gui_Base.BASE_RegisterDiagnostics_DDEF(0, 0, false; mock_trigger=nothing),
-            rec_unlock   = Gui_Base.BASE_RegisterRecovery_DDEF(1, 0; mock_trigger="btn-diag-force-unlock"),
-            rec_clear    = Gui_Base.BASE_RegisterRecovery_DDEF(0, 1; mock_trigger="btn-diag-clear-temp"),
-            rec_idle     = Gui_Base.BASE_RegisterRecovery_DDEF(0, 0; mock_trigger="other"),
-            rec_nil      = Gui_Base.BASE_RegisterRecovery_DDEF(0, 0; mock_trigger=nothing),
-            overlay_poll = Gui_Base.BASE_HandleLoadingOverlay_DDEF(1),
-            overlay_to   = Gui_Base.BASE_HandleLoadingOverlay_DDEF(20),
-            sync_res     = Gui_Base.BASE_SyncVault_DDEF("deck_mock", "lens_mock", "analysis_mock"),
-            sync_deck    = Gui_Base.BASE_SyncVault_DDEF("deck_mock", "lens_mock", "analysis_mock"; mock_trigger="sync-deck-content"),
-            sync_lens    = Gui_Base.BASE_SyncVault_DDEF("deck_mock", "lens_mock", "analysis_mock"; mock_trigger="sync-lens-content"),
-            sync_ana     = Gui_Base.BASE_SyncVault_DDEF("deck_mock", "lens_mock", "analysis_mock"; mock_trigger="sync-lens-analysis"),
-            ctx_sync     = Dash.with_context(Dash._callback_context_storage, (triggered = [(prop_id = "sync-deck-content.value", value = nothing)],)) do
-                Gui_Base.BASE_SyncVault_DDEF("deck_mock", "lens_mock", "analysis_mock")
+        let BRP = Gui_Base.BASE_RoutePage_DDEF,
+            BRD = Gui_Base.BASE_RegisterDiagnostics_DDEF,
+            BRR = Gui_Base.BASE_RegisterRecovery_DDEF,
+            BSV = Gui_Base.BASE_SyncVault_DDEF,
+            sync_args = ("deck_mock", "lens_mock", "analysis_mock"),
+            diag_open = BRD(1, 0, false; mock_trigger="btn-open-sys-audit"),
+            diag_close = BRD(0, 1, true; mock_trigger="btn-close-diagnostics"),
+            rec_unlock = BRR(1, 0; mock_trigger="btn-diag-force-unlock"),
+            routes_ok = all(BRP(r) isa Dash.Component for r in ("/", "/design", "/analysis", "/unregistered_portal_slug")),
+            diags_idle_ok = all(!BRD(0, 0, false; mock_trigger=t)[1] for t in ("other", nothing)),
+            recs_no_upd = all(BRR(0, 1; mock_trigger=t)[1] == Dash.no_update() for t in ("btn-diag-clear-temp", "other", nothing)),
+            overlays_ok = all(Gui_Base.BASE_HandleLoadingOverlay_DDEF(to)[2] == true for to in (1, 20)),
+            ctx_sync = Dash.with_context(Dash._callback_context_storage, (triggered = [(prop_id = "sync-deck-content.value", value = nothing)],)) do
+                BSV(sync_args...)
             end,
-            ctx_diag     = Dash.with_context(Dash._callback_context_storage, (triggered = [(prop_id = "btn-open-sys-audit.n_clicks", value = 1)],)) do
-                Gui_Base.BASE_RegisterDiagnostics_DDEF(1, 0, false)
+            ctx_diag = Dash.with_context(Dash._callback_context_storage, (triggered = [(prop_id = "btn-open-sys-audit.n_clicks", value = 1)],)) do
+                BRD(1, 0, false)
             end,
-            ctx_rec      = Dash.with_context(Dash._callback_context_storage, (triggered = [(prop_id = "btn-diag-force-unlock.n_clicks", value = 1)],)) do
-                Gui_Base.BASE_RegisterRecovery_DDEF(1, 0)
+            ctx_rec = Dash.with_context(Dash._callback_context_storage, (triggered = [(prop_id = "btn-diag-force-unlock.n_clicks", value = 1)],)) do
+                BRR(1, 0)
             end
-            @track G7 routing_root isa Dash.Component && routing_deck isa Dash.Component &&
-                      routing_lens isa Dash.Component && routing_any isa Dash.Component &&
-                      diag_open[1] == true && diag_close[1] == false && !diag_idle[1] && !diag_nil[1] &&
-                      rec_unlock[1] isa Int && rec_clear[1] == Dash.no_update() && rec_idle[1] == Dash.no_update() && rec_nil[1] == Dash.no_update() &&
-                      overlay_poll[2] == true && overlay_to[2] == true &&
-                      sync_res == Dash.no_update() &&
-                      sync_deck == "deck_mock" && sync_lens == "lens_mock" && sync_ana == "analysis_mock" &&
-                      ctx_sync == "deck_mock" && ctx_diag[1] == true && ctx_rec[1] isa Int
+            @track G7 routes_ok && diag_open[1] && !diag_close[1] && diags_idle_ok &&
+                      rec_unlock[1] isa Int && recs_no_upd && overlays_ok &&
+                      BSV(sync_args...) == Dash.no_update() &&
+                      BSV(sync_args...; mock_trigger="sync-deck-content") == "deck_mock" &&
+                      BSV(sync_args...; mock_trigger="sync-lens-content") == "lens_mock" &&
+                      BSV(sync_args...; mock_trigger="sync-lens-analysis") == "analysis_mock" &&
+                      ctx_sync == "deck_mock" && ctx_diag[1] && ctx_rec[1] isa Int
         end
 
         # 92: Single public entry point and launch call contract
-        let has_launch = isdefined(DoECISORY, :launch),
+        let DCRP = DoECISORY.CALL_ResolvePort_DDEF,
+            DCD = DoECISORY.CALL_Design_DDES,
+            has_launch = isdefined(DoECISORY, :launch),
             has_design = isdefined(DoECISORY, :design),
             entry_m = which(DoECISORY.launch, ()),
             app_inst = DoECISORY.launch(; open_browser=false, start_server=false),
-            port_custom = DoECISORY.CALL_ResolvePort_DDEF(8099),
-            port_default = DoECISORY.CALL_ResolvePort_DDEF(),
+            port_custom = DCRP(8099),
+            port_default = DCRP(),
             port_env = withenv("PORT" => "8088") do
-                DoECISORY.CALL_ResolvePort_DDEF()
+                DCRP()
             end,
             port_hf = withenv("SPACE_ID" => "cloudapp_demo", "PORT" => nothing) do
-                DoECISORY.CALL_ResolvePort_DDEF()
+                DCRP()
             end,
             plan_bb = design(:bb15),
             plan_cd = design(:cd17),
@@ -2299,29 +2346,33 @@ const SUITE_START_TIME = time()
             io_buf = IOBuffer(),
             _ = show(io_buf, plan_bb),
             show_str = String(take!(io_buf)),
-            err_factors = try design(:bb15; factors=["A", "B"]); false catch e; (e isa ArgumentError) end,
-            err_levels  = try design(:bb15; levels=[(1.0, 2.0)]); false catch e; (e isa ArgumentError) end,
-            err_sublvl  = try design(:bb15; levels=[(1.0, 2.0), (1.0, 2.0), (1.0, 2.0)]); false catch e; (e isa ArgumentError) end,
-            err_limits  = try design(:bb15; limits=[(1.0, 2.0)]); false catch e; (e isa ArgumentError) end
+            err_args_ok = all(kwargs -> try design(:bb15; kwargs...); false catch e; (e isa ArgumentError) end, (
+                (factors=["A", "B"],),
+                (levels=[(1.0, 2.0)],),
+                (levels=[(1.0, 2.0), (1.0, 2.0), (1.0, 2.0)],),
+                (limits=[(1.0, 2.0)],)
+            ))
             @track G7 has_launch && has_design && entry_m !== nothing && app_inst isa Dash.DashApp &&
                       app_inst.layout isa Dash.Component && length(app_inst.callbacks) >= 40 &&
                       port_custom == 8099 && port_default == 8060 && port_env == 8088 && port_hf == 7860 &&
-                      plan_bb isa DoECISORY.CALL_Design_DDES && plan_cd isa DoECISORY.CALL_Design_DDES &&
-                      plan_tl isa DoECISORY.CALL_Design_DDES && plan_df isa DoECISORY.CALL_Design_DDES &&
-                      plan_custom isa DoECISORY.CALL_Design_DDES &&
+                      plan_bb isa DCD && plan_cd isa DCD &&
+                      plan_tl isa DCD && plan_df isa DCD &&
+                      plan_custom isa DCD &&
                       contains(show_str, "DoECISORY ExperimentDesign") && contains(show_str, "D-Efficiency") &&
-                      err_factors && err_levels && err_sublvl && err_limits
+                      err_args_ok
         end
 
         # 93: Chemical formulation grid default row definition
-        let row_deck = Gui_Deck.DECK_GetDefaultRow_DDEF(1),
-            row_fixed = Gui_Deck.DECK_GetDefaultRow_DDEF(4),
+        let DGDR = Gui_Deck.DECK_GetDefaultRow_DDEF,
+            row_deck = DGDR(1),
+            row_fixed = DGDR(4),
             m_chem = Gui_Deck.DECK_BuildPropertyModal_DDEF(),
             m_stoch = Gui_Deck.DECK_BuildStoicModal_DDEF(),
             m_audit = Gui_Deck.DECK_BuildAuditModal_DDEF(),
-            tbl_id = Gui_Deck.DECK_BuildIDTable_DDEF(1:3, [Gui_Deck.DECK_GetDefaultRow_DDEF(i) for i in 1:3], 3, true),
-            tbl_lvl = Gui_Deck.DECK_BuildLevelTable_DDEF(1:3, [Gui_Deck.DECK_GetDefaultRow_DDEF(i) for i in 1:3], 3),
-            tbl_lim = Gui_Deck.DECK_BuildLimitsTable_DDEF(1:3, [Gui_Deck.DECK_GetDefaultRow_DDEF(i) for i in 1:3], 3),
+            tbl_rows = [DGDR(i) for i in 1:3],
+            tbl_id = Gui_Deck.DECK_BuildIDTable_DDEF(1:3, tbl_rows, 3, true),
+            tbl_lvl = Gui_Deck.DECK_BuildLevelTable_DDEF(1:3, tbl_rows, 3),
+            tbl_lim = Gui_Deck.DECK_BuildLimitsTable_DDEF(1:3, tbl_rows, 3),
             out_row = Gui_Deck.DECK_BuildOutputRow_DDEF(1, "Yield", "%"),
             safe_z = Gui_Deck.DECK_SafeNumZero_DDEF(NaN) == 0.0 && Gui_Deck.DECK_SafeNumZero_DDEF(5.5) == 5.5,
             safe_k = Sys_Fast.FAST_SafeGet_DDEF(Dict("k" => 1), "k", 0) == 1 && Sys_Fast.FAST_SafeGet_DDEF(Dict(), "k", 42) == 42
@@ -2332,7 +2383,8 @@ const SUITE_START_TIME = time()
         end
 
         # 94: Factor row import mapping and data normalisation
-        let raw_in = [
+        let DGP = Gui_Deck.DECK_GenProtocol_DDEF,
+            raw_in = [
                 Dict("Name" => "FactorA", "Role" => "Variable", "L1" => 10, "L2" => 20, "L3" => 30, "Unit" => "mg"),
                 Dict("Name" => "FactorB", "Role" => "Variable", "L1" => 1, "L2" => 2, "L3" => 3, "Unit" => "mM"),
                 Dict("Name" => "FactorC", "Role" => "Variable", "L1" => 100, "L2" => 200, "L3" => 300, "Unit" => "%m"),
@@ -2342,47 +2394,49 @@ const SUITE_START_TIME = time()
             t_deck = joinpath(Sys_Fast.FAST_TempRoot_DDEC, "TEMP_DECK_GEN.xlsx")
             Sys_Fast.FAST_CleanTransient_DDEF(t_deck)
             in_deck = [
-                Dict("Name" => "ReactionTime", "Role" => "Variable", "L1" => 10.0, "L2" => 20.0, "L3" => 30.0, "Unit" => "%M", "MW" => 100.0),
-                Dict("Name" => "FactorB", "Role" => "Variable", "L1" => 10.0, "L2" => 20.0, "L3" => 30.0, "Unit" => "%M", "MW" => 100.0),
-                Dict("Name" => "FactorC", "Role" => "Variable", "L1" => 10.0, "L2" => 20.0, "L3" => 30.0, "Unit" => "%M", "MW" => 100.0),
-                Dict("Name" => "RadioA", "Role" => "Fixed", "L1" => 5.0, "L2" => 5.0, "L3" => 5.0, "Unit" => "mCi", "MW" => 0.0, "IsRadioactive" => true, "HalfLife" => 68.0, "HalfLifeUnit" => "Minutes")
+                [Dict("Name" => n, "Role" => "Variable", "L1" => 10.0, "L2" => 20.0, "L3" => 30.0, "Unit" => "%M", "MW" => 100.0)
+                 for n in ["ReactionTime", "FactorB", "FactorC"]];
+                [Dict("Name" => "RadioA", "Role" => "Fixed", "L1" => 5.0, "L2" => 5.0, "L3" => 5.0,
+                      "Unit" => "mCi", "MW" => 0.0, "IsRadioactive" => true, "HalfLife" => 68.0, "HalfLifeUnit" => "Minutes")]
             ]
             out_deck = [
                 Dict("Name" => "Yield", "Unit" => "%"),
                 Dict("Name" => "Purity", "Unit" => "%"),
                 Dict("Name" => "Titer", "Unit" => "g/L")
             ]
-            res_gen_df14 = Gui_Deck.DECK_GenProtocol_DDEF(t_deck, in_deck, out_deck, 10.0, 1.0, "DF14", Dict("FillerName" => "Water", "FillerMW" => 18.0), "ProjDeck"; direction=[1, -1, 1], target_phase="Phase1")
+            res_gen_df14 = DGP(
+                t_deck, in_deck, out_deck, 10.0, 1.0, "DF14",
+                Dict("FillerName" => "Water", "FillerMW" => 18.0), "ProjDeck";
+                direction=[1, -1, 1], target_phase="Phase1"
+            )
             df_deck_p1 = Sys_Fast.FAST_ReadExcel_DDEF(t_deck, Sys_Fast.FAST_Data_DDEC.SHEET_DATA)
             has_fill_water = "FILL_Water_%M" in names(df_deck_p1) && !any(ismissing, df_deck_p1[!, "FILL_Water_%M"])
-            res_gen_phase2 = Gui_Deck.DECK_GenProtocol_DDEF(t_deck, in_deck, out_deck, 10.0, 1.0, "BB15", Dict(), "ProjDeck")
+            res_gen_phase2 = DGP(t_deck, in_deck, out_deck, 10.0, 1.0, "BB15", Dict(), "ProjDeck")
             in_time_rad = deepcopy(in_deck); in_time_rad[1]["Unit"] = "Minutes"; in_time_rad[1]["MW"] = 0.0
-            res_time_rad = Gui_Deck.DECK_GenProtocol_DDEF(t_deck, in_time_rad, out_deck, 10.0, 1.0, "BB15", Dict(), "ProjDeck"; target_phase=nothing)
-            res_gen_fail = Gui_Deck.DECK_GenProtocol_DDEF("", [], [], 0.0, 0.0, "BB15", Dict())
-            res_gen_bad_vars = Gui_Deck.DECK_GenProtocol_DDEF(t_deck, in_deck[1:2], out_deck, 10.0, 1.0, "BB15", Dict())
-            res_gen_bad_outs = Gui_Deck.DECK_GenProtocol_DDEF(t_deck, in_deck, out_deck[1:2], 10.0, 1.0, "BB15", Dict())
-            in_bad_lvl = deepcopy(in_deck); in_bad_lvl[1]["L1"] = 50.0; in_bad_lvl[1]["L2"] = 20.0
-            res_gen_bad_lvl = Gui_Deck.DECK_GenProtocol_DDEF(t_deck, in_bad_lvl, out_deck, 10.0, 1.0, "BB15", Dict())
-            in_bad_u = deepcopy(in_deck); in_bad_u[1]["Unit"] = "bad_unit"
-            res_bad_u = Gui_Deck.DECK_GenProtocol_DDEF(t_deck, in_bad_u, out_deck, 10.0, 1.0, "BB15", Dict())
-            in_dup_v = deepcopy(in_deck); in_dup_v[2]["Name"] = in_dup_v[1]["Name"]
-            res_dup_v = Gui_Deck.DECK_GenProtocol_DDEF(t_deck, in_dup_v, out_deck, 10.0, 1.0, "BB15", Dict())
-            out_dup_r = deepcopy(out_deck); out_dup_r[2]["Name"] = out_dup_r[1]["Name"]
-            res_dup_r = Gui_Deck.DECK_GenProtocol_DDEF(t_deck, in_deck, out_dup_r, 10.0, 1.0, "BB15", Dict())
-            in_over_bg = deepcopy(in_deck); in_over_bg[1]["L3"] = 80.0; in_over_bg[2]["L3"] = 80.0
-            res_over_bg = Gui_Deck.DECK_GenProtocol_DDEF(t_deck, in_over_bg, out_deck, 10.0, 1.0, "BB15", Dict())
-            res_gen_phase1_again = Gui_Deck.DECK_GenProtocol_DDEF(t_deck, in_deck, out_deck, 10.0, 1.0, "BB15", Dict(), "ProjDeck"; target_phase="Phase1")
+            res_time_rad = DGP(t_deck, in_time_rad, out_deck, 10.0, 1.0, "BB15", Dict(), "ProjDeck"; target_phase=nothing)
+            bad_dgp_calls = (
+                ("", [], [], 0.0, 0.0, "BB15", Dict()),
+                (t_deck, in_deck[1:2], out_deck, 10.0, 1.0, "BB15", Dict()),
+                (t_deck, in_deck, out_deck[1:2], 10.0, 1.0, "BB15", Dict()),
+                (t_deck, (b = deepcopy(in_deck); b[1]["L1"] = 50.0; b[1]["L2"] = 20.0; b), out_deck, 10.0, 1.0, "BB15", Dict()),
+                (t_deck, (b = deepcopy(in_deck); b[1]["Unit"] = "bad_unit"; b), out_deck, 10.0, 1.0, "BB15", Dict()),
+                (t_deck, (b = deepcopy(in_deck); b[2]["Name"] = b[1]["Name"]; b), out_deck, 10.0, 1.0, "BB15", Dict()),
+                (t_deck, in_deck, (b = deepcopy(out_deck); b[2]["Name"] = b[1]["Name"]; b), 10.0, 1.0, "BB15", Dict()),
+                (t_deck, (b = deepcopy(in_deck); b[1]["L3"] = 80.0; b[2]["L3"] = 80.0; b), out_deck, 10.0, 1.0, "BB15", Dict())
+            )
+            bad_dgp_ok = all(!DGP(args...)[1] for args in bad_dgp_calls)
+            res_gen_phase1_again = DGP(t_deck, in_deck, out_deck, 10.0, 1.0, "BB15", Dict(), "ProjDeck"; target_phase="Phase1")
             Sys_Fast.FAST_CleanTransient_DDEF(t_deck)
             @track G7 length(mapped_rows) == 4 && mapped_rows[1]["Role"] == "Variable" && mapped_rows[4]["Role"] == "Fixed" &&
-                      res_gen_df14[1] && has_fill_water && res_gen_phase2[1] && res_gen_phase1_again[1] && !res_gen_fail[1] &&
-                      !res_gen_bad_vars[1] && !res_gen_bad_outs[1] && !res_gen_bad_lvl[1] &&
-                      !res_bad_u[1] && !res_dup_v[1] && !res_dup_r[1] && res_time_rad[1] && !res_over_bg[1]
+                      res_gen_df14[1] && has_fill_water && res_gen_phase2[1] && res_gen_phase1_again[1] &&
+                      bad_dgp_ok && res_time_rad[1]
         end
 
         # 95: Transition slot card layout and extraction audit
-        let slot_card1 = Gui_Lens.LENS_BuildSlotCard_DDEF(1),
-            slot_card2 = Gui_Lens.LENS_BuildSlotCard_DDEF(2),
-            slot_card3 = Gui_Lens.LENS_BuildSlotCard_DDEF(3),
+        let LBSC = Gui_Lens.LENS_BuildSlotCard_DDEF,
+            slot_card1 = LBSC(1),
+            slot_card2 = LBSC(2),
+            slot_card3 = LBSC(3),
             slot_conf = Dict("Slots" => [
                 Dict("Mode" => "SCALE", "Alpha" => 1.2, "Beta" => 0.5, "NewName" => "Temp_Scaled"),
                 Dict("Mode" => "REPLACE", "NewName" => "Catalyst", "NewL1" => 1.0, "NewL2" => 2.0, "NewL3" => 3.0),
@@ -2394,102 +2448,90 @@ const SUITE_START_TIME = time()
         end
 
         # 96: Slot configuration modification and level update
-        let mock_conf = [
-                Dict{String,Any}("Name" => "Temp", "Role" => Sys_Fast.FAST_Data_DDEC.ROLE_VAR, "Levels" => [20.0, 50.0, 80.0]),
-                Dict{String,Any}("Name" => "Time", "Role" => Sys_Fast.FAST_Data_DDEC.ROLE_VAR, "Levels" => [10.0, 20.0, 30.0]),
-                Dict{String,Any}("Name" => "Dose", "Role" => Sys_Fast.FAST_Data_DDEC.ROLE_VAR, "Levels" => [1.0, 2.0, 3.0])
+        let C = Sys_Fast.FAST_Data_DDEC,
+            mock_conf = [
+                Dict{String,Any}("Name" => "Temp", "Role" => C.ROLE_VAR, "Levels" => [20.0, 50.0, 80.0]),
+                Dict{String,Any}("Name" => "Time", "Role" => C.ROLE_VAR, "Levels" => [10.0, 20.0, 30.0]),
+                Dict{String,Any}("Name" => "Dose", "Role" => C.ROLE_VAR, "Levels" => [1.0, 2.0, 3.0])
             ],
             slots_ext = Gui_Lens.LENS_ExtractSlots_DDEF(Dict("Slots" => [
                 Dict("Mode" => "REPLACE", "NewName" => "Catalyst", "NewL1" => 1.0, "NewL2" => 2.0, "NewL3" => 3.0),
                 Dict("Mode" => "SCALE", "Alpha" => 1.2, "Beta" => 0.5, "NewName" => "Time_Scaled"),
                 Dict("Mode" => "KEEP")
             ])),
-            _ = Gui_Lens.LENS_ApplySlotCustomisation_DDEF!(mock_conf, slots_ext, [50.0, 20.0, 2.0])
+            _ = Gui_Lens.LENS_ApplySlotCustomisation_DDEF!(mock_conf, slots_ext, [50.0, 20.0, 2.0]),
+            mock_conf_old = [
+                Dict{String,Any}("Name" => "Temp", "Role" => C.ROLE_VAR, "OldLevels" => [15.0, 45.0, 75.0])
+            ],
+            _ = Gui_Lens.LENS_ApplySlotCustomisation_DDEF!(mock_conf_old, [Dict("Mode" => "SCALE", "Alpha" => 1.0, "Beta" => 0.0)], [45.0], 1.0, Dict{String,Any}[]),
+            realigned_single = Gui_Lens.LENS_RealignMarkdownTables_DDEF("| Single Row Table |")
             @track G7 mock_conf[1]["Name"] == "Catalyst" && mock_conf[1]["Levels"] == [1.0, 2.0, 3.0] &&
-                      mock_conf[2]["Name"] == "Time_Scaled" && mock_conf[3]["Name"] == "Dose"
+                      mock_conf[2]["Name"] == "Time_Scaled" && mock_conf[3]["Name"] == "Dose" &&
+                      length(mock_conf_old[1]["Levels"]) == 3 && occursin("Single Row Table", realigned_single)
         end
 
         # 97: Leaderboard Dash HTML component table generation
-        let mock_ldf = DataFrame(
-                Sys_Fast.FAST_Data_DDEC.COL_EXP_ID => ["EXP_01", "EXP_02"],
-                Sys_Fast.FAST_Data_DDEC.PRE_VAR * "Temp" => [50.0, 48.0],
-                Sys_Fast.FAST_Data_DDEC.PRE_PRED * "Yield" => [92.0, 89.5],
-                Sys_Fast.FAST_Data_DDEC.COL_SCORE => [0.95, 0.91]
+        let C = Sys_Fast.FAST_Data_DDEC,
+            LBLT = Gui_Lens.LENS_BuildLeadersTable_DDEF,
+            LSF = Gui_Lens.LENS_SafeFloat_DDEF,
+            LEBC = Gui_Lens.LENS_EvalBadgeClass_DDEF,
+            LFM = Gui_Lens.LENS_FormatMetric_DDEF,
+            LRMT = Gui_Lens.LENS_RealignMarkdownTables_DDEF,
+            LDAA = Gui_Lens.LENS_DetectAbsoluteActivity_DDEF,
+            mock_ldf = DataFrame(
+                C.COL_EXP_ID => ["EXP_01", "EXP_02"],
+                C.PRE_VAR * "Temp" => [50.0, 48.0],
+                C.PRE_PRED * "Yield" => [92.0, 89.5],
+                C.COL_SCORE => [0.95, 0.91]
             ),
             mock_res_html = Dict("InNames" => ["Temp"], "OutNames" => ["Yield"]),
-            leaders_html = Gui_Lens.LENS_BuildLeadersTable_DDEF(mock_ldf, mock_res_html),
+            leaders_html = LBLT(mock_ldf, mock_res_html),
             df_lead_test = DataFrame(
                 "EXP_ID" => ["EXP_01", "EXP_02"],
                 "SCORE" => [0.95, 0.88],
                 "Varia_Temp" => [50.0, 60.0],
                 "Pred_Yield" => [92.0, 85.0]
             ),
-            lens_table = Gui_Lens.LENS_BuildLeadersTable_DDEF(df_lead_test, Dict("DisplayOutNames" => ["Yield (%)"])),
-            empty_html = Gui_Lens.LENS_BuildLeadersTable_DDEF(DataFrame(), Dict()),
-            safe_flt = Gui_Lens.LENS_SafeFloat_DDEF(42.5),
-            safe_flt_nil = Gui_Lens.LENS_SafeFloat_DDEF(nothing),
-            safe_flt_nan = Gui_Lens.LENS_SafeFloat_DDEF(NaN),
-            safe_flt_mis = Gui_Lens.LENS_SafeFloat_DDEF(missing),
-            safe_flt_str = Gui_Lens.LENS_SafeFloat_DDEF("text"),
-            c_deff_hi  = Gui_Lens.LENS_EvalBadgeClass_DDEF(:d_eff, 0.45),
-            c_deff_lo  = Gui_Lens.LENS_EvalBadgeClass_DDEF(:d_eff, 0.15),
-            c_deff_nil = Gui_Lens.LENS_EvalBadgeClass_DDEF(:d_eff, nothing),
-            c_vif_ok   = Gui_Lens.LENS_EvalBadgeClass_DDEF(:vif, 2.5),
-            c_vif_med  = Gui_Lens.LENS_EvalBadgeClass_DDEF(:vif, 7.5),
-            c_vif_bad  = Gui_Lens.LENS_EvalBadgeClass_DDEF(:vif, 12.0),
-            c_lof_ok   = Gui_Lens.LENS_EvalBadgeClass_DDEF(:lof, 0.20),
-            c_lof_bad  = Gui_Lens.LENS_EvalBadgeClass_DDEF(:lof, 0.01),
-            c_q2_hi    = Gui_Lens.LENS_EvalBadgeClass_DDEF(:q2, 0.75),
-            c_q2_neg   = Gui_Lens.LENS_EvalBadgeClass_DDEF(:q2, -0.30),
-            c_pval_sig = Gui_Lens.LENS_EvalBadgeClass_DDEF(:pval, 0.01),
-            c_pval_ins = Gui_Lens.LENS_EvalBadgeClass_DDEF(:pval, 0.15),
-            c_cpval    = Gui_Lens.LENS_EvalBadgeClass_DDEF(:coef_pval, 0.02),
-            c_cvif     = Gui_Lens.LENS_EvalBadgeClass_DDEF(:coef_vif, 2, 8.0),
-            c_sens     = Gui_Lens.LENS_EvalBadgeClass_DDEF(:sensitivity, 0.85),
-            c_anova_m  = Gui_Lens.LENS_EvalBadgeClass_DDEF(:anova, "Model", 0.001),
-            c_anova_l  = Gui_Lens.LENS_EvalBadgeClass_DDEF(:anova, "Lack of Fit", 0.001),
-            c_anova_ok = Gui_Lens.LENS_EvalBadgeClass_DDEF(:anova, "Lack of Fit", 0.15),
-            fmt_deff   = Gui_Lens.LENS_FormatMetric_DDEF(:d_eff, 0.725),
-            fmt_eff    = Gui_Lens.LENS_FormatMetric_DDEF(:eff, 0.854),
-            fmt_vif    = Gui_Lens.LENS_FormatMetric_DDEF(:vif, 1.25),
-            fmt_lof    = Gui_Lens.LENS_FormatMetric_DDEF(:lof, 0.045),
-            fmt_lof_na = Gui_Lens.LENS_FormatMetric_DDEF(:lof, nothing),
-            ext_nil    = Gui_Lens.LENS_ExtractSlots_DDEF(nothing),
-            ext_nov    = Gui_Lens.LENS_ExtractSlots_DDEF(Dict("Slots" => nothing)),
-            rep_in     = "<span class=\"report-pos\">+5.2</span> <span class=\"report-neg\">-1.4</span> <span>normal</span>",
-            parsed_inl = Gui_Lens.LENS_ParseInlineContent_DDEF(rep_in; is_cell=true),
-            md_tbl_txt = "| Metric | Value |\n|:---:|---:|\n| D-Eff | 0.85 |\n| VIF | 1.2 |",
-            realigned_tbl = Gui_Lens.LENS_RealignMarkdownTables_DDEF(md_tbl_txt),
-            acad_rep   = "# Academic Report\n### Subheader 3\n#### Subheader 4\n---\n*Important notice paragraph*\n- First finding bullet\n| Metric | Center | Right |\n|---|:---:|---:|\n| **Model** | `OLS` | Pass |\n\nConclusion text with <ins>positive</ins> note.",
-            rend_rep   = Gui_Lens.LENS_RenderAcademicReport_DDEF(acad_rep),
-            c_anova_oth = Gui_Lens.LENS_EvalBadgeClass_DDEF(:anova, "OtherSource", 0.01),
-            realign_extra = Gui_Lens.LENS_RealignMarkdownTables_DDEF("| Col |\n|---|\n| cell |\nPlain text line"),
-            realign_sparse = Gui_Lens.LENS_RealignMarkdownTables_DDEF("| H1 | H2 | H3 |\n| --- |\n| cell1 |\n| SingleLine |"),
-            act_det1   = Gui_Lens.LENS_DetectAbsoluteActivity_DDEF([Dict("Name" => "Act", "Unit" => "MBq")]),
-            act_det2   = Gui_Lens.LENS_DetectAbsoluteActivity_DDEF([Dict("Name" => "EOS Activity", "Unit" => "mCi")]),
-            act_det_eos = Gui_Lens.LENS_DetectAbsoluteActivity_DDEF([Dict("Name" => "EOS Activity", "Unit" => "")]),
-            act_det3   = Gui_Lens.LENS_DetectAbsoluteActivity_DDEF([Dict("Name" => "Purity", "Unit" => "%")]),
-            act_det4   = Gui_Lens.LENS_DetectAbsoluteActivity_DDEF([Dict("Name" => "Iso", "IsRadioactive" => true)]),
-            tbl_fallback = Gui_Lens.LENS_BuildLeadersTable_DDEF(DataFrame(Sys_Fast.FAST_Data_DDEC.PRE_VAR * "UnknownVar" => [1.0], Sys_Fast.FAST_Data_DDEC.PRE_PRED * "UnknownPred" => [2.0], "SCORE" => [0.9]), Dict()),
-            meta_lead    = Gui_Lens.LENS_GetGraphMeta_DDEF(Dict("type" => "OptimalZone", "out_idx" => 1, "sub_idx" => 2)),
-            meta_empty   = Gui_Lens.LENS_GetGraphMeta_DDEF(Dict())
+            lens_table = LBLT(df_lead_test, Dict("DisplayOutNames" => ["Yield (%)"])),
+            empty_html = LBLT(DataFrame(), Dict()),
+            badges_ok = (
+                occursin("c4tg", LEBC(:d_eff, 0.45)) && occursin("c0hr", LEBC(:d_eff, 0.15)) && occursin("v5pb", LEBC(:d_eff, nothing)) &&
+                occursin("c4tg", LEBC(:vif, 2.5)) && occursin("c5hy", LEBC(:vif, 7.5)) && occursin("c0hr", LEBC(:vif, 12.0)) &&
+                occursin("c4tg", LEBC(:lof, 0.20)) && occursin("c0hr", LEBC(:lof, 0.01)) &&
+                occursin("c4tg", LEBC(:q2, 0.75)) && occursin("c0hr", LEBC(:q2, -0.30)) &&
+                occursin("c4tg", LEBC(:pval, 0.01)) && occursin("c0hr", LEBC(:pval, 0.15)) &&
+                occursin("c4tg", LEBC(:coef_pval, 0.02)) && occursin("c0hr", LEBC(:coef_vif, 2, 8.0)) && occursin("v5pb", LEBC(:sensitivity, 0.85)) &&
+                occursin("c4tg", LEBC(:anova, "Model", 0.001)) && occursin("c0hr", LEBC(:anova, "Lack of Fit", 0.001)) && occursin("c4tg", LEBC(:anova, "Lack of Fit", 0.15))
+            ),
+            fmts_ok = (LFM(:d_eff, 0.725), LFM(:eff, 0.854), LFM(:vif, 1.25), LFM(:lof, 0.045), LFM(:lof, nothing)) == ("0.725", "0.85", "1.25", "0.045", "N/A"),
+            parsed_inl = Gui_Lens.LENS_ParseInlineContent_DDEF("<span class=\"report-pos\">+5.2</span> <span class=\"report-neg\">-1.4</span> <span>normal</span>"; is_cell=true),
+            realigned_tbl = LRMT("| Metric | Value |\n|:---:|---:|\n| D-Eff | 0.85 |\n| VIF | 1.2 |"),
+            acad_rep = string(
+                "# Academic Report\n### Subheader 3\n#### Subheader 4\n---\n",
+                "*Important notice paragraph*\n- First finding bullet\n",
+                "| Metric | Center | Right |\n|---|:---:|---:|\n| **Model** | `OLS` | Pass |\n\n",
+                "Conclusion text with <ins>positive</ins> note."
+            ),
+            acts_ok = LDAA([Dict("Name" => "Act", "Unit" => "MBq")]) == "Act" &&
+                      all(LDAA([Dict("Name" => "EOS Activity", "Unit" => u)]) == "EOS Activity" for u in ("mCi", "")) &&
+                      isempty(LDAA([Dict("Name" => "Purity", "Unit" => "%")])) &&
+                      LDAA([Dict("Name" => "Iso", "IsRadioactive" => true)]) == "Iso",
+            tbl_fallback = LBLT(DataFrame(C.PRE_VAR * "UnknownVar" => [1.0], C.PRE_PRED * "UnknownPred" => [2.0], "SCORE" => [0.9]), Dict())
             @track G7 leaders_html isa Dash.Component && isempty(empty_html) &&
                       (lens_table isa DashBootstrapComponents.Component || lens_table isa Dash.Component || isdefined(lens_table, :children)) &&
                       tbl_fallback isa Dash.Component &&
-                      meta_lead == ("OptimalZone", 1, 2) && meta_empty == ("", 0, 0) &&
-                      safe_flt == 42.5 && isnothing(safe_flt_nil) && isnothing(safe_flt_nan) && isnothing(safe_flt_mis) && isnothing(safe_flt_str) &&
-                      occursin("c4tg", c_deff_hi) && occursin("c0hr", c_deff_lo) && occursin("v5pb", c_deff_nil) &&
-                      occursin("c4tg", c_vif_ok) && occursin("c5hy", c_vif_med) && occursin("c0hr", c_vif_bad) &&
-                      occursin("c4tg", c_lof_ok) && occursin("c0hr", c_lof_bad) &&
-                      occursin("c4tg", c_q2_hi) && occursin("c0hr", c_q2_neg) &&
-                      occursin("c4tg", c_pval_sig) && occursin("c0hr", c_pval_ins) &&
-                      occursin("c4tg", c_cpval) && occursin("c0hr", c_cvif) && occursin("v5pb", c_sens) &&
-                      occursin("c4tg", c_anova_m) && occursin("c0hr", c_anova_l) && occursin("c4tg", c_anova_ok) &&
-                      c_anova_oth == "fw-bold" &&
-                      fmt_deff == "0.725" && fmt_eff == "0.85" && fmt_vif == "1.25" && fmt_lof == "0.045" && fmt_lof_na == "N/A" &&
-                      isempty(ext_nil) && isempty(ext_nov) && length(parsed_inl) >= 3 &&
-                      occursin("0.85", realigned_tbl) && !isempty(realign_extra) && !isempty(realign_sparse) && rend_rep isa Dash.Component &&
-                      act_det1 == "Act" && act_det2 == "EOS Activity" && act_det_eos == "EOS Activity" && isempty(act_det3) && act_det4 == "Iso"
+                      Gui_Lens.LENS_GetGraphMeta_DDEF(Dict("type" => "OptimalZone", "out_idx" => 1, "sub_idx" => 2)) == ("OptimalZone", 1, 2) &&
+                      Gui_Lens.LENS_GetGraphMeta_DDEF(Dict()) == ("", 0, 0) &&
+                      LSF(42.5) == 42.5 && all(isnothing ∘ LSF, (nothing, NaN, missing, "text")) &&
+                      badges_ok && LEBC(:anova, "OtherSource", 0.01) == "fw-bold" &&
+                      fmts_ok &&
+                      isempty(Gui_Lens.LENS_ExtractSlots_DDEF(nothing)) && isempty(Gui_Lens.LENS_ExtractSlots_DDEF(Dict("Slots" => nothing))) &&
+                      length(parsed_inl) >= 3 &&
+                      occursin("0.85", realigned_tbl) &&
+                      !isempty(LRMT("| Col |\n|---|\n| cell |\nPlain text line")) &&
+                      !isempty(LRMT("| H1 | H2 | H3 |\n| --- |\n| cell1 |\n| SingleLine |")) &&
+                      Gui_Lens.LENS_RenderAcademicReport_DDEF(acad_rep) isa Dash.Component &&
+                      acts_ok
         end
 
         # 98: State payload sanitisation and base64 roundtrip
@@ -2501,23 +2543,14 @@ const SUITE_START_TIME = time()
                 "NamedTuple" => (a = 1.0, b = NaN),
                 "Pair" => "k" => NaN
             )),
-            json_str = JSON3.write(clean_bundle),
-            read_back = JSON3.read(json_str, Dict{String, Any}),
+            read_back = JSON3.read(JSON3.write(clean_bundle), Dict{String, Any}),
             cfg_lens = Dict{String, Any}(
-                "Type"      => "DoECISORY_Lens_Config",
-                "Version"   => "0.1.0",
-                "Timestamp" => string(Dates.now()),
-                "Project"   => "ValidationProject",
-                "Phase"     => "Phase1",
-                "Model"     => "Quadratic",
-                "Goals"     => [
-                    Dict("Index" => 1, "Name" => "Purity", "Min" => 90.0, "Target" => 98.0, "Max" => 100.0, "Type" => "Maximise", "Weight" => "1.00")
-                ],
+                "Type" => "DoECISORY_Lens_Config", "Version" => "0.1.0", "Timestamp" => string(Dates.now()),
+                "Project" => "ValidationProject", "Phase" => "Phase1", "Model" => "Quadratic",
+                "Goals" => [Dict("Index" => 1, "Name" => "Purity", "Min" => 90.0, "Target" => 98.0, "Max" => 100.0, "Type" => "Maximise", "Weight" => "1.00")],
                 "Radioactivity" => Dict("ForwMode" => "OFF", "DcypMode" => "OFF", "ReveMode" => "OFF")
             ),
-            lens_json = JSON3.write(cfg_lens),
-            lens_b64 = Base64.base64encode(lens_json),
-            lens_parsed = JSON3.read(String(Base64.base64decode(lens_b64)), Dict{String, Any})
+            lens_parsed = JSON3.read(String(Base64.base64decode(Base64.base64encode(JSON3.write(cfg_lens)))), Dict{String, Any})
             @track G7 read_back["Status"] == "OK" && read_back["Scores"][1] == 0.91 && read_back["Vitals"]["Condition"] == 41.2 &&
                       lens_parsed["Type"] == "DoECISORY_Lens_Config" && lens_parsed["Project"] == "ValidationProject"
         end
@@ -2530,7 +2563,8 @@ const SUITE_START_TIME = time()
         end
 
         # 100: End-to-end multi-phase workflow integration audit
-        let e2e_plan = design(:bb15;
+        let VReg = Lib_Vise.VISE_Regress_DDEF,
+            e2e_plan = design(:bb15;
                 factors = ["Temperature", "Time", "Precursor"],
                 levels  = [(60.0, 90.0, 120.0), (5.0, 15.0, 25.0), (15.0, 25.0, 35.0)]
             ),
@@ -2563,9 +2597,8 @@ const SUITE_START_TIME = time()
             
             # 3. Multi-response quadratic model fitting
             e2e_models = [
-                Lib_Vise.VISE_Regress_DDEF(e2e_X, Float64.(e2e_read[!, "RESULT_Conversion"]), "quadratic"; InNames=e2e_plan.factors),
-                Lib_Vise.VISE_Regress_DDEF(e2e_X, Float64.(e2e_read[!, "RESULT_Yield"]),      "quadratic"; InNames=e2e_plan.factors),
-                Lib_Vise.VISE_Regress_DDEF(e2e_X, Float64.(e2e_read[!, "RESULT_Impurity"]),   "quadratic"; InNames=e2e_plan.factors)
+                VReg(e2e_X, Float64.(e2e_read[!, "RESULT_" * resp]), "quadratic"; InNames=e2e_plan.factors)
+                for resp in ("Conversion", "Yield", "Impurity")
             ]
             
             # 4. Multi-objective desirability optimisation with 18F DCYP

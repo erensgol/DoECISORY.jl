@@ -1487,17 +1487,19 @@ FAST_ParseDirection_DDEF(::Any)::Int = -1
     FAST_DecodeDirections_DDEF(source, names) -> Tuple{Int,Int,Int}
 Decodes factor directions using multiple dispatch on the source container type.
 """
-function FAST_DecodeDirections_DDEF(dm::AbstractDict, names::AbstractVector)
-    dm_norm = Dict{String,Int}(lowercase(strip(string(k))) => FAST_ParseDirection_DDEF(v) for (k, v) in pairs(dm))
-    function get_val(idx)
-        idx > length(names) && return -1
-        target_name = lowercase(strip(string(names[idx])))
-        return get(dm_norm, target_name, -1)
+function FAST_DecodeDirections_DDEF(dm::AbstractDict, names::AbstractVector)::Tuple{Int,Int,Int}
+    haskey(dm, "Directions") && return FAST_DecodeDirections_DDEF(dm["Directions"], names)
+    if length(dm) == 1 && first(values(dm)) isa Union{AbstractVector, AbstractDict}
+        return FAST_DecodeDirections_DDEF(first(values(dm)), names)
     end
-    return (get_val(1), get_val(2), get_val(3))
+    dm_norm = Dict{String,Int}(lowercase(strip(string(k))) => FAST_ParseDirection_DDEF(v) for (k, v) in pairs(dm))
+    d1 = length(names) >= 1 ? get(dm_norm, lowercase(strip(string(names[1]))), -1) : -1
+    d2 = length(names) >= 2 ? get(dm_norm, lowercase(strip(string(names[2]))), -1) : -1
+    d3 = length(names) >= 3 ? get(dm_norm, lowercase(strip(string(names[3]))), -1) : -1
+    return (d1, d2, d3)
 end
 
-FAST_DecodeDirections_DDEF(v::AbstractVector, ::AbstractVector) = (
+FAST_DecodeDirections_DDEF(v::AbstractVector, ::AbstractVector)::Tuple{Int,Int,Int} = (
     length(v) >= 3 ? (
         FAST_ParseDirection_DDEF(v[1]),
         FAST_ParseDirection_DDEF(v[2]),
@@ -1505,13 +1507,7 @@ FAST_DecodeDirections_DDEF(v::AbstractVector, ::AbstractVector) = (
     ) : (-1, -1, -1)
 )
 
-FAST_DecodeDirections_DDEF(::Any, ::AbstractVector) = (-1, -1, -1)
-
-FAST_GetDirectionMap_DDEF(node::AbstractDict) = get(node, "DirectionMap", nothing)
-FAST_GetDirectionMap_DDEF(::Any)              = nothing
-
-FAST_ExtractMap_DDEF(dm::AbstractDict) = isempty(dm) ? nothing : dm
-FAST_ExtractMap_DDEF(::Any)            = nothing
+FAST_DecodeDirections_DDEF(::Any, ::AbstractVector)::Tuple{Int,Int,Int} = (-1, -1, -1)
 
 """
     FAST_ExtractPhaseNumber_DDEF(key) -> Int
@@ -1529,26 +1525,22 @@ Dynamically resolves the active direction map across phase records, prioritising
 function FAST_ResolveHistoryMap_DDEF(ph::AbstractDict, active_phase::AbstractString="")
     if !isempty(active_phase) && haskey(ph, active_phase)
         node = get(ph, active_phase, nothing)
-        dm = FAST_ExtractMap_DDEF(FAST_GetDirectionMap_DDEF(node))
-        !isnothing(dm) && return dm
+        if node isa AbstractDict
+            dm = get(node, "DirectionMap", nothing)
+            (dm isa AbstractDict && !isempty(dm)) && return dm
+        end
     end
-    # Dynamic chronological sort: sort phase keys by numeric sequence descending without hardcoded limits
     sorted_keys = sort(collect(keys(ph)), by=FAST_ExtractPhaseNumber_DDEF, rev=true)
     for key in sorted_keys
         node = get(ph, key, nothing)
-        dm = FAST_ExtractMap_DDEF(FAST_GetDirectionMap_DDEF(node))
-        !isnothing(dm) && return dm
+        if node isa AbstractDict
+            dm = get(node, "DirectionMap", nothing)
+            (dm isa AbstractDict && !isempty(dm)) && return dm
+        end
     end
     return nothing
 end
 FAST_ResolveHistoryMap_DDEF(::Any, ::AbstractString="") = nothing
-
-"""
-    FAST_SelectSource_DDEF(history_source, global_source)
-Selects the priority direction container via type dispatch.
-"""
-FAST_SelectSource_DDEF(hist::AbstractDict, ::Any) = hist
-FAST_SelectSource_DDEF(::Any, glob)               = glob
 
 """
     FAST_ExtractDirections_DDEF(g, items, [active_phase]) -> Tuple{Int,Int,Int}
@@ -1557,11 +1549,23 @@ Handles both full ingredient vectors (filtering for Variable) and pre-filtered v
 """
 function FAST_ExtractDirections_DDEF(g::AbstractDict, items::AbstractVector, active_phase::AbstractString="")::Tuple{Int,Int,Int}
     names = [
-        string(FAST_SafeGet_DDEF(c, "Name", "")) 
+        c isa AbstractString ? string(c) : string(FAST_SafeGet_DDEF(c, "Name", ""))
         for c in items 
-        if string(FAST_SafeGet_DDEF(c, "Role", "Variable")) in ("Variable", "Var")
+        if c isa AbstractString || string(FAST_SafeGet_DDEF(c, "Role", "Variable")) in ("Variable", "Var")
     ]
     target_ph = !isempty(active_phase) ? active_phase : string(get(g, "Phase", get(g, :Phase, "")))
+    
+    dirs = get(g, "Directions", nothing)
+    if dirs isa AbstractDict
+        if !isempty(target_ph) && haskey(dirs, target_ph)
+            return FAST_DecodeDirections_DDEF(dirs[target_ph], names)
+        elseif !isempty(dirs) && first(values(dirs)) isa Union{AbstractVector, AbstractDict}
+            return FAST_DecodeDirections_DDEF(first(values(dirs)), names)
+        end
+    elseif dirs isa AbstractVector && length(dirs) >= 3
+        return FAST_DecodeDirections_DDEF(dirs, names)
+    end
+
     hist_map  = FAST_ResolveHistoryMap_DDEF(get(g, "PhaseHistory", nothing), target_ph)
 
     # 1. If history map for target phase matches current variable names:
@@ -1761,6 +1765,10 @@ function FAST_AcquireLock_DDEF(op_name::AbstractString, Reason::AbstractString="
     end
     
     lk = FAST_OperationLocks_DDEC[op_name]
+    if islocked(lk)
+        FAST_Log_DDEF("SYS", "LOCK_REJECT", "Lock: $op_name | Active Process Detected", "WARN")
+        return false
+    end
     success = trylock(lk)
     if success
         lock(FAST_LockGuard_DDEC) do

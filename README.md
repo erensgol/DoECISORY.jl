@@ -13,7 +13,9 @@
 [![Documentation](https://img.shields.io/badge/docs-dev-blue.svg)](https://erensgol.github.io/DoECISORY.jl/dev/)
 [![Hugging Face](https://img.shields.io/badge/%F0%9F%A4%97-Cloud_App-FFD21E)](https://erensgol-doecisory.hf.space)
 
-**DoECISORY.jl** is an open-source, registered Julia package and stateless Dash web application developed for Design of Experiments (DoE), Response Surface Methodology (RSM), stoichiometric verification, and multi-objective optimisation. Executable across local workstations, cloud environments, the native Julia REPL, and reactive Pluto.jl notebooks, it integrates multi-response statistical modelling and interactive visual analytics within adaptive sequential workflows that contract and translate search spaces from screening to fine-tuning. Integrated first-order kinetic compensations correct for time-dependent reagent degradation: normalising pre-reaction preparation intervals, restoring end-of-synthesis (EOS) yields, and arbitrating reaction trade-offs via kinetic penalty profiling.
+In radiopharmaceutical formulation and time-sensitive chemical synthesis, short-lived radionuclides impose severe physical penalties on experimental duration—microscale precursor quantities demand cost-conscious reagent management, while narrow reaction windows (often < 2 hours for ⁶⁸Ga or ¹⁸F) require rapid convergence to optimal conditions. Conventional Design of Experiments (DoE) software treats all responses as independent and ignores the exponential decay kinetics that fundamentally constrain yield and impurity profiles; DoECISORY.jl bridges this gap by integrating first-order kinetic compensations directly into multi-objective optimisation, normalising pre-reaction preparation intervals against precursor degradation, restoring end-of-synthesis (EOS) yields to account for decay during synthesis, and arbitrating reaction trade-offs via Decay-Coupled Yield Penalty (DCYP) profiling.
+
+**DoECISORY.jl** is an open-source, registered Julia package and stateless Dash web application engineered for Design of Experiments (DoE), Response Surface Methodology (RSM), stoichiometric verification, and kinetic-aware multi-objective optimisation. Executable across local workstations, cloud environments, the native Julia REPL, and reactive Pluto.jl notebooks, it bridges multi-response statistical modelling and interactive visual analytics within adaptive sequential workflows that contract and translate search spaces from screening to fine-tuning.
 
 > *If you use DoECISORY.jl in your research or publications, please cite the software using the [metadata below](#citation).*
 
@@ -21,7 +23,7 @@
 
 ## Core Capabilities
 
-* **3-Factor Experimental Designs**: Matrices for 3-factor formulation spaces, including Box-Behnken (BB15), Central Composite (CD17), Taguchi (TL09), and Fractional D-Optimal (DF14).
+* **Experimental Designs**: Matrices for 3-factor formulation spaces, including Box-Behnken (BB15), Central Composite (CD17), Taguchi (TL09), and Fractional D-Optimal (DF14).
 * **Information Optimality Metrics**: Evaluation of D-, A-, G-, and I-efficiencies and design matrix condition numbers.
 * **Stoichiometry and Mass Balance**: Automated mass balance audits, excipient balancing, molar ratios, and concentration consistency checks.
 * **Decay Adjustments**: Pre-reaction preparation decay normalisation and post-reaction measurement restoration back to End of Synthesis (EOS).
@@ -34,7 +36,7 @@
   - *Output Specialisation (`OUT-<Response>`)*: Solutions prioritising critical quality attributes like minimal impurity or specific activity.
 * **Sequential Interphase Transfer (ACTA and ASTM)**: Bridges successive experimental phases through:
   - *ACTA (Adaptive Contraction & Translation Algorithm)*: Evaluates relative position ($p_i$) to contract search boundaries ($c$) around the leader or translate them ($\delta$) upon boundary contact.
-  - *ASTM (Affine Space Transformation Model)*: Applies affine scaling ($x_{\text{new}} = \alpha \cdot x_{\text{old}} + \beta$) and absolute physical clamping.
+  - *ASTM (Affine Space Transformation Model)*: Applies affine scaling ($x_{\text{new}} = \alpha \cdot x_{\text{old}} + \beta$) coupled with admissible physical limit preservation and boundary seeking.
 * **Statistical Diagnostics**: Seven-stage scientific analysis report featuring OLS linear and quadratic regression, ANOVA, Lack-of-Fit tests, cross-validated $Q^2$ (overfitting protection), and VIF multicollinearity screening.
 * **Visualisation and Publication Plates**: PlotlyJS 3D response surfaces, equipotential 2D contour maps with fixed-factor slicing, IPKT interval shift charts, and 3-tier concentric decision space exploration.
   - **145 mm Composite Vector Plates**: Automated assembly of composite SVG plates for double-column journal formats with standardized 8 pt Helvetica Bold labels.
@@ -48,27 +50,29 @@
 DoECISORY.jl separates functional interfaces from sequential experimental phases:
 
 ### User Workspaces
-* **`Gui_Deck` (Design & Formulation Workspace)**: Stoichiometric mass balance checks (`Lib_Mole`), factor definitions, 3-factor matrix generation (`BB15`, `CD17`, `TL09`, `DF14`), and protocol workbook export (`Sys_Fast`).
-* **`Gui_Lens` (Analytics & Decision Workspace)**: Ingestion of completed experimental datasets, automatic decay corrections (precursor forward decay and EOS reverse decay via `VISE_ApplyFRDecay_DDEF`), OLS quadratic regression, ANOVA, cross-validated $Q^2$, Lack-of-Fit, DCYP multi-objective optimisation, Candidate Pool inspection, and 7-stage reporting (`Lib_Vise`, `Lib_Arts`).
-* **`Sys_Flow` (Interphase Transition Engine)**: Executes IPKT (ACTA boundary contraction/translation + ASTM affine space projection and clamping) to transition between sequential experimental phases.
+* **`Gui_Deck` (Design & Formulation Workspace)**: Stoichiometric mass balance verification, experimental factor parameterisation, 3-factor matrix synthesis, and multi-sheet protocol workbook export.
+* **`Gui_Lens` (Analytics & Decision Workspace)**: Dataset ingestion, automated forward & reverse decay corrections (precursor degradation & EOS yield restoration), OLS response surface regression, ANOVA diagnostics, cross-validated $Q^2$, DCYP multi-objective optimisation, and candidate pool arbitration.
+* **`Sys_Flow` (Interphase Transition Engine)**: Orchestrates Interphase Knowledge Transfer (IPKT) by executing ACTA boundary contraction/translation and ASTM affine space projection between successive design phases.
 
 ### Sequential Experimental Workflow
-1. **Phase 1 (Screening)**: Formulate in `Gui_Deck` $\rightarrow$ execute laboratory runs $\rightarrow$ analyse and generate candidate pool in `Gui_Lens`.
-2. **Interphase Knowledge Transfer (IPKT = ACTA + ASTM)**: Select a candidate leader from the pool in `Gui_Lens` $\rightarrow$ apply ACTA contraction/translation ($c$, $\delta$) $\rightarrow$ apply ASTM affine scaling/regeneration ($\alpha \cdot x + \beta$) and clamping via `Sys_Flow`.
-3. **Phase 2 (Refinement)**: Automatically load adapted boundaries into `Gui_Deck` $\rightarrow$ generate Phase 2 protocol matrix with prior variance preserved $\rightarrow$ execute and verify in `Gui_Lens`.
+1. **Phase 1**: Formulate in `Gui_Deck` → execute laboratory runs → analyse and generate candidate pool in `Gui_Lens`.
+2. **Interphase Knowledge Transfer (IPKT = ACTA + ASTM)**: Select a candidate leader from the pool in `Gui_Lens` → apply ACTA contraction/translation ($c$, $\delta$) → apply ASTM affine space projection ($x_{\text{new}} = \alpha \cdot x_{\text{old}} + \beta$) with boundary seeking and anti-degeneracy protection via `Sys_Flow`.
+3. **Phase 2**: Automatically load adapted boundaries into `Gui_Deck` → generate Phase 2 protocol matrix preserving the relative design geometry within the adapted space → execute subsequent experimental runs and evaluate in `Gui_Lens`.
+
+The end-to-end sequential workflow and interactive decision surfaces are showcased below across the primary application workspaces:
 
 ### Visual Interface Walkthrough
 
-| **Application Landing & Workspace Gateway** | **Gui_Deck: Formulation & Experimental Design** |
+| **Application Landing & Workspace Gateway** | **Formulation & Experimental Design** |
 | :---: | :---: |
 | [![Landing Overview](docs/src/assets/ui_landing_overview.png)](docs/src/assets/ui_landing_overview.png) | [![Deck Formulation](docs/src/assets/ui_deck_formulation.png)](docs/src/assets/ui_deck_formulation.png) |
 | *Central workspace launch portal and live hardware diagnostics.* | *Factor space setup, stoichiometry, and protocol configuration.* |
-| **Gui_Lens: Multi-Objective Statistical Analytics** | **Sys_Flow: Inter-Phase Knowledge Transfer (IPKT)** |
+| **Multi-Objective Statistical Analytics** | **Inter-Phase Knowledge Transfer** |
 | [![Lens Analytics](docs/src/assets/ui_lens_analytics_page.png)](docs/src/assets/ui_lens_analytics_page.png) | [![Candidate Pool](docs/src/assets/ui_candidate_pool.png)](docs/src/assets/ui_candidate_pool.png) |
 | *Model diagnostics, design vitals, and multi-objective targets.* | *Sequential phase transition and candidate leader selection.* |
-| **Lib_Arts: Interactive Response Surfaces & Slicing** | **Sys_Fast: 145 mm Publication Composite Plate** |
+| **Interactive Response Surfaces** | **145 mm Publication Plates** |
 | [![Response Surfaces](docs/src/assets/ui_response_surfaces.png)](docs/src/assets/ui_response_surfaces.png) | [![Composite Plates](docs/src/assets/ui_composite_plates.png)](docs/src/assets/ui_composite_plates.png) |
-| *Interactive 3D response surface with categorical navigation.* | *Standardised 145 mm composite plate for journal publication.* |
+| *Interactive 3D response surface with categorical navigation.* | *Standardised 145 mm composite plate sample for publication.* |
 
 ---
 

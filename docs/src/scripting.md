@@ -92,7 +92,7 @@ begin
   acta_bounds = FLOW_CalcACTA_DDEF(opt_x[1], [60.0, 90.0, 120.0], 0.5, 0.0, 0.0)
   println("ACTA Phase 2 Contraction (Temp) : ", round.(acta_bounds; digits=2))
 
-# Step B: ASTM affine transformation & verification (α = 0.9, β = 9.0)
+# Step B: ASTM affine transformation and scaling (α = 0.9, β = 9.0)
   phase2_levels = [FLOW_ApplyASTM_DDEF(x, 0.9, 9.0) for x in acta_bounds]
   println("ASTM Phase 2 Scaling (Temp)     : ", round.(phase2_levels; digits=2))
 end

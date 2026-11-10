@@ -48,14 +48,13 @@ The 3D response surface visualises the predicted mathematical manifold $\hat{y} 
 using DoECISORY, PlotlyJS
 
 # Renders a 3D response surface for Yield across Temperature (X1) and Time (X2)
-# while fixing Precursor (X3) at its central coordinate (0.0 in coded space)
+# X: Physical factor matrix (N x 3), Idx: active factor indices [1, 2]
 fig_surface = ARTS_RenderSurface_DDEF(
     model_yield, 
-    1, 2;               # Factor indices for X and Y axes
-    SliceFactor=3, 
-    SliceVal=0.0,       # Coded coordinate for pinned 3rd factor
-    InNames=["Temperature (°C)", "Time (min)", "Precursor (mg)"],
-    OutName="Radiochemical Yield (%)"
+    X,
+    [1, 2],
+    ["Temperature (°C)", "Time (min)", "Precursor (mg)"],
+    "Radiochemical Yield (%)"
 )
 ```
 
@@ -70,11 +69,10 @@ Contour maps project the 3D surface onto a 2D plane, displaying lines of constan
 ```julia
 fig_contour = ARTS_RenderContour_DDEF(
     model_yield, 
-    1, 2; 
-    SliceFactor=3, 
-    SliceVal=0.0,
-    InNames=["Temperature (°C)", "Time (min)", "Precursor (mg)"],
-    OutName="Radiochemical Yield (%)"
+    X,
+    [1, 2],
+    ["Temperature (°C)", "Time (min)", "Precursor (mg)"],
+    "Radiochemical Yield (%)"
 )
 ```
 
@@ -86,13 +84,13 @@ fig_contour = ARTS_RenderContour_DDEF(
 To systematically explore the full 3-factor volume without loss of information, `ARTS_RenderSlice_DDEF` evaluates cross-sectional slices across the third factor:
 
 ```julia
-# Evaluates slices at Lower (-1.0), Centre (0.0), and Upper (+1.0) levels
+# Evaluates 2D cross-sectional slice across factors 1 and 2 pinned at nominal setting
 fig_slices = ARTS_RenderSlice_DDEF(
     model_yield, 
-    1, 2, 3; 
-    SliceLevels=[-1.0, 0.0, 1.0],
-    InNames=["Temperature", "Time", "Precursor"],
-    OutName="Yield (%)"
+    X,
+    [1, 2],
+    ["Temperature", "Time", "Precursor"],
+    "Yield (%)"
 )
 ```
 
@@ -122,9 +120,10 @@ The Pareto chart ranks the absolute magnitude of studentised regression coeffici
 
 ```julia
 fig_pareto = ARTS_RenderPareto_DDEF(
-    model_yield; 
-    Alpha=0.05, 
-    Title="Pareto Chart of Standardised Effects (Yield)"
+    model_yield, 
+    "Radiochemical Yield (%)", 
+    model_yield["R2_Adj"], 
+    model_yield["Q2"]
 )
 ```
 
@@ -136,8 +135,9 @@ Juxtaposes experimental observations against fitted model predictions along the 
 
 ```julia
 fig_fit = ARTS_RenderFit_DDEF(
-    model_yield; 
-    OutName="Radiochemical Yield (%)"
+    Y_yield, 
+    model_yield["Y_Pred"], 
+    "Radiochemical Yield (%)"
 )
 ```
 
@@ -149,10 +149,17 @@ Evaluates the core Gauss-Markov assumptions of Ordinary Least Squares regression
 
 ```julia
 # 1. Residuals vs Predicted (Homoscedasticity)
-fig_residuals = ARTS_RenderResiduals_DDEF(model_yield)
+fig_residuals = ARTS_RenderResiduals_DDEF(
+    model_yield["Y_Pred"], 
+    model_yield["Resid"], 
+    "Radiochemical Yield (%)"
+)
 
 # 2. Normal Q-Q Plot of Residuals (Normality)
-fig_qq = ARTS_RenderQQ_DDEF(model_yield)
+fig_qq = ARTS_RenderQQ_DDEF(
+    model_yield["Resid"], 
+    "Radiochemical Yield (%)"
+)
 ```
 
 * **Homoscedasticity Check:** Residuals should scatter randomly within a constant horizontal band around zero. A funnel or wedge shape indicates heteroscedasticity (variance depending on response magnitude), suggesting a power or logarithmic response transformation.
@@ -162,10 +169,12 @@ fig_qq = ARTS_RenderQQ_DDEF(model_yield)
 Compares the relative responsiveness of all input factors radiating outwards from a designated reference coordinate (typically the design centre or active leader coordinate):
 
 ```julia
-fig_sens = ARTS_RenderSensitivity_DDEF(
-    model_yield, 
-    [90.0, 15.0, 25.0]; # Reference operating point [Temperature, Time, Precursor]
-    InNames=["Temperature", "Time", "Precursor"]
+# Compute normalised local sensitivities (|dy/dX|) around reference coordinate
+sens_vals = VISE_AnalyseSensitivity_DDEF(model_yield, [90.0, 15.0, 25.0], X)
+fig_sens  = ARTS_RenderSensitivity_DDEF(
+    sens_vals, 
+    ["Temperature", "Time", "Precursor"], 
+    "Radiochemical Yield (%)"
 )
 ```
 
@@ -190,14 +199,14 @@ Rather than relying on a single arbitrary cutoff, DoECISORY.jl structures the mu
    Isolates the core operating nucleus within $5\%$ tolerance of summit desirability ($D \ge 0.95 \times D_{\max}$). This provides the target setpoint coordinates for validated clinical batch release.
 
 ```julia
-# 1. Feasible Space (Baseline Compliance: D >= 0.05)
-fig_feasible = ARTS_RenderFeasibleSpace_DDEF(models, goals, 1, 2; SliceFactor=3, SliceVal=0.0)
+# 1. Feasible Space (Baseline Compliance: D >= 0.05, 3D Volumetric)
+fig_feasible = ARTS_RenderFeasibleSpace_DDEF(models, goals, X, in_names)
 
-# 2. Optimal Zone (High Yield: D >= 0.90 * D_max)
-fig_optimal  = ARTS_RenderOptimalZone_DDEF(models, goals, 1, 2; SliceFactor=3, SliceVal=0.0)
+# 2. Optimal Zone (High Yield: D >= 0.90 * D_max, 3D Volumetric)
+fig_optimal  = ARTS_RenderOptimalZone_DDEF(models, goals, X, in_names)
 
-# 3. Sweet Spot (Primary Operating Nucleus: D >= 0.95 * D_max)
-fig_sweet    = ARTS_RenderSweetSpot_DDEF(models, goals, 1, 2; SliceFactor=3, SliceVal=0.0)
+# 3. Sweet Spot (Primary Operating Nucleus: D >= 0.95 * D_max, 3D Volumetric)
+fig_sweet    = ARTS_RenderSweetSpot_DDEF(models, goals, X, in_names)
 ```
 
 The concentric projection visually demonstrates how parameter tolerance tightens from broad feasibility towards the optimum.
@@ -206,9 +215,14 @@ The concentric projection visually demonstrates how parameter tolerance tightens
 Visualises where the extracted candidates from the multi-criteria portfolio sit within the 3-factor parameter space:
 
 ```julia
+# Visualise candidate locations against design space on active axes [1, 2]
 fig_candidates = ARTS_RenderCandidates_DDEF(
-    candidates_dict, # Generated via FLOW_GetCandidates_DDEF
-    in_names
+    models, 
+    goals, 
+    X, 
+    [1, 2], 
+    in_names, 
+    leaders_df
 )
 ```
 
@@ -223,7 +237,7 @@ fig_candidates = ARTS_RenderCandidates_DDEF(
 A core methodological strength of DoECISORY.jl is the seamless transition of experimental knowledge between successive experimental phases without loss of historical variance or coordinate fidelity.
 
 In laboratory investigations, sequential optimisation requires moving from a broad initial exploration space (**Phase 1**) to a focused, high-precision domain (**Phase 2**). The **Inter-Phase Knowledge Transfer (IPKT)** framework automates this transition via two complementary mathematical engines:
-1. **Adaptive Contraction & Translation Algorithm (ACTA):** Governs intra-system factor range adaptation, computing continuous coordinate adjustments, domain narrowing, gradient-directed translations, and physical boundary clamping.
+1. **Adaptive Contraction & Translation Algorithm (ACTA):** Governs intra-system factor range adaptation, computing continuous coordinate adjustments, domain narrowing, gradient-directed translations, window sliding, and boundary seeking.
 2. **Affine Space Transformation Model (ASTM):** Governs cross-system mappings and scale-up projections (e.g. mapping coordinates from a benchtop micro-vial to an automated cassette synthesiser).
 
 ---
@@ -261,11 +275,11 @@ The IPKT transition chart visualises how factor domains shift, narrow, or transl
 ```
 
 #### Canvas Components & Traces:
-* **Trace 1: Current Baseline (Dark Slate Gray, `FD.COLOUR_DARLOW`):** Fixed horizontal bar of width 12 spanning exactly $[-1.0, +1.0]$, representing the normalised boundaries of the previous Phase 1 operational window $[L_{\text{old}}, U_{\text{old}}]$.
-* **Trace 2: Target Domain (Vibrant Gold, `FD.COLOUR_HUEYEL`):** Dynamic horizontal bar of width 12 spanning $[n_{\text{new,min}}, n_{\text{new,max}}]$, indicating the proposed Phase 2 operational range.
-* **Trace 3: Target Centre (Emerald Green Circle, `FD.COLOUR_TONGRE`):** Marker placed at $n_{\text{new,mid}}$, pinpointing the geometric centre (zero-level, $0$) of the proposed Phase 2 design.
-* **Trace 4: Optimal Leader Point (Magenta Circle, `FD.COLOUR_SHAMAG`):** Marker placed at $n_{\text{leader}}$, indicating the exact physical coordinate of the champion formulation selected from Phase 1.
-* **Trace 5: Directional Axial Focus (Teal Circle, `#21918C`):** Visible when using directional screening geometries (such as `DF14`), highlighting the primary exploratory axial direction (Lower $-1$ or Upper $+1$).
+* **Trace 1: Current Baseline (Dark Slate Gray, `COLOUR_DARLOW`):** Fixed horizontal bar of width 12 spanning exactly $[-1.0, +1.0]$, representing the normalised boundaries of the previous Phase 1 operational window $[L_{\text{old}}, U_{\text{old}}]$.
+* **Trace 2: Target Domain (Vibrant Gold, `COLOUR_HUEYEL`):** Dynamic horizontal bar of width 12 spanning $[n_{\text{new,min}}, n_{\text{new,max}}]$, indicating the proposed Phase 2 operational range.
+* **Trace 3: Target Centre (Emerald Green Circle, `COLOUR_TONGRE`):** Marker placed at $n_{\text{new,mid}}$, pinpointing the geometric centre (zero-level, $0$) of the proposed Phase 2 design.
+* **Trace 4: Optimal Leader Point (Magenta Circle, `COLOUR_SHAMAG`):** Marker placed at $n_{\text{leader}}$, indicating the exact physical coordinate of the champion formulation selected from Phase 1.
+* **Trace 5: Directional Axial Focus (Teal Circle, `COLOUR_TONCYA`):** Visible when using directional screening geometries (such as `DF14`), highlighting the primary exploratory axial direction (Lower $-1$ or Upper $+1$).
 * **Dual Numeric Level Annotations:**
   - **Top Labels ($y + 0.35$):** Low-contrast gray numerals positioned at $-1.0$ and $+1.0$ displaying the previous Phase 1 physical boundaries.
   - **Bottom Labels ($y - 0.35$):** High-contrast bold numerals positioned at $n_{\text{new,min}}$ and $n_{\text{new,max}}$ displaying the adapted Phase 2 physical boundaries.
@@ -275,22 +289,23 @@ The IPKT transition chart visualises how factor domains shift, narrow, or transl
 
 ### 5.2. ACTA Adaptation Signatures
 
-The ACTA engine dynamically selects an adaptation strategy based on the spatial location of the optimal leader coordinate $x^*$ relative to the previous factor domain $[L_{\text{old}}, U_{\text{old}}]$ (width $\Delta x = U_{\text{old}} - L_{\text{old}}$). The tolerance threshold is set to $\tau = 0.05 \cdot \Delta x$ (5% safety margin from either boundary).
+The ACTA function dynamically selects an adaptation strategy based on the spatial location of the optimal leader coordinate $x^*$ relative to the previous factor domain $[L_{\text{old}}, U_{\text{old}}]$ (width $\Delta x = U_{\text{old}} - L_{\text{old}}$) using the normalised relative position $p_i = \frac{x^* - L_{\text{old}}}{\Delta x}$:
 
 ```
    ┌────────────────────────────────────────────────────────────────────────────────────────┐
    │                                ACTA Decision Topology                                  │
    ├───────────────────────┬───────────────────────────────┬────────────────────────────────┤
-   │ Leader Position       │ Boundary Trait                │ Recommended Adaptation         │
+   │ Leader Position (p_i) │ Boundary Trait                │ Recommended Adaptation         │
    ├───────────────────────┼───────────────────────────────┼────────────────────────────────┤
-   │ x* ∈ [L + τ, U - τ]   │ FLOW_BoundarySafe_DDES        │ Contraction (c ∈ (0.0, 1.0])   │
-   │ x* < L + τ            │ FLOW_BoundaryLower_DDES       │ Translation Downward (δ < 0.0) │
-   │ x* > U - τ            │ FLOW_BoundaryUpper_DDES       │ Translation Upward (δ > 0.0)   │
+   │ 0.25 ≤ p_i ≤ 0.75     │ FLOW_BoundarySafe_DDES        │ Contraction (c ∈ (0.0, 1.0])   │
+   │ p_i < 0.25            │ FLOW_BoundaryLower_DDES       │ Translation Downward (δ < 0.0) │
+   │ p_i > 0.75            │ FLOW_BoundaryUpper_DDES       │ Translation Upward (δ > 0.0)   │
+   │ Dist(x*, Limit) < 5%  │ FLOW_BoundarySeekLower/Upper  │ Boundary Seeking (Lock ≥ 10%)  │
    └───────────────────────┴───────────────────────────────┴────────────────────────────────┘
 ```
 
 #### 1. Internal Centering & Contraction (`FLOW_BoundarySafe_DDES`)
-* **Mathematical Condition:** The leader point lies comfortably inside the design space ($L_{\text{old}} + \tau \le x^* \le U_{\text{old}} - \tau$).
+* **Mathematical Condition:** The leader point lies comfortably inside the central inter-quartile range ($0.25 \le p_i \le 0.75$).
 * **Adaptation Mechanism:** The search span is contracted symmetrically around the leader:
   ```math
   \Delta x_{\text{new}} = c \cdot \Delta x_{\text{old}}, \quad x_{\text{mid}} = x^*
@@ -302,22 +317,21 @@ The ACTA engine dynamically selects an adaptation strategy based on the spatial 
 * **Visual Signature:** The gold target bar is narrower than the gray baseline bar and rests entirely inside $[-1.0, +1.0]$. The magenta leader dot and green centre dot align at the midpoint of the gold bar.
 
 #### 2. Boundary Proximity & Directional Translation (`FLOW_BoundaryLower_DDES` / `Upper_DDES`)
-* **Mathematical Condition:** The leader point is located within 5% of a boundary limit ($x^* < L_{\text{old}} + \tau$ or $x^* > U_{\text{old}} - \tau$), indicating that the true optimum lies outside the current exploration space.
+* **Mathematical Condition:** The leader point is located in the outer quartiles ($p_i < 0.25$ or $p_i > 0.75$), indicating that the true optimum lies outside the current exploration space.
 * **Adaptation Mechanism:** Contraction is **suspended** ($\Delta x_{\text{new}} = \Delta x_{\text{old}}$) to prevent premature narrowing in an uncharted region. Instead, the entire domain is translated along the response gradient by translation factor $\delta \in [-1.0, 1.0]$:
   ```math
   x_{\text{mid}} = x^* + \delta \cdot \frac{\Delta x_{\text{new}}}{2}
   ```
 * **Visual Signature:** The gold bar shifts into the outer quadrants ($[-2.0, -1.0]$ or $[+1.0, +2.0]$). The magenta leader dot sits near the boundary edge, visually demonstrating that Phase 2 will explore new physical territory.
 
-#### 3. Safety Clamping & Physical Ceilings
-* **Mathematical Condition:** The calculated bounds violate immutable physical or equipment boundaries (e.g. solvent boiling point $T \le 90^\circ\text{C}$, non-negative concentrations $C \ge 0.0$, or pump delivery limits).
-* **Adaptation Mechanism:** ACTA enforces hard boundary clamping:
-  ```math
-  L_{\text{new}} = \max(L^{\text{abs}}, L_{\text{new}}), \quad U_{\text{new}} = \min(U^{\text{abs}}, U_{\text{new}})
-  ```
-* **Visual Signature:** The gold target bar terminates abruptly at the constraint threshold. The bottom numeric label reflects the physical clamp rather than an unconstrained mathematical projection.
+#### 3. Boundary Seeking
+* **Mathematical Condition:** The candidate optimum approaches immutable physical or equipment boundaries (e.g. solvent boiling point $T \le 90^\circ\text{C}$, non-negative concentrations $C \ge 0.0$, or pump limits) within a $5\%$ tolerance window.
+* **Adaptation Mechanism:** Rather than collapsing the factor span into a degenerate point, ACTA enforces boundary seeking (`FLOW_SeekFloor_DDEF` / `FLOW_SeekCeiling_DDEF`):
+  - The domain span $(U_{\text{new}} - L_{\text{new}})$ is locked to at least $10\%$ of the physical range $(U^{\text{abs}} - L^{\text{abs}})$.
+  - The leader is pinned precisely to the boundary edge ($L_1$ floor or $L_3$ ceiling), preventing design matrix singularity while ensuring valid experimental operating volumes.
+* **Visual Signature:** The gold target bar anchors reliably to the boundary threshold with a preserved $10\%$ span. The bottom numeric label reflects the boundary alignment rather than an unconstrained mathematical projection.
 
-#### 4. Variable Replacement (Screening Transition)
+#### 4. Variable Replacement
 * **Mathematical Condition:** When transitioning from a coarse screening phase to a fine response surface phase, an uninfluential factor (flat response slope) is dropped and replaced with a newly identified critical process parameter.
 * **Visual Signature:** When `is_replaced = true`, the baseline numeric labels display `—` (em-dash), and the target bar renders a fresh $[-1.0, +1.0]$ domain for the incoming factor.
 
@@ -376,7 +390,7 @@ Prior to clicking **Commit Phase 2** in the Graphical Interface (`Gui_Deck`) or 
 | :--- | :--- | :--- | :--- |
 | **Centering Check** | Green Dot vs Gold Bar | The green circle must sit at the exact midpoint of the gold target bar. | If off-centre, check whether an intentional translation factor ($\delta \ne 0$) was entered. |
 | **Boundary Margin** | Magenta Dot vs Gray Edges | Verify whether the magenta dot lies within the central 90% of the dark gray bar. | If touching or near $-1.0$ or $+1.0$, activate Translation ($\delta$) to shift search space into unchartered domain. |
-| **Clamping Verification** | Bar End vs Physical Cap | Confirm that gold bars do not exceed solvent boiling point, freezing point, or pump limits. | If clamped, verify that the experimental design does not produce unattainable process set-points. |
+| **Boundary Seeking Verification** | Bar End vs Physical Cap | Confirm that gold bars preserve minimum span and anchor cleanly to physical thresholds. | If seeking engaged, verify that the experimental design respects process set-points. |
 | **Extrapolation Fence** | Gold Bar vs Red Lines ($\pm 2.0$) | No portion of the gold bar should cross beyond the red dashed fences at $\pm 2.0$. | If breaching $\pm 2.0$, reduce translation step $\delta$ to prevent dangerous extrapolation away from verified data. |
 | **Factor Continuity** | Top vs Bottom Variable Names | Ensure all active factors match intended designations; screened variables should show `—`. | Verify sheet configuration if factor roles or names have inadvertently swapped. |
 
@@ -386,7 +400,7 @@ Prior to clicking **Commit Phase 2** in the Graphical Interface (`Gui_Deck`) or 
 
 ### 6.1. Publication-Ready 145 mm Composite Vector Plates (`FAST_AssembleSvgPlate_DDEF`)
 
-For academic manuscripts, doctoral dissertations, and technical reports, DoECISORY.jl standardises graphic exports onto **145 mm fixed-width composite SVG plates** (`PLATE11` to `PLATE60`). Rather than manually stitching disparate vector outputs in third-party graphic editors, `FAST_AssembleSvgPlate_DDEF` dynamically combines individual panels into cohesive multi-panel plates:
+For academic manuscripts, doctoral dissertations, and technical reports, DoECISORY.jl standardises graphic exports onto **145 mm fixed-width composite SVG plates** (`PLATE11` to `PLATE60`). Rather than manually stitching disparate raster plots in third-party graphic editors, `FAST_AssembleSvgPlate_DDEF` dynamically embeds individual high-resolution plot panels (provided as PNG file paths or base64 data URIs) into cohesive multi-panel SVG plates:
 
 * **2×3 Multi-Panel Grids** ($115.200\,\text{mm}$ height, e.g. 2D contour pairs, slices, and diagnostic panels)
 * **3×3 Manifold Matrices** ($172.800\,\text{mm}$ height, e.g. interaction matrices and response surfaces)
@@ -395,9 +409,17 @@ For academic manuscripts, doctoral dissertations, and technical reports, DoECISO
 ```julia
 using DoECISORY
 
-# Assemble individual vector panel strings into a standardised 145 mm 2x3 plate
-svg_plate = FAST_AssembleSvgPlate_DDEF(panel_svg_strings, :Grid2x3)
-write("PLATE11_Contour_Slices.svg", svg_plate)
+# Assemble individual raster PNG panel paths into a standardised 145 mm 2x3 SVG plate
+panel_png_paths = [
+    "PNGPLOTS/01_Pareto_Yield.png",
+    "PNGPLOTS/02_Sensitivity_Yield.png",
+    "PNGPLOTS/03_IntMatrix_Yield.png",
+    "PNGPLOTS/04_Fit_Yield.png",
+    "PNGPLOTS/05_QQ_Yield.png",
+    "PNGPLOTS/06_Residuals_Yield.png"
+]
+svg_plate = FAST_AssembleSvgPlate_DDEF(panel_png_paths, :Grid2x3)
+write("PLATE11_Diagnostics_Yield.svg", svg_plate)
 ```
 
 Each composite plate features:

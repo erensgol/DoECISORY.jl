@@ -103,11 +103,10 @@ export MOLE_ParseTable_DDEF, MOLE_AuditQuick_DDEF, MOLE_CalcMass_DDEF,
        MOLE_IsTimeUnit_DDEF, MOLE_ConvertToMinutes_DDEF
 
 # Sys_Flow: Phase Transition & Iterative Space Exploration (ACTA / ASTM)
-export FLOW_ApplyACTA_DDEF, FLOW_CalcACTA_DDEF,
-       FLOW_ApplyASTM_DDEF, FLOW_ValidateASTM_DDEF,
-       FLOW_AuditLeader_DDEF, FLOW_BuildIPKT_DDEF, FLOW_CommitIPKT_DDEF,
-       FLOW_GetCandidates_DDEF, FLOW_WriteLeaders_DDEF, FLOW_RenderIPKT_DDEF,
-       FLOW_AdvancePhase_DDEF, FLOW_GetPhaseType_DDEF
+export FLOW_ApplyACTA_DDEF, FLOW_CalcACTA_DDEF, FLOW_ApplyASTM_DDEF,
+       FLOW_ValidateASTM_DDEF, FLOW_AuditLeader_DDEF, FLOW_BuildIPKT_DDEF,
+       FLOW_CommitIPKT_DDEF, FLOW_GetCandidates_DDEF, FLOW_WriteLeaders_DDEF,
+       FLOW_RenderIPKT_DDEF, FLOW_AdvancePhase_DDEF, FLOW_GetPhaseType_DDEF
 
 # Lib_Vise: Statistical Modelling, ANOVA & Scientific Reporting
 export VISE_Regress_DDEF, VISE_SelectBestModel_DDEF, VISE_Predict_DDEF,

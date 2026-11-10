@@ -232,11 +232,12 @@ function LENS_ExtractSlots_DDEF(slot_cfg)::Vector{Dict{String,Any}}
 end
 
 """
-    LENS_ApplySlotCustomisation_DDEF!(conf::AbstractVector, slots::AbstractVector, leader_vals::AbstractVector)
+    LENS_ApplySlotCustomisation_DDEF!(conf::AbstractVector, slots::AbstractVector, leader_vals::AbstractVector, Contraction::Real=1.0)
 Applies scale or replacement transformations and boundary overrides to factor configurations.
 Deduplicates transition configuration across wizard preview and evolution execution.
+Integrates ASTM linear scaling (Alpha, Beta) with ACTA domain contraction.
 """
-function LENS_ApplySlotCustomisation_DDEF!(conf::AbstractVector, slots::AbstractVector, leader_vals::AbstractVector)
+function LENS_ApplySlotCustomisation_DDEF!(conf::AbstractVector, slots::AbstractVector, leader_vals::AbstractVector, Contraction::Real=1.0, old_conf::AbstractVector=conf)
     C = FAST_Data_DDEC
     vi = 0
     for c in conf
@@ -265,6 +266,8 @@ function LENS_ApplySlotCustomisation_DDEF!(conf::AbstractVector, slots::Abstract
             if !isnan(nl1) && !isnan(nl2) && !isnan(nl3)
                 c["Levels"] = [nl1, nl2, nl3]
             end
+            haskey(sl, "NewMin") && (c["Min"] = Float64(FAST_SafeNum_DDEF(sl["NewMin"])))
+            haskey(sl, "NewMax") && (c["Max"] = Float64(FAST_SafeNum_DDEF(sl["NewMax"])))
 
         elseif mode == "SCALE"
             new_s_name = strip(string(get(sl, "NewName", "")))
@@ -272,14 +275,37 @@ function LENS_ApplySlotCustomisation_DDEF!(conf::AbstractVector, slots::Abstract
             new_u = string(get(sl, "NewUnit", ""))
             !isempty(new_u) && (c["Unit"] = new_u)
 
-            α  = Float64(FAST_SafeNum_DDEF(get(sl, "Alpha", 1.0)))
-            β  = Float64(FAST_SafeNum_DDEF(get(sl, "Beta",  0.0)))
-            lead_val = vi <= length(leader_vals) ? Float64(leader_vals[vi]) : Float64(get(c, "L2", 0.0))
-            tv = FLOW_ApplyASTM_DDEF(lead_val, α, β)
-            lvls = get(c, "Levels", [0.0, 0.0, 0.0])
-            hr = abs(Float64(lvls[3]) - Float64(lvls[1])) * 0.5 * abs(α)
-            c["Levels"] = [round(tv - hr; digits=4), round(tv; digits=4), round(tv + hr; digits=4)]
-            c["IsScaled"] = true
+            alpha_val = Float64(FAST_SafeNum_DDEF(get(sl, "Alpha", 1.0)))
+            beta_val  = Float64(FAST_SafeNum_DDEF(get(sl, "Beta",  0.0)))
+            lead_val  = vi <= length(leader_vals) ? Float64(leader_vals[vi]) : Float64(get(c, "L2", 0.0))
+            tv        = FLOW_ApplyASTM_DDEF(lead_val, alpha_val, beta_val)
+            min_lim   = haskey(sl, "NewMin") ? Float64(FAST_SafeNum_DDEF(sl["NewMin"])) : (haskey(c, "Min") ? Float64(FAST_SafeNum_DDEF(c["Min"])) : 0.0)
+            max_lim   = haskey(sl, "NewMax") ? Float64(FAST_SafeNum_DDEF(sl["NewMax"])) : (haskey(c, "Max") ? Float64(FAST_SafeNum_DDEF(c["Max"])) : Inf)
+            min_bound = isfinite(min_lim) ? min_lim : -Inf
+            max_bound = isfinite(max_lim) ? max_lim : Inf
+            tv        = clamp(tv, min_bound, max_bound)
+            ok_astm, tv, astm_msg = FLOW_ValidateASTM_DDEF(tv, min_lim, max_lim)
+            !ok_astm && !isempty(astm_msg) && (c["ASTMWarning"] = astm_msg)
+            old_vars  = [o for o in old_conf if get(o, "Role", "") == C.ROLE_VAR]
+            lvls = if vi <= length(old_vars) && haskey(old_vars[vi], "Levels")
+                Float64.(old_vars[vi]["Levels"])
+            elseif haskey(c, "OldLevels")
+                Float64.(c["OldLevels"])
+            else
+                Float64.(get(c, "Levels", [0.0, 0.0, 0.0]))
+            end
+
+            c["OldLevels"] = copy(lvls)
+            c["Levels"]    = FLOW_CalcACTA_DDEF(tv, lvls, Contraction, min_lim, max_lim; Alpha=alpha_val)
+            c["Min"]       = min_lim
+            c["Max"]       = max_lim
+            c["Alpha"]     = 1.0
+            c["Beta"]      = 0.0
+            c["IsScaled"]  = true
+            c["EffectiveLeader"] = tv
+            if vi <= length(leader_vals)
+                leader_vals[vi] = tv
+            end
         end
 
         if haskey(c, "Levels") && c["Levels"] isa AbstractVector && length(c["Levels"]) >= 3
@@ -707,8 +733,7 @@ function LENS_BuildLayout_DDEF()
                                     4 => Dict("label" => "0.25", "style" => Dict("fontSize" => "10px")),
                                     5 => Dict("label" => "0.1",  "style" => Dict("fontSize" => "10px"))
                                 )),
-                                className="px-2 mb-2"),
-                            html_div(id="lens-prev-slider-translation", style=Dict("display" => "none")),
+                                className="px-2 mb-2")
                         ], className="p-3 border-0 rounded shadow-sm colourbg-v0pw mb-3"),
 
                         html_div([
@@ -735,7 +760,8 @@ function LENS_BuildLayout_DDEF()
                         ], className="shadow-sm border-0"),
                     ], xs=12, md=7)
                 ]),
-                html_div(id="lens-container-preview-audit", className="mt-3")
+                html_div(id="lens-container-preview-audit", className="mt-3"),
+                html_div(id="lens-prev-commit-msg", className="mt-2")
             ],
             dbc_row([
                 dbc_col(dbc_button([html_i(className="fas fa-chevron-left me-2"), "Back"], id="lens-prev-btn-back", outline=false, size="sm", className="w-100 colourgl-neut"), xs=12, md=3),
@@ -2606,7 +2632,6 @@ function LENS_RegisterCallbacks_DDEF(app)
     callback!(app,
         Output("lens-store-next-phase-proposal", "data"),
         Output("lens-prev-slider-contraction",  "value"),
-        Output("lens-prev-slider-translation", "value"),
         Output("lens-prev-dd-method",    "value"),
         [Output("lens-slot-name-$i",   "children") for i in 1:3]...,
         [Output("lens-slot-leader-$i", "children") for i in 1:3]...,
@@ -2616,7 +2641,6 @@ function LENS_RegisterCallbacks_DDEF(app)
         Output("lens-prev-dir-x3",     "value"),
         Input("lens-lead-btn-confirm",  "n_clicks"),
         Input("lens-prev-slider-contraction",  "value"),
-        Input("lens-prev-slider-translation", "value"),
         Input("lens-prev-dd-method",    "value"),
         State("lens-wiz-dd-source",     "value"),
         State("lens-table-candidates",  "selected_rows"),
@@ -2624,7 +2648,7 @@ function LENS_RegisterCallbacks_DDEF(app)
         State("store-master-vault",     "data"),
         State("lens-store-results",     "data"),
         prevent_initial_call=true
-    ) do n_prev, contraction_p, translation_p, meth_p, src, sel_rows, cand_data, base64_file, results
+    ) do n_prev, contraction_p, meth_p, src, sel_rows, cand_data, base64_file, results
         trig = BASE_GetTrigger_DDEF(callback_context())
 
         contraction_map = Float64[1.0, 0.75, 0.5, 0.25, 0.1]
@@ -2633,17 +2657,15 @@ function LENS_RegisterCallbacks_DDEF(app)
         is_reset = (trig == "lens-lead-btn-confirm")
         
         z = is_reset ? 0.5 : contraction_map[z_idx]
-        s = is_reset ? 0.0 : Float64(isnothing(translation_p) ? 0.0 : translation_p)
         
         ret_z = is_reset ? 3 : Dash.no_update()
-        ret_s = is_reset ? 0.0 : Dash.no_update()
 
         nu = Dash.no_update()
         slot_names   = Any[nu, nu, nu]
         slot_leaders = Any[nu, nu, nu]
         slot_modes   = Any[nu, nu, nu]
 
-        (isnothing(base64_file) || isnothing(sel_rows) || isempty(sel_rows)) && return Dict(), ret_z, ret_s, Dash.no_update(), slot_names..., slot_leaders..., slot_modes..., nu, nu, nu
+        (isnothing(base64_file) || isnothing(sel_rows) || isempty(sel_rows)) && return Dict(), ret_z, Dash.no_update(), slot_names..., slot_leaders..., slot_modes..., nu, nu, nu
 
         C = FAST_Data_DDEC
         path = FAST_GetTransientPath_DDEF(base64_file)
@@ -2670,10 +2692,9 @@ function LENS_RegisterCallbacks_DDEF(app)
             end
             vars_config = filter(c -> FAST_SafeGet_DDEF(c, "Role", "") == C.ROLE_VAR, ingredients)
 
-            res = FLOW_BuildIPKT_DDEF(path, src, sel_id, Float64(z), Float64(s))
+            res = FLOW_BuildIPKT_DDEF(path, src, sel_id, Float64(z))
 
             res["SelectedContraction"] = z
-            res["SelectedTranslation"] = s
             res["SelectedMethod"] = m
             res["IsRadioCorrected"] = !isnothing(results) && haskey(results, "RadioCorrection") && !isempty(results["RadioCorrection"])
             res["RadioOpts"]        = get(config_full, "RadioOpts", Dict{String,Any}())
@@ -2696,7 +2717,7 @@ function LENS_RegisterCallbacks_DDEF(app)
                 end
             end
             
-            return res, ret_z, ret_s, ret_m, slot_names..., slot_leaders..., slot_modes..., ret_dir1, ret_dir2, ret_dir3
+            return res, ret_z, ret_m, slot_names..., slot_leaders..., slot_modes..., ret_dir1, ret_dir2, ret_dir3
         finally
             FAST_CleanTransient_DDEF(path)
         end
@@ -2737,7 +2758,7 @@ function LENS_RegisterCallbacks_DDEF(app)
         display_conf = [Dict{String,Any}(string(k) => (v isa AbstractVector ? copy(v) : v) for (k,v) in pairs(c)) for c in new_conf]
 
         slots = LENS_ExtractSlots_DDEF(slot_cfg)
-        LENS_ApplySlotCustomisation_DDEF!(display_conf, slots, leader_vals)
+        LENS_ApplySlotCustomisation_DDEF!(display_conf, slots, leader_vals, contraction_f, old_conf)
 
         # Separate active components (excluding deleted constants) for stoichiometry audit & graph
         active_conf = filter(c -> !(lowercase(strip(string(FAST_SafeGet_DDEF(c, "Role", "")))) in ("fixed", "fix") && string(FAST_SafeGet_DDEF(c, "Name", "")) in excluded), display_conf)
@@ -2791,6 +2812,26 @@ function LENS_RegisterCallbacks_DDEF(app)
 
             slot_mode = role == C.ROLE_VAR ? (var_slot_idx += 1; var_slot_idx <= length(slots) ? get(slots[var_slot_idx], "Mode", "KEEP") : "KEEP") : ""
             mode_badge = slot_mode in ("SCALE", "REPLACE") ? html_span(slot_mode == "SCALE" ? " ASTM" : " R", className="badge ms-1 colourbg-c3tc colourtx-v5pb", style=Dict("fontSize" => "8px")) : ""
+            seeking_badge = ""
+            if role == C.ROLE_VAR
+                c_min = haskey(c, "Min") ? Float64(FAST_SafeNum_DDEF(c["Min"])) : 0.0
+                c_max = haskey(c, "Max") ? Float64(FAST_SafeNum_DDEF(c["Max"])) : Inf
+                v_cand = (var_slot_idx <= length(leader_vals)) ? Float64(leader_vals[var_slot_idx]) : Float64(lvls[2])
+                ref_lvls = haskey(c, "OldLevels") ? Float64.(c["OldLevels"]) : lvls
+                cand_span = lvls[3] - lvls[1]
+                b_stat = FLOW_ClassifyBoundaryMode_DDEF(v_cand, ref_lvls[1], ref_lvls[3], c_min, c_max, cand_span)
+                if b_stat isa FLOW_ModeSeekLower_DDES
+                    seeking_badge = html_span(" Seek-Min", className="badge ms-1 colourbg-c3tc colourtx-v5pb", style=Dict("fontSize" => "8px"))
+                elseif b_stat isa FLOW_ModeSeekUpper_DDES
+                    seeking_badge = html_span(" Seek-Max", className="badge ms-1 colourbg-c3tc colourtx-v5pb", style=Dict("fontSize" => "8px"))
+                elseif b_stat isa FLOW_ModeTranslateUpper_DDES
+                    seeking_badge = html_span(" Trans-Upper", className="badge ms-1 colourbg-c3tc colourtx-v5pb", style=Dict("fontSize" => "8px"))
+                elseif b_stat isa FLOW_ModeTranslateLower_DDES
+                    seeking_badge = html_span(" Trans-Lower", className="badge ms-1 colourbg-c3tc colourtx-v5pb", style=Dict("fontSize" => "8px"))
+                else
+                    seeking_badge = html_span(" Contract", className="badge ms-1 colourbg-c3tc colourtx-v5pb", style=Dict("fontSize" => "8px"))
+                end
+            end
 
             disp_name = c_name
             r_opts = FAST_SafeGet_DDEF(res, "RadioOpts", Dict{String,Any}())
@@ -2839,7 +2880,7 @@ function LENS_RegisterCallbacks_DDEF(app)
             else
                 role_cls = role == C.ROLE_VAR ? "colourtx-c1sm fw-bold" : "colourtx-v5pb"
                 push!(rows, html_tr([
-                    html_td([final_name, mode_badge]),
+                    html_td([final_name, mode_badge, seeking_badge]),
                     html_td(role, className=role_cls),
                     html_td(l1_s),
                     html_td(html_b(l2_s), className="colourbg-v0pw"),
@@ -2891,7 +2932,35 @@ function LENS_RegisterCallbacks_DDEF(app)
             ], className="d-flex align-items-center")
         ], className="mt-3 border-0 shadow colourgl-c5hy colourtx-v5pb") : html_div()
 
-        return tbl_component, [audit_html, radio_warn], fig, lbls[1], lbls[2], lbls[3]
+                b_alerts = FAST_SafeGet_DDEF(res, "BoundaryAlerts", String[])
+        live_alerts = String[]
+        for (k, c_var) in enumerate(active_vars)
+            lvls = get(c_var, "Levels", [0.0, 0.0, 0.0])
+            val  = (k <= length(leader_vals)) ? Float64(leader_vals[k]) : Float64(lvls[2])
+            min_lim = haskey(c_var, "Min") ? Float64(FAST_SafeNum_DDEF(c_var["Min"])) : 0.0
+            max_lim = haskey(c_var, "Max") ? Float64(FAST_SafeNum_DDEF(c_var["Max"])) : Inf
+            ref_lvls = haskey(c_var, "OldLevels") ? Float64.(c_var["OldLevels"]) : lvls
+            cand_span = lvls[3] - lvls[1]
+            ok, msg = FLOW_AuditLeader_DDEF(val, ref_lvls, min_lim, max_lim, cand_span)
+            !ok && push!(live_alerts, "[$(get(c_var, "Name", "Var $k"))]: " * msg)
+            if haskey(c_var, "ASTMWarning") && !isempty(c_var["ASTMWarning"])
+                push!(live_alerts, "[$(get(c_var, "Name", "Var $k")) ASTM]: " * c_var["ASTMWarning"])
+            end
+        end
+        b_alerts = isempty(live_alerts) ? FAST_SafeGet_DDEF(res, "BoundaryAlerts", String[]) : live_alerts
+        boundary_html = if !isempty(b_alerts)
+            dbc_alert([
+                html_div([
+                    html_i(className="fas fa-exclamation-circle me-2"),
+                    html_strong("Search Space Proximity Alerts:")
+                ], className="small fw-bold mb-1"),
+                html_ul([html_li(a, className="x-small") for a in b_alerts], className="mb-0 ps-3")
+            ], className="mt-2 border-0 shadow-sm colourgl-neut colourtx-v5pb", style=Dict("borderColor" => "var(--colour-val3-darlow)"))
+        else
+            html_div()
+        end
+
+        return tbl_component, [audit_html, radio_warn, boundary_html], fig, lbls[1], lbls[2], lbls[3]
     end
 
     callback!(app,
@@ -2923,10 +2992,12 @@ function LENS_RegisterCallbacks_DDEF(app)
         slots = LENS_ExtractSlots_DDEF(slot_cfg)
 
         raw_conf = FAST_SafeGet_DDEF(prop, "NewConfig", [])
+        old_conf = FAST_SafeGet_DDEF(prop, "OldConfig", raw_conf)
         display_conf = [Dict{String,Any}(string(k) => (v isa AbstractVector ? copy(v) : v) for (k,v) in pairs(c)) for c in raw_conf]
         raw_lv = FAST_SafeGet_DDEF(prop, "LeaderValues", Float64[])
         leader_vals = Float64[FAST_SafeNum_DDEF(x) for x in raw_lv]
-        LENS_ApplySlotCustomisation_DDEF!(display_conf, slots, leader_vals)
+        contraction_f = FAST_SafeNum_DDEF(FAST_SafeGet_DDEF(prop, "SelectedContraction", 0.5))
+        LENS_ApplySlotCustomisation_DDEF!(display_conf, slots, leader_vals, contraction_f, old_conf)
 
         fixed_items = [c for c in display_conf if lowercase(strip(string(FAST_SafeGet_DDEF(c, "Role", "")))) in ("fixed", "fix")]
 
@@ -2944,6 +3015,7 @@ function LENS_RegisterCallbacks_DDEF(app)
     callback!(app,
         Output("lens-download-phase", "data"),
         Output("lens-signal-process", "data"),
+        Output("lens-prev-commit-msg", "children"),
         Input("lens-prev-btn-commit", "n_clicks"),
         State("lens-store-next-phase-proposal", "data"),
         State("lens-table-candidates", "selected_rows"),
@@ -2960,15 +3032,14 @@ function LENS_RegisterCallbacks_DDEF(app)
         prevent_initial_call=true
     ) do n_commit, proposal, sel_rows, cand_data, src, base64_file, proj_v, slot_cfg, dir_x1, dir_x2, dir_x3, excluded_raw, prev_proj_v
         prop_status = string(FAST_SafeGet_DDEF(proposal, "Status", ""))
-        (isnothing(n_commit) || n_commit == 0 || isnothing(proposal) || prop_status != "OK") && return Dash.no_update()
-        (isnothing(sel_rows) || isempty(sel_rows)) && return Dash.no_update()
+        (isnothing(n_commit) || n_commit == 0 || isnothing(proposal) || prop_status != "OK") && return Dash.no_update(), Dash.no_update(), ""
+        (isnothing(sel_rows) || isempty(sel_rows)) && return Dash.no_update(), Dash.no_update(), ""
 
         row_sel = cand_data[sel_rows[1]+1]
         sel_id = string(something(FAST_SafeGet_DDEF(row_sel, "EXP_ID", nothing),
                                   FAST_SafeGet_DDEF(row_sel, "ID", "")))
 
         contraction = FAST_SafeGet_DDEF(proposal, "SelectedContraction", 0.5)
-        translation = FAST_SafeGet_DDEF(proposal, "SelectedTranslation", 0.0)
         meth        = string(FAST_SafeGet_DDEF(proposal, "SelectedMethod", "BB15"))
 
         safe_dir(x) = x isa Number ? Int(x) : something(tryparse(Int, string(something(x, -1))), -1)
@@ -2984,9 +3055,10 @@ function LENS_RegisterCallbacks_DDEF(app)
         base_new_conf = FAST_SafeGet_DDEF(proposal, "NewConfig", nothing)
         if !isnothing(base_new_conf) && base_new_conf isa AbstractVector
             custom_conf = [Dict{String,Any}(string(k) => (v isa AbstractVector ? copy(v) : v) for (k,v) in pairs(c)) for c in base_new_conf]
+            base_old_conf = FAST_SafeGet_DDEF(proposal, "OldConfig", base_new_conf)
             raw_lv = FAST_SafeGet_DDEF(proposal, "LeaderValues", Float64[])
             leader_vals = Float64[FAST_SafeNum_DDEF(x) for x in raw_lv]
-            LENS_ApplySlotCustomisation_DDEF!(custom_conf, slots, leader_vals)
+            LENS_ApplySlotCustomisation_DDEF!(custom_conf, slots, leader_vals, Float64(contraction), base_old_conf)
             filter!(c -> !(lowercase(strip(string(FAST_SafeGet_DDEF(c, "Role", "")))) in ("fixed", "fix") && string(FAST_SafeGet_DDEF(c, "Name", "")) in excluded), custom_conf)
         end
 
@@ -3000,7 +3072,7 @@ function LENS_RegisterCallbacks_DDEF(app)
 
         path = FAST_GetTransientPath_DDEF(base64_file)
         res  = FLOW_CommitIPKT_DDEF(
-            path, src, sel_id, Float64(contraction), meth, Float64(translation);
+            path, src, sel_id, Float64(contraction), meth;
             Direction=direction_vec,
             CustomConfig=has_custom ? custom_conf : nothing,
             ProjectName=target_proj
@@ -3016,11 +3088,19 @@ function LENS_RegisterCallbacks_DDEF(app)
 
             return (
                 Dict("filename" => fname, "content" => base64encode(bytes), "base64" => true),
-                Dict("success"  => true, "msg" => "Phase Created Successfully", "base64" => new_vault)
+                Dict("success"  => true, "msg" => "Phase Created Successfully", "base64" => new_vault),
+                ""
             )
         else
             FAST_CleanTransient_DDEF(path)
-            return Dash.no_update(), Dict("success" => false, "msg" => res["Message"])
+            err_box = dbc_alert([
+                html_div([
+                    html_i(className="fas fa-exclamation-triangle me-2"),
+                    html_strong("Phase Creation Blocked: "),
+                    html_span(string(res["Message"]))
+                ])
+            ], color="danger", className="shadow-sm py-2 px-3 small border-0")
+            return Dash.no_update(), Dict("success" => false, "msg" => res["Message"]), err_box
         end
     end
 
@@ -3490,6 +3570,7 @@ function LENS_RegisterCallbacks_DDEF(app)
         Output("sync-lens-content",        "data"),
         Input("lens-radio-btn-apply",     "n_clicks"),
         Input("lens-upload-data",         "contents"),
+        Input("lens-signal-process",      "data"),
         State("lens-upload-data",         "filename"),
         State("store-master-vault",       "data"),
         State("lens-radio-forw-mode",     "value"),
@@ -3506,12 +3587,18 @@ function LENS_RegisterCallbacks_DDEF(app)
         State("lens-radio-out-name-1",    "value"),
         State("lens-radio-out-unit-1",    "value"),
         prevent_initial_call=true
-    ) do apply_clicks, upload_cont, upload_fname, active_cont,
+    ) do apply_clicks, upload_cont, sig_proc, upload_fname, active_cont,
          forw_mode, forw_iso, forw_target, forw_alias, forw_unit,
          dcyp_mode, dcyp_iso, dcyp_factor,
          reve_mode, reve_iso, reve_target, reve_alias, reve_unit
 
         trig = BASE_GetTrigger_DDEF(callback_context())
+
+        if trig == "lens-signal-process"
+            (isnothing(sig_proc) || !get(sig_proc, "success", false)) && return Dash.no_update()
+            haskey(sig_proc, "base64") || return Dash.no_update()
+            return sig_proc["base64"]
+        end
         
         if trig == "lens-upload-data"
             (isnothing(upload_cont) || upload_cont == "") && return Dash.no_update()
@@ -3678,10 +3765,10 @@ function LENS_RegisterCallbacks_DDEF(app)
         slots = Dict{String,Any}[]
         for i in 1:3
             mode = isnothing(modes[i]) ? "KEEP" : string(modes[i])
-            α  = FAST_SafeNum_DDEF(isnothing(alphas[i]) ? 1.0 : alphas[i])
-            β  = FAST_SafeNum_DDEF(isnothing(betas[i])  ? 0.0 : betas[i])
+            alpha_val = FAST_SafeNum_DDEF(isnothing(alphas[i]) ? 1.0 : alphas[i])
+            beta_val  = FAST_SafeNum_DDEF(isnothing(betas[i])  ? 0.0 : betas[i])
 
-            slot = Dict{String,Any}("Mode" => mode, "Alpha" => α, "Beta" => β)
+            slot = Dict{String,Any}("Mode" => mode, "Alpha" => alpha_val, "Beta" => beta_val)
 
             has_str(v) = FAST_IsPopulatedInput_DDEF(v)
             has_num(v) = FAST_IsNumericInput_DDEF(v)
@@ -3695,7 +3782,11 @@ function LENS_RegisterCallbacks_DDEF(app)
                 has_num(smins[i]) && (slot["NewMin"] = FAST_SafeNum_DDEF(smins[i]))
                 has_num(smaxs[i]) && (slot["NewMax"] = FAST_SafeNum_DDEF(smaxs[i]))
                 if i <= length(leader_vals)
-                    tv = FLOW_ApplyASTM_DDEF(leader_vals[i], α, β)
+
+                    raw_tv = FLOW_ApplyASTM_DDEF(leader_vals[i], alpha_val, beta_val)
+                    s_min  = haskey(slot, "NewMin") ? Float64(slot["NewMin"]) : -Inf
+                    s_max  = haskey(slot, "NewMax") ? Float64(slot["NewMax"]) : Inf
+                    _, tv, _ = FLOW_ValidateASTM_DDEF(raw_tv, s_min, s_max)
                     slot["TransformedVal"] = tv
                     transformed_displays[i] = string(round(tv; digits=3))
                 end

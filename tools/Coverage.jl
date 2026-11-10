@@ -10,10 +10,9 @@ using Logging
 using Dates
 
 const COVERAGE_START_TIME = time()
-const COVERAGE_ROOT_DIR   = normpath(joinpath(@__DIR__, ".."))
+const COVERAGE_ROOT_DIR   = realpath(normpath(joinpath(@__DIR__, "..")))
 const SRC_DIR             = joinpath(COVERAGE_ROOT_DIR, "src")
 
-# Pre-load Coverage.jl AST engine (loaded from global environment if available)
 const HAS_COVERAGE_PKG = try
     @eval using Coverage
     true
@@ -32,13 +31,27 @@ function cleanup_cov_files()
     end
 end
 
+function cleanup_compiled_cache()
+    try
+        for depot in DEPOT_PATH
+            c_dir = joinpath(depot, "compiled", "v$(VERSION.major).$(VERSION.minor)", "DoECISORY")
+            if isdir(c_dir)
+                rm(c_dir; recursive=true, force=true)
+            end
+        end
+    catch
+    end
+end
+
 cleanup_cov_files()
+cleanup_compiled_cache()
 
 tablo1_lines = String[]
 println("[INFO] Executing DoECISORY automated test suite with coverage enabled...")
 try
-    test_file = joinpath(COVERAGE_ROOT_DIR, "test", "runtests.jl")
-    cmd = `$(Base.julia_cmd()) --color=yes --depwarn=no --threads=auto --code-coverage=user --project=$COVERAGE_ROOT_DIR $test_file`
+    cd(COVERAGE_ROOT_DIR)
+    test_expr = "using Pkg; Pkg.test(\"DoECISORY\"; coverage=\"user\")"
+    cmd = `$(Base.julia_cmd()) --color=yes --depwarn=no --threads=auto --check-bounds=yes --project=$COVERAGE_ROOT_DIR -e $test_expr`
     proc = open(cmd, "r")
     is_capturing = false
     for line in eachline(proc)
@@ -53,6 +66,7 @@ try
             end
         end
     end
+    wait(proc)
     close(proc)
 catch e
     println("\n[ERROR] Test suite execution failed: ", e)

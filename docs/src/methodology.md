@@ -133,7 +133,7 @@ Rather than restricting the output to a single theoretical point $x^*$, DoECISOR
 ### 3.1. Search Strategy and Deduplication
 1. **Continuous Metaheuristic Optimisation:** Explores the continuous parameter space via evolutionary metaheuristics (`BlackBoxOptim.jl`), locating the global mathematical peak coordinate $\mathbf{x}_{\text{BBO}}$ and score $S_{\text{BBO}}$.
 2. **Deterministic High-Density Grid:** Evaluates the 3-factor space across a dense grid ($21^3 = 9,261$ or $41^3 = 68,921$ nodes), computing deterministic multi-model predictions and desirability scores.
-3. **Euclidean Deduplication:** Grid points are checked against the BBO peak using normalised Euclidean distance:
+3. **Normalised Manhattan ($L_1$) Deduplication:** Grid points are checked against the BBO peak using coordinate-wise normalised $L_1$ distance:
    ```math
    \text{dist}(\mathbf{x}_i, \mathbf{x}_{\text{BBO}}) = \sum_{j=1}^{d} \frac{|x_{i,j} - x_{\text{BBO},j}|}{U_j - L_j} > 0.01
    ```
@@ -175,8 +175,8 @@ Given the chosen leader coordinate $x_i^*$ within current bounds $[L_i, U_i]$, t
 p_i = \frac{x_i^* - L_i}{U_i - L_i}
 ```
 
-* **Contraction ($0.05 \le p_i \le 0.95$):**
-  The optimum is situated within the internal search volume. The search window is contracted symmetrically around the leader point:
+* **Contraction ($0.25 \le p_i \le 0.75$, `FLOW_BoundarySafe_DDES`):**
+  The optimum is situated comfortably within the central inter-quartile search volume. The search window is contracted symmetrically around the leader point:
   ```math
   \Delta_{\text{new}} = c \cdot (U_i - L_i)
   ```
@@ -185,22 +185,21 @@ p_i = \frac{x_i^* - L_i}{U_i - L_i}
   ```
   The contraction factor $c \in (0.0, 1.0]$ (default: $c = 0.50$, representing a $50\%$ range narrowing) is researcher-controlled via UI slider or script argument.
 
-* **Translation ($p_i < 0.05$ or $p_i > 0.95$):**
-  The optimum lies on or near the boundary, indicating that the true physical summit may reside outside the current domain. The range width is preserved while the window translates directionally toward the leader:
+* **Translation ($p_i < 0.25$ or $p_i > 0.75$, `FLOW_BoundaryLower_DDES` / `Upper_DDES`):**
+  The optimum lies in the outer boundary quartiles, indicating that the true physical summit may reside outside the current domain. Contraction is suspended to prevent premature narrowing; the domain translates directionally along the gradient with user-configurable translation factor $\delta \in [-1.0, 1.0]$:
   ```math
-  \delta = x_i^* - \frac{L_i + U_i}{2}
+  x_{\text{mid}} = x_i^* + \delta \cdot \frac{U_i - L_i}{2}
   ```
   ```math
-  L_i^{\text{new}} = L_i + \delta, \quad U_i^{\text{new}} = U_i + \delta
-  ```
-
-* **Absolute Clamping:**
-  All newly derived boundaries are checked against physical, thermodynamic, and safety limits $[L_i^{\text{abs}}, U_i^{\text{abs}}]$ via `FLOW_ValidateASTM_DDEF`:
-  ```math
-  L_i^{\text{clamped}} = \max\left(L_i^{\text{abs}},\, L_i^{\text{new}}\right), \quad U_i^{\text{clamped}} = \min\left(U_i^{\text{abs}},\, U_i^{\text{new}}\right)
+  L_i^{\text{new}} = x_{\text{mid}} - \frac{U_i - L_i}{2}, \quad U_i^{\text{new}} = x_{\text{mid}} + \frac{U_i - L_i}{2}
   ```
 
-### 4.2. Affine Transformation and Clamping (ASTM)
+* **Boundary Seeking & Window Sliding:**
+  When newly derived boundaries encounter physical, thermodynamic, or equipment limits $[L_i^{\text{abs}}, U_i^{\text{abs}}]$, DoECISORY engages adaptive space preservation:
+  - *Window Sliding (`FLOW_ShiftWindow_DDEF`)*: When bounds cross limits while the leader is outside boundary-seeking zones, the entire adapted span $(U_i - L_i)$ slides along the admissible continuum, preserving factorial information volume.
+  - *Boundary Seeking (`FLOW_SeekFloor_DDEF` / `FLOW_SeekCeiling_DDEF`)*: When an optimum lies within $5\%$ ($\tau_{\text{seek}} = 0.05 \cdot (U_i - L_i)$) of an absolute physical boundary, boundary seeking locks the search span to at least $10\%$ of the physical domain range and aligns the leader at the boundary threshold (L1 floor or L3 ceiling), preventing matrix singularity $\kappa(X^T X) \to \infty$.
+
+### 4.2. Affine Transformation (ASTM)
 Following ACTA boundary adaptation, coordinates undergo affine mapping to accommodate inter-phase scale changes, equipment migrations, or formulation changes:
 
 ```math
@@ -212,5 +211,3 @@ This operator supports four distinct experimental scenarios:
 2. **Kinetic & Volumetric Scaling ($\alpha \neq 1.0, \beta = 0.0$):** When transitioning from a 1 mL micro-reactor to a 10 mL preparative vessel, flow rates or reaction times are multiplied by scaling ratio $\alpha$.
 3. **Systematic Offset ($\alpha = 1.0, \beta \neq 0.0$):** Incorporates systematic calibration offsets when changing analytical instruments or reagent batches.
 4. **Space Regeneration & Factor Replacement:** When a solvent or catalyst is substituted between phases, common continuous factors retain their historical knowledge, peak positions, and variance through IPKT, while the novel factor is initialised with new physical levels. This avoids resetting the entire experimental campaign.
-
-

@@ -21,7 +21,7 @@
   - *Output Specialisation (`OUT-<Response>`)*: Solutions prioritising critical quality attributes like minimal impurity, high purity, or specific activity.
 * **Sequential Interphase Transfer (ACTA and ASTM)**: Bridges successive experimental phases through:
   - *ACTA (Adaptive Contraction & Translation Algorithm)*: Evaluates relative position ($p_i$) to contract search boundaries ($c$) around the leader or translate them ($\delta$) upon boundary contact.
-  - *ASTM (Affine Space Transformation Model)*: Applies affine scaling ($x_{\text{new}} = \alpha \cdot x_{\text{old}} + \beta$) and absolute physical clamping.
+  - *ASTM (Affine Space Transformation Model)*: Applies affine scaling ($x_{\text{new}} = \alpha \cdot x_{\text{old}} + \beta$) coupled with physical limits preservation and boundary seeking.
 * **Statistical Diagnostics**: Seven-stage scientific analysis report featuring OLS linear and quadratic regression, ANOVA, Lack-of-Fit tests, cross-validated $Q^2$ (overfitting protection), and VIF multicollinearity screening.
 * **Visualisation**: PlotlyJS 3D response surfaces, equipotential 2D contour maps with fixed-factor slicing, and IPKT interval shift charts (`Lib_Arts`).
 * **Spreadsheet Data Exchange (Excel)**: Multi-sheet protocol workbooks (`.xlsx`) with formatting standards, formula preservation, and zero data loss (`Sys_Fast`).
@@ -93,7 +93,7 @@ begin
 # Step A: ACTA domain contraction (c = 0.50 around centre 90.0)
   acta_levels = FLOW_CalcACTA_DDEF(90.0, [60.0, 90.0, 120.0], 0.50, 0.0, 0.0)
 
-# Step B: ASTM affine scaling and boundary safety verification (α = 0.9, β = 9.0)
+# Step B: ASTM affine transformation and coordinate scaling (α = 0.9, β = 9.0)
   phase2_levels = [FLOW_ApplyASTM_DDEF(x, 0.9, 9.0) for x in acta_levels]
   println("Adapted Phase 2 Levels (Temp): ", round.(phase2_levels, digits=2))
 end

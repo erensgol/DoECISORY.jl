@@ -103,7 +103,7 @@ To bridge the gap between modular software architecture and physical laboratory 
 | [`FLOW_CalcACTA_DDEF`](@ref) | Boundary Adaptation (ACTA) | Computes contracted or translated factor boundaries $[L^{\text{new}}, U^{\text{new}}]$ around the selected leader. |
 | [`FLOW_ApplyACTA_DDEF`](@ref) | Domain Contracting Operator | Directly generates new continuous factor bounds using contraction ratio $c$ and translation offset $\delta$. |
 | [`FLOW_ApplyASTM_DDEF`](@ref) | Affine Mapping (ASTM) | Scales and shifts physical factor boundaries ($x' = \alpha x + \beta$) for equipment migration or volume scaling. |
-| [`FLOW_ValidateASTM_DDEF`](@ref) | Absolute Boundary Clamping | Enforces hard thermodynamic, physical, and safety boundaries $[L^{\text{abs}}, U^{\text{abs}}]$ onto adapted levels. |
+| [`FLOW_ValidateASTM_DDEF`](@ref) | Physical Limits Validation | Validates and preserves physical and safety boundaries $[L^{\text{abs}}, U^{\text{abs}}]$ onto adapted levels. |
 | [`FLOW_BuildIPKT_DDEF`](@ref) | Master Transfer Protocol | Builds the unified IPKT transition payload transferring active factors, fixed settings, and response targets from Phase 1 to Phase 2. |
 | [`FLOW_AdvancePhase_DDEF`](@ref) | Phase Advancement | Dispatch-driven progression from current experimental stage to subsequent phase (e.g. Phase 1 → Phase 2). |
 
@@ -124,7 +124,7 @@ To bridge the gap between modular software architecture and physical laboratory 
 | [`ARTS_RenderSweetSpot_DDEF`](@ref) | Sweet Spot Projection | Plots primary operating cores within 5% tolerance of summit desirability ($D \ge 0.95 \times D_{\max}$). |
 | [`FAST_WriteExcel_DDEF`](@ref) | Protocol Export | Writes multi-tab formatted Excel workbooks preserving cell types, styles, and formulas. |
 | [`FAST_ReadExcel_DDEF`](@ref) | Protocol Ingestion | Safely reads completed laboratory spreadsheets into DataFrames with strict type casting. |
-| [`FAST_AssembleSvgPlate_DDEF`](@ref) | Composite Plate Generator | Assembles individual vector panels into standardised 145 mm multi-panel SVG plates. |
+| [`FAST_AssembleSvgPlate_DDEF`](@ref) | Composite Plate Generator | Assembles individual plot panels into standardised 145 mm multi-panel SVG plates. |
 
 ---
 

@@ -688,10 +688,10 @@ Evaluates multi-model predictions and computes composite desirability scores wit
 - `Tuple{Matrix{Float64}, Matrix{Float64}, Vector{Float64}}`: `(CandidateCoordinates, PredictionsMatrix, DesirabilityScores)`.
 """
 function VISE_RunGridSearch_DDEF(Models::AbstractVector, Goals::AbstractVector, X_Bounds::AbstractMatrix{Float64};
-    Steps::Int=41, ModifiersDCYP::Vector{CORE_ModifierDCYP_DDES}=CORE_ModifierDCYP_DDES[])
+    Steps::Union{Nothing, Int}=nothing, ModifiersDCYP::Vector{CORE_ModifierDCYP_DDES}=CORE_ModifierDCYP_DDES[])
     Dim = 3
     compute_threads = FAST_GetComputeThreads_DDEF()
-    eff_steps = (compute_threads <= 4) ? 21 : 41
+    eff_steps = isnothing(Steps) ? ((compute_threads <= 4) ? 21 : 41) : max(Steps, 2)
 
     Ranges = [range(X_Bounds[i, 1], X_Bounds[i, 2]; length=eff_steps) for i in 1:Dim]
     Iter = Iterators.product(Ranges...)
@@ -2270,7 +2270,7 @@ function VISE_RunOptimisation_DDEF(X, models, goals, config, phase, in_n, out_n,
     bounds = hcat(minimum(X_Nominal; dims=1)', maximum(X_Nominal; dims=1)')
     mods_dcyp = VISE_ExtractDCYP_DDEF(in_n, out_n, config, opts)
     
-    grid_steps = get(opts, "GridSteps", 41)
+    grid_steps = get(opts, "GridSteps", nothing)
     XT, YP, SC = VISE_RunGridSearch_DDEF(models, goals, bounds; Steps=grid_steps, ModifiersDCYP=mods_dcyp)
     
     max_time = get(opts, "MaxTime", 1.0)
@@ -2412,9 +2412,12 @@ function VISE_RunOptimisation_DDEF(X, models, goals, config, phase, in_n, out_n,
     # Boundary Warnings
     warns = String[]
     if !isempty(bp)
+        var_confs = filter(c -> get(c, "Role", "") == C.ROLE_VAR, ingreds)
         for i in 1:min(3, length(bp))
             v_range = [bounds[i, 1], (bounds[i, 1] + bounds[i, 2]) / 2, bounds[i, 2]]
-            ok, msg = FLOW_AuditLeader_DDEF(bp[i], v_range)
+            min_lim = (i <= length(var_confs) && haskey(var_confs[i], "Min")) ? Float64(FAST_SafeNum_DDEF(var_confs[i]["Min"])) : -Inf
+            max_lim = (i <= length(var_confs) && haskey(var_confs[i], "Max")) ? Float64(FAST_SafeNum_DDEF(var_confs[i]["Max"])) : Inf
+            ok, msg = FLOW_AuditLeader_DDEF(bp[i], v_range, min_lim, max_lim)
             !ok && push!(warns, "$(in_n[i]): $msg")
         end
     end

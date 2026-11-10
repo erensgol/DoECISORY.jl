@@ -241,7 +241,7 @@ end
 
 ## 6. Sequential Phase Transition (ACTA and ASTM)
 
-The chosen leader is advanced into Phase 2 using the two-stage **IPKT** framework: **ACTA** adapts continuous boundaries around the leader coordinate, while **ASTM** applies affine coordinate transformation and safety clamping.
+The chosen leader is advanced into Phase 2 using the two-stage **IPKT** framework: **ACTA** adapts continuous boundaries around the leader coordinate with window sliding and boundary seeking, while **ASTM** applies affine coordinate transformation and physical limits validation.
 
 ### Track A — Julia Scripting
 ```julia
@@ -271,7 +271,7 @@ begin
     println("Factor 3 (Precur) Levels: ", round.(acta_levels[3], digits=2), " mg")
 
     # --------------------------------------------------------------------------
-    # Stage 2: ASTM Affine Transformation & Clamping (x_new = α · x_old + β)
+    # Stage 2: ASTM Affine Transformation & Boundary Alignment (x_new = α · x_old + β)
     # --------------------------------------------------------------------------
     # Temperature: Thermodynamic affine scaling (α = 0.90, β = 9.0)
     temp_astm = [FLOW_ApplyASTM_DDEF(x, 0.90, 9.0) for x in acta_levels[1]]
@@ -279,7 +279,7 @@ begin
     # Reaction Time: Direct preservation (α = 1.0, β = 0.0)
     time_astm = [FLOW_ApplyASTM_DDEF(x, 1.0, 0.0) for x in acta_levels[2]]
 
-    # Precursor: Systematic Offset + Absolute Safety Clamping [10.0, 50.0] mg
+    # Precursor: Direct Transfer (α = 1.0, β = 0.0) + Physical Limit Validation [10.0, 50.0] mg
     prec_astm = [FLOW_ApplyASTM_DDEF(x, 1.0, 0.0) for x in acta_levels[3]]
     prec_phase2 = [FLOW_ValidateASTM_DDEF(x, 10.0, 50.0)[2] for x in prec_astm]
 
@@ -291,14 +291,17 @@ end
 ```
 
 ### Track B — Graphical Interface (`Gui_Lens` → `Gui_Deck`)
-1. In the **Interphase Knowledge Transfer (IPKT)** panel of **Lens**:
-   * Confirm the active leader is set to `TOP-01*`.
-   * Adjust the **Domain Contraction Ratio ($c$)** slider to `0.50` (narrowing the search window by $50\%$ centered on $x^*$).
-2. In the **ASTM Transformation Settings**:
-   * Set Temperature scaling $\alpha = 0.90$, offset $\beta = 9.0$ °C.
-   * Set Reaction Time scaling $\alpha = 1.0$, offset $\beta = 0.0$.
-   * Set Precursor limits: Absolute Min `10.0`, Absolute Max `50.0` mg.
-3. Click **Transfer Knowledge to Phase 2**.
+1. Open the **IPKT Transition Wizard** in **Lens**:
+   * **Step 1/3 (Target Phase):** Specify target stage as `Phase2`.
+   * **Step 2/3 (Leader Selection):** Confirm the active leader is set to `TOP-01*` (`[103.18, 15.50, 27.80]`).
+2. In **Step 3/3 (Design Space Configuration)**:
+   * Set the **Contraction Ratio ($c$)** slider to `0.50` (narrowing the search window by $50\%$ centered on $x^*$).
+   * Configure factor slot modes:
+     - `Temperature`: Set Mode to `Scale (ASTM)` with $\alpha = 0.90$ and $\beta = 9.0$ °C.
+     - `Time`: Set Mode to `Keep (ACTA)` (or Scale with $\alpha = 1.0, \beta = 0.0$).
+     - `Precursor`: Set Mode to `Scale (ASTM)` with Absolute Min `10.0` mg, Absolute Max `50.0` mg.
+   * Inspect the **IPKT Visualisation Canvas** to confirm adapted ranges stay within safety limits.
+3. Click **Commit Phase Transition & Download Phase 2 Protocol**.
 4. The application automatically commits the IPKT payload via `FLOW_CommitIPKT_DDEF` and transitions to the **Deck** workspace:
    * The new Phase 2 factor bounds are immediately populated into the formulation cards.
    * Prior mathematical variance and historical coefficients are preserved.
