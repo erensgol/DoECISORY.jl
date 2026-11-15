@@ -28,6 +28,8 @@ export MOLE_ParseTable_DDEF, MOLE_AuditQuick_DDEF, MOLE_CalcMass_DDEF,
 # SECTION 1: INGREDIENT DEFINITION
 # ------------------------------------------------------------------------------
 
+const C = FAST_Data_DDEC
+
 abstract type MOLE_AbstractIngredientRole_DDET end
 struct MOLE_RoleVariable_DDES <: MOLE_AbstractIngredientRole_DDET end
 struct MOLE_RoleFixed_DDES    <: MOLE_AbstractIngredientRole_DDET end
@@ -198,7 +200,6 @@ Extracts component identifiers, functional roles, discrete level bounds, and mol
 """
 function MOLE_ParseTable_DDEF(TableData::AbstractVector)
     clean_data, input_warnings = FAST_SanitiseInput_DDEF(TableData)
-    C = FAST_Data_DDEC
 
     names = string.(get.(clean_data, "Name", "Unknown"))
     roles_str = string.(get.(clean_data, "Role", "Fixed"))
@@ -363,7 +364,7 @@ end
 # ------------------------------------------------------------------------------
 
 """
-    MOLE_AuditQuick_DDEF(TableData::AbstractVector, Vol::Float64, Conc::Float64) -> Tuple{Bool, String, DataFrame, Float64, Dict}
+    MOLE_AuditQuick_DDEF(TableData::AbstractVector, Vol::Float64, Conc::Float64) -> Tuple{Bool, String, DataFrame, Float64, String}
 Execute a rapid gravimetric and stoichiometric audit on baseline formulation recipes.
 Verifies variable factor counts, checks mass conservation limits, and automatically computes filler reagent quantities.
 
@@ -373,7 +374,7 @@ Verifies variable factor counts, checks mass conservation limits, and automatica
 - `Conc::Float64`: Target overall molar concentration in millimoles per litre.
 
 # Returns
-- `Tuple`: `(is_valid, audit_report_text, summary_dataframe, total_batch_mass_mg, filler_info_dict)`.
+- `Tuple`: `(is_valid, audit_report_text, summary_dataframe, total_batch_mass_mg, filler_status)`.
 """
 function MOLE_AuditQuick_DDEF(TableData::AbstractVector, Vol::Float64, Conc::Float64)
     D = MOLE_ParseTable_DDEF(TableData)
@@ -626,10 +627,10 @@ Iterates across all design coordinate rows to evaluate run-by-run batch masses a
 """
 function MOLE_AuditMatrix_DDEF(Design::AbstractMatrix, Names::AbstractVector,
     MWs::AbstractVector, Vol::Float64, Conc::Float64, Units::AbstractVector=fill("-", length(Names)))
-    R, C         = size(Design)
+    R, K         = size(Design)
     total_masses = Vector{Float64}(undef, R)
 
-    if C != length(Names)
+    if K != length(Names)
         return zeros(R) 
     end
 
@@ -666,9 +667,9 @@ function MOLE_AuditBatch_DDEF(TableData::AbstractVector, Design::AbstractMatrix,
     idx_var = D["Idx_Var"]
     idx_chem = D["Idx_Chem"]
 
-    R, C = size(Design)
+    R, K = size(Design)
 
-    if C != length(idx_var)
+    if K != length(idx_var)
         return Dict(
             "IsFeasible" => true,
             "AvgMass_mg" => 0.0, 
@@ -764,7 +765,7 @@ Checks every design run for molar budget overconsumption and verifies that conti
 - `Tuple{Bool, String}`: `(is_valid, validation_report)` detailing any violating run indices.
 """
 function MOLE_ValidateFeasibility_DDEF(DesignMatrix::AbstractMatrix, InMeta::AbstractVector, Vol::Float64=100.0, Conc::Float64=10.0)
-    R, C   = size(DesignMatrix)
+    R      = size(DesignMatrix, 1)
     chems  = [m for m in InMeta if get(m, "Role", "") != "Result"]
     
     # Identify operational indices.
@@ -836,7 +837,6 @@ Constructs standardised input, fixed, and filler column headers while resolving 
 """
 function MOLE_ProcessDesign_DDEF(DesignMatrix::AbstractMatrix, TableData::AbstractVector, Vol::Float64, Conc::Float64)
     D = MOLE_ParseTable_DDEF(TableData)
-    C = FAST_Data_DDEC
     R, C_dim = size(DesignMatrix)
     
     df = DataFrame()

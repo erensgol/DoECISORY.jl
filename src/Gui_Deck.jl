@@ -31,6 +31,8 @@ export DECK_BuildLayout_DDEF, DECK_RegisterCallbacks_DDEF
 # SECTION 1: SYSTEM CONSTANTS
 # ------------------------------------------------------------------------------
 
+const C = FAST_Data_DDEC
+
 const DECK_MaxRows_DDEC = 15
 
 const DECK_RoleOptions_DDEC = [
@@ -70,9 +72,9 @@ function DECK_MapImportRow_DDEF(inputs::AbstractVector; override_roles::Bool=tru
         role_val = override_roles ? (i <= 3 ? "Variable" : "Fixed") : string(FAST_SafeGet_DDEF(m, "Role", i <= 3 ? "Variable" : "Fixed"))
         lvls = FAST_SafeGet_DDEF(m, "Levels", nothing)
         has_lvls = !isnothing(lvls) && lvls isa AbstractVector && length(lvls) >= 3
-        l1_val = has_lvls ? Float64(lvls[1]) : Float64(FAST_SafeGet_DDEF(m, "L1", 0.0))
-        l2_val = has_lvls ? Float64(lvls[2]) : Float64(FAST_SafeGet_DDEF(m, "L2", 0.0))
-        l3_val = has_lvls ? Float64(lvls[3]) : Float64(FAST_SafeGet_DDEF(m, "L3", 0.0))
+        l1_val = has_lvls ? DECK_SafeNumZero_DDEF(lvls[1]) : DECK_SafeNumZero_DDEF(FAST_SafeGet_DDEF(m, "L1", 0.0))
+        l2_val = has_lvls ? DECK_SafeNumZero_DDEF(lvls[2]) : DECK_SafeNumZero_DDEF(FAST_SafeGet_DDEF(m, "L2", 0.0))
+        l3_val = has_lvls ? DECK_SafeNumZero_DDEF(lvls[3]) : DECK_SafeNumZero_DDEF(FAST_SafeGet_DDEF(m, "L3", 0.0))
         Dict(
             "Name" => FAST_SafeGet_DDEF(m, "Name", ""), 
             "Role" => role_val,
@@ -85,10 +87,64 @@ function DECK_MapImportRow_DDEF(inputs::AbstractVector; override_roles::Bool=tru
             "MW" => FAST_SafeGet_DDEF(m, "MW", 0.0),
             "Unit" => FAST_SafeGet_DDEF(m, "Unit", "-"),
             "IsRadioactive" => FAST_SafeGet_DDEF(m, "IsRadioactive", false),
-            "HalfLife" => Float64(FAST_SafeGet_DDEF(m, "HalfLife", 0.0)),
+            "HalfLife" => DECK_SafeNumZero_DDEF(FAST_SafeGet_DDEF(m, "HalfLife", 0.0)),
             "HalfLifeUnit" => string(FAST_SafeGet_DDEF(m, "HalfLifeUnit", "Hours"))
         )
     end
+end
+
+"""
+    DECK_CaptureRows_DDEF(store_data, all_names, all_l1s, all_l2s, all_l3s, all_mins, all_maxs, all_mws, all_units) -> Vector{Dict{String,Any}}
+Captures and normalises active workspace row states from DOM inputs merged with stored metadata.
+"""
+function DECK_CaptureRows_DDEF(store_data, all_names, all_l1s, all_l2s, all_l3s, all_mins, all_maxs, all_mws, all_units)
+    n = isnothing(store_data) ? 7 : Int(FAST_SafeGet_DDEF(store_data, "count", 7))
+    return [
+        let
+            mw_val = DECK_SafeNumZero_DDEF(all_mws[i])
+            unit_val = !isnothing(all_units[i]) ? string(all_units[i]) : ""
+
+            is_rad = false
+            hl_val = 0.0
+            hl_unit = "Hours"
+
+            if !isnothing(store_data) && (haskey(store_data, "rows") || haskey(store_data, :rows))
+                r_list = FAST_SafeGet_DDEF(store_data, "rows", [])
+                if i <= length(r_list)
+                    prow = r_list[i]
+                    pmw = FAST_SafeGet_DDEF(prow, "MW", 0.0)
+                    prev_mw = FAST_SafeNum_DDEF(pmw)
+                    mw_val = prev_mw > 0.0 ? prev_mw : mw_val
+                    is_rad = Bool(FAST_SafeGet_DDEF(prow, "IsRadioactive", false))
+                    hl_val = DECK_SafeNumZero_DDEF(FAST_SafeGet_DDEF(prow, "HalfLife", 0.0))
+                    hl_unit = string(FAST_SafeGet_DDEF(prow, "HalfLifeUnit", "Hours"))
+                end
+            end
+
+            if contains(unit_val, "%")
+                l1_val = clamp(DECK_SafeNumZero_DDEF(all_l1s[i]), 0.0, 100.0)
+                l2_val = clamp(DECK_SafeNumZero_DDEF(all_l2s[i]), 0.0, 100.0)
+                l3_val = clamp(DECK_SafeNumZero_DDEF(all_l3s[i]), 0.0, 100.0)
+                min_v  = clamp(DECK_SafeNumZero_DDEF(all_mins[i]), 0.0, 100.0)
+                max_v  = clamp(DECK_SafeNumZero_DDEF(all_maxs[i]), 0.0, 100.0)
+            else
+                l1_val = DECK_SafeNumZero_DDEF(all_l1s[i])
+                l2_val = DECK_SafeNumZero_DDEF(all_l2s[i])
+                l3_val = DECK_SafeNumZero_DDEF(all_l3s[i])
+                min_v  = DECK_SafeNumZero_DDEF(all_mins[i])
+                max_v  = DECK_SafeNumZero_DDEF(all_maxs[i])
+            end
+
+            Dict{String,Any}(
+                "Name" => !isnothing(all_names[i]) ? string(all_names[i]) : "",
+                "Role" => (i <= 3 ? "Variable" : "Fixed"),
+                "L1" => l1_val, "L2" => l2_val, "L3" => l3_val,
+                "Min" => min_v, "Max" => max_v, "MW" => mw_val,
+                "Unit" => unit_val, "IsRadioactive" => is_rad,
+                "HalfLife" => hl_val, "HalfLifeUnit" => hl_unit
+            )
+        end for i in 1:min(n, DECK_MaxRows_DDEC)
+    ]
 end
 
 # ------------------------------------------------------------------------------
@@ -340,8 +396,6 @@ Constructs the primary experimental design interface and workspace layout.
 """
 function DECK_BuildLayout_DDEF()
     try
-        Defaults = FAST_GetLabDefaults_DDEF()
-
         # Start with 6 active rows by default (3 Var + 3 Fixed)
         initial_rows = [DECK_GetDefaultRow_DDEF(i) for i in 1:DECK_MaxRows_DDEC]
         active_count = 6
@@ -373,7 +427,7 @@ function DECK_BuildLayout_DDEF()
                             Dict("name" => "MW",   "id" => "MW",   "type" => "numeric"),
                             Dict("name" => "Unit", "id" => "Unit", "type" => "text"),
                         ],
-                        data     = [DECK_GetDefaultRow_DDEF(i) for i in 1:5],
+                        data     = [DECK_GetDefaultRow_DDEF(i) for i in 1:6],
                         editable = false,
                     ),
                         html_div([
@@ -607,7 +661,6 @@ end
 Orchestrates the generation and validation of an experimental protocol Excel document.
 """
 function DECK_GenProtocol_DDEF(path, in_data, out_data, vol, conc, method, stoch_data, project="DoECISORY"; direction=[-1, -1, -1], target_phase::Union{String,Nothing}=nothing)
-    C = FAST_Data_DDEC
     # Local alias definitions for architectural scoping.
     L_PT   = MOLE_ParseTable_DDEF
     L_VDF  = MOLE_ValidateFeasibility_DDEF
@@ -650,7 +703,7 @@ function DECK_GenProtocol_DDEF(path, in_data, out_data, vol, conc, method, stoch
         for (i, r) in enumerate(D["Rows"])
             n    = strip(string(get(r, "Name", "")))
             unit = string(get(r, "Unit", ""))
-            mw   = Float64(get(r, "MW", 0.0))
+            mw   = DECK_SafeNumZero_DDEF(get(r, "MW", 0.0))
             if mw > 0.0 && !isempty(unit) && unit != "-" && unit != "%M" && unit != "MR"
                 ok_m, _, _ = L_VPU(unit, "Mass")
                 ok_c, _, _ = L_VPU(unit, "Concentration")
@@ -772,7 +825,7 @@ function DECK_GenProtocol_DDEF(path, in_data, out_data, vol, conc, method, stoch
                 rn = string(get(r, "Name", ""))
                 ru = string(get(r, "Unit", "mCi"))
                 if !isempty(rn)
-                    df[!, "TIME_FORW_MINS_" * rn] = fill(0.0, N_Runs)
+                    df[!, C.PRE_TIME_FORW * rn] = fill(0.0, N_Runs)
                     
                     dcyp_vals = fill(0.0, N_Runs)
                     for vi in D["Idx_Var"]
@@ -789,10 +842,10 @@ function DECK_GenProtocol_DDEF(path, in_data, out_data, vol, conc, method, stoch
                             end
                         end
                     end
-                    df[!, "TIME_DCYP_MINS_" * rn] = dcyp_vals
-                    df[!, "TIME_REVE_MINS_" * rn] = fill(0.0, N_Runs)
+                    df[!, C.PRE_TIME_DCYP * rn] = dcyp_vals
+                    df[!, C.PRE_TIME_REVE * rn] = fill(0.0, N_Runs)
 
-                    act_header = (isempty(ru) || ru == "-") ? "ACTUAL_" * rn : "ACTUAL_" * rn * "_" * ru
+                    act_header = (isempty(ru) || ru == "-") ? C.PRE_ACTUAL * rn : C.PRE_ACTUAL * rn * "_" * ru
                     df[!, act_header] = fill(missing, N_Runs)
                 end
             end
@@ -875,13 +928,6 @@ end
 Initialises the callback registry for the Design Deck workspace.
 """
 function DECK_RegisterCallbacks_DDEF(app)
-    Lib_Mole_PT  = MOLE_ParseTable_DDEF
-    Lib_Mole_VPU = MOLE_ValidatePhysicalUnit_DDEF
-    Lib_Mole_AMM = MOLE_AuditMatrix_DDEF
-    Lib_Mole_CM  = MOLE_CalcMass_DDEF
-    Lib_Mole_QA  = MOLE_AuditQuick_DDEF
-    Lib_Mole_VDF  = MOLE_ValidateFeasibility_DDEF
-    Lib_Mole_AB   = MOLE_AuditBatch_DDEF
     
 # ------------------------------------------------------------------------------
 # SECTION 8: INTERFACE & STATE CALLBACKS
@@ -966,17 +1012,17 @@ function DECK_RegisterCallbacks_DDEF(app)
         rows  = get(stored, "rows", [])
         count = get(stored, "count", 0)
 
-        d1_cls = [(let r = (i <= length(rows) ? rows[i] : Dict()); Float64(get(r, "MW", get(r, :MW, 0.0))) > 0.0 ? "colourtx-c3tc" : "colourtx-v3dl" end) for i in 1:DECK_MaxRows_DDEC]
-        d2_cls = [(let r = (i <= length(rows) ? rows[i] : Dict()); (get(r, "IsRadioactive", false) == true) || (Float64(get(r, "HalfLife", get(r, :HalfLife, 0.0))) > 0.0) ? "colourtx-c4tg" : "colourtx-v3dl" end) for i in 1:DECK_MaxRows_DDEC]
-        d1_tps = [(let r = (i <= length(rows) ? rows[i] : Dict()); Float64(get(r, "MW", get(r, :MW, 0.0))) > 0.0 ? "Molecular Weight defined (Scientific context ACTIVE)" : "No Molecular Weight defined" end) for i in 1:DECK_MaxRows_DDEC]
-        d2_tps = [(let r = (i <= length(rows) ? rows[i] : Dict()); (get(r, "IsRadioactive", false) == true) || (Float64(get(r, "HalfLife", get(r, :HalfLife, 0.0))) > 0.0) ? "Radioactive Decay data present (Kinetic engine ACTIVE)" : "No half-life data" end) for i in 1:DECK_MaxRows_DDEC]
+        d1_cls = [(let r = (i <= length(rows) ? rows[i] : Dict()); DECK_SafeNumZero_DDEF(get(r, "MW", get(r, :MW, 0.0))) > 0.0 ? "colourtx-c3tc" : "colourtx-v3dl" end) for i in 1:DECK_MaxRows_DDEC]
+        d2_cls = [(let r = (i <= length(rows) ? rows[i] : Dict()); (get(r, "IsRadioactive", false) == true) || (DECK_SafeNumZero_DDEF(get(r, "HalfLife", get(r, :HalfLife, 0.0))) > 0.0) ? "colourtx-c4tg" : "colourtx-v3dl" end) for i in 1:DECK_MaxRows_DDEC]
+        d1_tps = [(let r = (i <= length(rows) ? rows[i] : Dict()); DECK_SafeNumZero_DDEF(get(r, "MW", get(r, :MW, 0.0))) > 0.0 ? "Molecular Weight defined (Scientific context ACTIVE)" : "No Molecular Weight defined" end) for i in 1:DECK_MaxRows_DDEC]
+        d2_tps = [(let r = (i <= length(rows) ? rows[i] : Dict()); (get(r, "IsRadioactive", false) == true) || (DECK_SafeNumZero_DDEF(get(r, "HalfLife", get(r, :HalfLife, 0.0))) > 0.0) ? "Radioactive Decay data present (Kinetic engine ACTIVE)" : "No half-life data" end) for i in 1:DECK_MaxRows_DDEC]
 
         unt_sts = [
             let
                 s = merge(BASE_StyleInputCentre_DDEC, Dict("fontSize" => "10px"))
                 if i <= length(rows) && i <= count
                     u  = lowercase(strip(string(get(rows[i], "Unit", ""))))
-                    mw = Float64(get(rows[i], "MW", 0.0))
+                    mw = DECK_SafeNumZero_DDEF(get(rows[i], "MW", 0.0))
                     if (u == "%m" || u == "mr" || u == "ratio" || u == "m") && mw <= 0.0
                         s["backgroundColor"] = "var(--colour-chr0-huered)"; s["color"] = "white"; s["fontWeight"] = "bold"
                         s["border"] = "2px solid white"; s["boxShadow"] = "0 0 15px rgba(255, 0, 0, 0.6)"
@@ -1058,9 +1104,7 @@ function DECK_RegisterCallbacks_DDEF(app)
     ) do args...
         # Implementation of a global exception guard to maintain orchestration engine stability.
         try
-            trig_raw  = Dash.callback_context().triggered
-            trig      = isempty(trig_raw) ? "" : split(string(trig_raw[1].prop_id), ".")[1]
-            idx_gl    = 11 + DECK_MaxRows_DDEC
+            idx_gl = 11 + DECK_MaxRows_DDEC
             
             # Integration of primary action triggers spanning core system components (Buttons, Stores, Uploads).
             # Integration of row-level deletion triggers within the experimental workspace. Synchronisation with the primary factor persistence store.
@@ -1112,9 +1156,8 @@ function DECK_RegisterCallbacks_DDEF(app)
             end
 
             # Orchestration of the standardised callback return protocol.
-            function DECK_AssembleReturn_DDEF(store, table, ph_opts, vol, conc, proj, method, msg, dl, up_stat, ph_val, stoch, out_vals, dir_vals=(Dash.no_update(), Dash.no_update(), Dash.no_update()))
-                return (store, table, ph_opts, vol, conc, proj, method, msg, dl, up_stat, ph_val, stoch, out_vals..., dir_vals...)
-            end
+            assemble_return(store, table, ph_opts, vol, conc, proj, method, msg, dl, up_stat, ph_val, stoch, out_vals, dir_vals=(Dash.no_update(), Dash.no_update(), Dash.no_update())) =
+                (store, table, ph_opts, vol, conc, proj, method, msg, dl, up_stat, ph_val, stoch, out_vals..., dir_vals...)
             RET_NO = ntuple(_ -> Dash.no_update(), 21)
 
 # ------------------------------------------------------------------------------
@@ -1135,64 +1178,11 @@ function DECK_RegisterCallbacks_DDEF(app)
             dx2 = dir_x2_v isa Number ? Int(dir_x2_v) : (tryparse(Int, string(dir_x2_v)) !== nothing ? parse(Int, string(dir_x2_v)) : -1)
             dx3 = dir_x3_v isa Number ? Int(dir_x3_v) : (tryparse(Int, string(dir_x3_v)) !== nothing ? parse(Int, string(dir_x3_v)) : -1)
             dir_vec_v = [dx1, dx2, dx3]
-            
-            # Implementation of robust data-capture logic synchronising DOM states with the persistence store.
-            # This synchronisation is critical for ensuring data integrity during reconfigurations.
-            DECK_CaptureRows_DDEF() = let
-                n = isnothing(store_data) ? 7 : Int(FAST_SafeGet_DDEF(store_data, "count", 7))
-                [
-                    let
-                        mw_val = DECK_SafeNumZero_DDEF(all_mws[i])
-                        unit_val = !isnothing(all_units[i]) ? string(all_units[i]) : ""
-
-                        is_rad = false
-                        hl_val = 0.0
-                        hl_unit = "Hours"
-                        prev_mw = 0.0
-
-                        if !isnothing(store_data) && (haskey(store_data, "rows") || haskey(store_data, :rows))
-                            r_list = FAST_SafeGet_DDEF(store_data, "rows", [])
-                            if i <= length(r_list)
-                                prow = r_list[i]
-                                pmw = FAST_SafeGet_DDEF(prow, "MW", 0.0)
-                                prev_mw = FAST_SafeNum_DDEF(pmw)
-                                mw_val = prev_mw > 0.0 ? prev_mw : mw_val
-                                is_rad = Bool(FAST_SafeGet_DDEF(prow, "IsRadioactive", false))
-                                hl_val = FAST_SafeNum_DDEF(FAST_SafeGet_DDEF(prow, "HalfLife", 0.0))
-                                hl_unit = string(FAST_SafeGet_DDEF(prow, "HalfLifeUnit", "Hours"))
-                            end
-                        end
-
-                        if contains(unit_val, "%")
-                            l1_val = clamp(DECK_SafeNumZero_DDEF(all_l1s[i]), 0.0, 100.0)
-                            l2_val = clamp(DECK_SafeNumZero_DDEF(all_l2s[i]), 0.0, 100.0)
-                            l3_val = clamp(DECK_SafeNumZero_DDEF(all_l3s[i]), 0.0, 100.0)
-                            min_v  = clamp(DECK_SafeNumZero_DDEF(all_mins[i]), 0.0, 100.0)
-                            max_v  = clamp(DECK_SafeNumZero_DDEF(all_maxs[i]), 0.0, 100.0)
-                        else
-                            l1_val = DECK_SafeNumZero_DDEF(all_l1s[i])
-                            l2_val = DECK_SafeNumZero_DDEF(all_l2s[i])
-                            l3_val = DECK_SafeNumZero_DDEF(all_l3s[i])
-                            min_v  = DECK_SafeNumZero_DDEF(all_mins[i])
-                            max_v  = DECK_SafeNumZero_DDEF(all_maxs[i])
-                        end
-
-                        Dict(
-                            "Name" => !isnothing(all_names[i]) ? string(all_names[i]) : "",
-                            "Role" => (i <= 3 ? "Variable" : "Fixed"),
-                            "L1" => l1_val, "L2" => l2_val, "L3" => l3_val,
-                            "Min" => min_v, "Max" => max_v, "MW" => mw_val,
-                            "Unit" => unit_val, "IsRadioactive" => is_rad,
-                            "HalfLife" => hl_val, "HalfLifeUnit" => hl_unit
-                        )
-                    end for i in 1:min(n, DECK_MaxRows_DDEC)
-                ]
-            end
 
             if trig == "deck-prop-trigger-save"
                 isnothing(save_prop_trig) && return ntuple(_ -> Dash.no_update(), 21)
                 
-                current_rows = DECK_CaptureRows_DDEF()
+                current_rows = DECK_CaptureRows_DDEF(store_data, all_names, all_l1s, all_l2s, all_l3s, all_mins, all_maxs, all_mws, all_units)
 
                 # Orchestration of target identification for component property inheritance.
                 target   = args[idx_gl+2]
@@ -1217,11 +1207,11 @@ function DECK_RegisterCallbacks_DDEF(app)
 
                             # Clamp values if unit is percentage (0-100 range)
                             if contains(string(get(new_r, "Unit", "")), "%")
-                                new_r["L1"] = clamp(FAST_SafeNum_DDEF(get(new_r, "L1", 0.0)), 0.0, 100.0)
-                                new_r["L2"] = clamp(FAST_SafeNum_DDEF(get(new_r, "L2", 0.0)), 0.0, 100.0)
-                                new_r["L3"] = clamp(FAST_SafeNum_DDEF(get(new_r, "L3", 0.0)), 0.0, 100.0)
-                                new_r["Min"] = clamp(FAST_SafeNum_DDEF(get(new_r, :Min, get(new_r, "Min", 0.0))), 0.0, 100.0)
-                                new_r["Max"] = clamp(FAST_SafeNum_DDEF(get(new_r, :Max, get(new_r, "Max", 0.0))), 0.0, 100.0)
+                                new_r["L1"] = clamp(DECK_SafeNumZero_DDEF(get(new_r, "L1", 0.0)), 0.0, 100.0)
+                                new_r["L2"] = clamp(DECK_SafeNumZero_DDEF(get(new_r, "L2", 0.0)), 0.0, 100.0)
+                                new_r["L3"] = clamp(DECK_SafeNumZero_DDEF(get(new_r, "L3", 0.0)), 0.0, 100.0)
+                                new_r["Min"] = clamp(DECK_SafeNumZero_DDEF(get(new_r, :Min, get(new_r, "Min", 0.0))), 0.0, 100.0)
+                                new_r["Max"] = clamp(DECK_SafeNumZero_DDEF(get(new_r, :Max, get(new_r, "Max", 0.0))), 0.0, 100.0)
                             end
 
                             safe_hl = isnothing(hl_val) ? 0.0 : FAST_SafeNum_DDEF(hl_val)
@@ -1251,9 +1241,9 @@ function DECK_RegisterCallbacks_DDEF(app)
                 if has_fill
                     new_rows = []
                     f_name = lowercase(strip(string(get(st_data, "FillerName", ""))))
-                    f_mw = Float64(get(st_data, "FillerMW", 0.0))
+                    f_mw = DECK_SafeNumZero_DDEF(get(st_data, "FillerMW", 0.0))
 
-                    for r in DECK_CaptureRows_DDEF()
+                    for r in DECK_CaptureRows_DDEF(store_data, all_names, all_l1s, all_l2s, all_l3s, all_mins, all_maxs, all_mws, all_units)
                         nr = Dict{String,Any}(string(k) => v for (k, v) in r)
                         if lowercase(strip(string(get(nr, "Name", "")))) == f_name
                             nr["MW"] = f_mw
@@ -1272,17 +1262,17 @@ function DECK_RegisterCallbacks_DDEF(app)
 
             del_ids = ["deck-del-$i" for i in 1:DECK_MaxRows_DDEC]
             if trig in del_ids
-                rows = DECK_CaptureRows_DDEF()
+                rows = DECK_CaptureRows_DDEF(store_data, all_names, all_l1s, all_l2s, all_l3s, all_mins, all_maxs, all_mws, all_units)
                 ri = findfirst(==(trig), del_ids)
                 if ri !== nothing && ri <= length(rows) && ri > 3
                     deleteat!(rows, ri)
                 end
                 nc = length(rows)
                 cur_vault = !isnothing(store_data) ? get(store_data, "vault", get(store_data, :vault, nothing)) : nothing
-                return DECK_AssembleReturn_DDEF(Dict("rows" => rows, "count" => nc, "vault" => cur_vault), rows, NO, NO, NO, NO, NO, NO, NO, NO, NO, NO, fill(NO, 6))
+                return assemble_return(Dict("rows" => rows, "count" => nc, "vault" => cur_vault), rows, NO, NO, NO, NO, NO, NO, NO, NO, NO, NO, fill(NO, 6))
 
             elseif trig == "deck-btn-add-row"
-                rows = DECK_CaptureRows_DDEF()
+                rows = DECK_CaptureRows_DDEF(store_data, all_names, all_l1s, all_l2s, all_l3s, all_mins, all_maxs, all_mws, all_units)
                 current_count = isnothing(store_data) ? length(rows) : get(store_data, "count", get(store_data, :count, length(rows)))
                 new_count = min(current_count + 1, DECK_MaxRows_DDEC)
                 if new_count > current_count
@@ -1293,7 +1283,7 @@ function DECK_RegisterCallbacks_DDEF(app)
                     new_count = current_count 
                 end
                 cur_vault = !isnothing(store_data) ? get(store_data, "vault", get(store_data, :vault, nothing)) : nothing
-                return DECK_AssembleReturn_DDEF(Dict("rows" => rows, "count" => new_count, "vault" => cur_vault), rows, NO, NO, NO, NO, NO, NO, NO, NO, NO, NO, fill(NO, 6))
+                return assemble_return(Dict("rows" => rows, "count" => new_count, "vault" => cur_vault), rows, NO, NO, NO, NO, NO, NO, NO, NO, NO, NO, fill(NO, 6))
 
             # Reset of the design canvas and state initialisation.
             elseif trig == "deck-btn-clear"
@@ -1301,7 +1291,7 @@ function DECK_RegisterCallbacks_DDEF(app)
                 lbl = html_div([html_i(className="fas fa-trash-alt me-2"), "Canvas Cleared"],
                                className="badge p-2 w-100", style=Dict("color" => "var(--colour-val0-purwhi)", "backgroundColor" => "var(--colour-chr0-huered)", "fontSize" =>"0.85rem"))
                 empty_stoch = Dict("FillerName" => "", "FillerMW" => 0.0, "Volume" => 0.0, "Conc" => 0.0)
-                return DECK_AssembleReturn_DDEF(Dict("rows" => rows, "count" => 6), rows, [Dict("label" => "Phase 1", "value" => "Phase1")], 0.0, 0.0, "", "BoxBehnken", lbl, NO, "No data source", "Phase1", empty_stoch, vcat(["", "", ""], ["-", "-", "-"]), (-1, -1, -1))
+                return assemble_return(Dict("rows" => rows, "count" => 6), rows, [Dict("label" => "Phase 1", "value" => "Phase1")], 0.0, 0.0, "", "BB15", lbl, NO, "No data source", "Phase1", empty_stoch, vcat(["", "", ""], ["-", "-", "-"]), (-1, -1, -1))
 
             # Import of high-fidelity user profiles via JSON deserialisation.
             elseif trig == "deck-upload-memo" && !isnothing(up_memo) && up_memo != ""
@@ -1335,14 +1325,14 @@ function DECK_RegisterCallbacks_DDEF(app)
                     m_val = string(get(g, "Method", ""))
                     if !isempty(m_val) method_v = m_val end
 
-                    loaded_stoch = Dict("FillerName" => string(get(g, "FillerName", "")), "FillerMW" => Float64(get(g, "FillerMW", 0.0)), "Volume" => Float64(vol_v), "Conc" => Float64(conc_v))
+                    loaded_stoch = Dict("FillerName" => string(get(g, "FillerName", "")), "FillerMW" => DECK_SafeNumZero_DDEF(get(g, "FillerMW", 0.0)), "Volume" => DECK_SafeNumZero_DDEF(vol_v), "Conc" => DECK_SafeNumZero_DDEF(conc_v))
                     memo_outs = get(memo, "Outputs", [])
                     out_vals = vcat([i <= length(memo_outs) ? get(memo_outs[i], "Name", "") : "" for i in 1:3], [i <= length(memo_outs) ? get(memo_outs[i], "Unit", "-") : "-" for i in 1:3])
                     dir_vals = FAST_ExtractDirections_DDEF(g, loaded_rows)
-                    return DECK_AssembleReturn_DDEF(Dict("rows" => loaded_rows[1:DECK_MaxRows_DDEC], "count" => nc), loaded_rows[1:DECK_MaxRows_DDEC], NO, vol_v, conc_v, proj_v, method_v, lbl, NO, NO, NO, loaded_stoch, out_vals, dir_vals)
+                    return assemble_return(Dict("rows" => loaded_rows[1:DECK_MaxRows_DDEC], "count" => nc), loaded_rows[1:DECK_MaxRows_DDEC], NO, vol_v, conc_v, proj_v, method_v, lbl, NO, NO, NO, loaded_stoch, out_vals, dir_vals)
                 catch e
                     err_lbl = html_div("❌ Load Error: $e", className="badge w-100 p-2", style=Dict("color" => "var(--colour-val0-purwhi)", "backgroundColor" => "var(--colour-chr0-huered)"))
-                    return DECK_AssembleReturn_DDEF(NO, NO, NO, NO, NO, NO, NO, err_lbl, NO, NO, NO, NO, fill(NO, 6))
+                    return assemble_return(NO, NO, NO, NO, NO, NO, NO, err_lbl, NO, NO, NO, NO, fill(NO, 6))
                 end
 
             # Component template restoration from standardised DDE vault records.
@@ -1353,7 +1343,7 @@ function DECK_RegisterCallbacks_DDEF(app)
                 if isempty(memo)
                     lbl = html_div([html_i(className="fas fa-exclamation-circle me-2"), "Error: assets/Sample.json not found"],
                                    className="badge p-2 w-100", style=Dict("color" => "var(--colour-val0-purwhi)", "backgroundColor" => "var(--colour-chr0-huered)", "fontSize" =>"0.85rem"))
-                    return DECK_AssembleReturn_DDEF(NO, NO, NO, NO, NO, NO, NO, lbl, NO, NO, NO, NO, fill(NO, 6))
+                    return assemble_return(NO, NO, NO, NO, NO, NO, NO, lbl, NO, NO, NO, NO, fill(NO, 6))
                 end
 
                 loaded_rows = DECK_MapImportRow_DDEF(FAST_SafeGet_DDEF(memo, "Inputs", []))
@@ -1379,13 +1369,13 @@ function DECK_RegisterCallbacks_DDEF(app)
                 proj_v = string(get(g, "ProjectName", "DoECISORY"))
                 method_v = string(get(g, "Method", "BB15"))
 
-                loaded_stoch = Dict("FillerName" => string(get(g, "FillerName", "")), "FillerMW" => Float64(get(g, "FillerMW", 0.0)), "Volume" => Float64(vol_v), "Conc" => Float64(conc_v))
+                loaded_stoch = Dict("FillerName" => string(get(g, "FillerName", "")), "FillerMW" => DECK_SafeNumZero_DDEF(get(g, "FillerMW", 0.0)), "Volume" => DECK_SafeNumZero_DDEF(vol_v), "Conc" => DECK_SafeNumZero_DDEF(conc_v))
                 
                 memo_outs = get(memo, "Outputs", [])
                 out_vals = vcat([i <= length(memo_outs) ? get(memo_outs[i], "Name", "") : "" for i in 1:3], [i <= length(memo_outs) ? get(memo_outs[i], "Unit", "-") : "-" for i in 1:3])
                 dir_vals = FAST_ExtractDirections_DDEF(g, loaded_rows)
                 
-                return DECK_AssembleReturn_DDEF(Dict("rows" => loaded_rows[1:DECK_MaxRows_DDEC], "count" => nc), loaded_rows[1:DECK_MaxRows_DDEC], [Dict("label" => "Phase 1", "value" => "Phase1")], vol_v, conc_v, proj_v, method_v, lbl, NO, "Ready", "Phase1", loaded_stoch, out_vals, dir_vals)
+                return assemble_return(Dict("rows" => loaded_rows[1:DECK_MaxRows_DDEC], "count" => nc), loaded_rows[1:DECK_MaxRows_DDEC], [Dict("label" => "Phase 1", "value" => "Phase1")], vol_v, conc_v, proj_v, method_v, lbl, NO, "Ready", "Phase1", loaded_stoch, out_vals, dir_vals)
             elseif trig == "deck-btn-save-memo"
                 try
                     stoch_store = args[idx_gl+6]
@@ -1397,7 +1387,7 @@ function DECK_RegisterCallbacks_DDEF(app)
                     end
 
                     g_dict["Direction"] = (method_v == "DF14" ? dir_vec_v : nothing)
-                    snap_rows = DECK_CaptureRows_DDEF()
+                    snap_rows = DECK_CaptureRows_DDEF(store_data, all_names, all_l1s, all_l2s, all_l3s, all_mins, all_maxs, all_mws, all_units)
                     var_rows = [snap_rows[i] for i in 1:min(3, length(snap_rows))]
                     dir_map = (method_v == "DF14" && length(var_rows) >= 3 && length(dir_vec_v) >= 3) ?
                         Dict{String,Any}(string(get(var_rows[i], "Name", "")) => dir_vec_v[i] for i in 1:3) : nothing
@@ -1417,7 +1407,7 @@ function DECK_RegisterCallbacks_DDEF(app)
                         end
                     end
 
-                    json_str = JSON3.write(Dict("Inputs" => DECK_CaptureRows_DDEF(), "Outputs" => out_d, "Global" => g_dict))
+                    json_str = JSON3.write(Dict("Inputs" => DECK_CaptureRows_DDEF(store_data, all_names, all_l1s, all_l2s, all_l3s, all_mins, all_maxs, all_mws, all_units), "Outputs" => out_d, "Global" => g_dict))
                     b64 = base64encode(json_str)
 
                     # Standardised Naming: Project, Phase, Tag (PROTOCOL), Extension (json)
@@ -1426,10 +1416,10 @@ function DECK_RegisterCallbacks_DDEF(app)
                     dl_dict = Dict("filename" => fname, "content" => b64, "base64" => true)
                     lbl = html_div([html_i(className="fas fa-check-circle me-2"), "Protocol Exported"],
                     className="badge p-2 w-100", style=Dict("color" => "var(--colour-val0-purwhi)", "backgroundColor" => "var(--colour-chr4-tongre)", "fontSize" =>"0.85rem","boxShadow" =>"0 2px 5px var(--colour-val3-darlow)"))
-                    return DECK_AssembleReturn_DDEF(NO, NO, NO, NO, NO, NO, NO, lbl, dl_dict, NO, NO, NO, fill(NO, 6))
+                    return assemble_return(NO, NO, NO, NO, NO, NO, NO, lbl, dl_dict, NO, NO, NO, fill(NO, 6))
                 catch e
                     err_lbl = html_div("❌ Save Error:" * string(e), className="badge w-100 p-2", style=Dict("color" => "var(--colour-val0-purwhi)", "backgroundColor" => "var(--colour-chr0-huered)", "fontSize" =>"0.6rem"))
-                    return DECK_AssembleReturn_DDEF(NO, NO, NO, NO, NO, NO, NO, err_lbl, NO, NO, NO, NO, fill(NO, 6))
+                    return assemble_return(NO, NO, NO, NO, NO, NO, NO, err_lbl, NO, NO, NO, NO, fill(NO, 6))
                 end
 
                 # Persistence of stoichiometric parameters to the transient design state.
@@ -1446,30 +1436,30 @@ function DECK_RegisterCallbacks_DDEF(app)
                     "Conc" => isnothing(s_conc_modal) ? 0.0 : DECK_SafeNumZero_DDEF(s_conc_modal),
                 )
 
-                current_rows = DECK_CaptureRows_DDEF()
+                current_rows = DECK_CaptureRows_DDEF(store_data, all_names, all_l1s, all_l2s, all_l3s, all_mins, all_maxs, all_mws, all_units)
                 
                 new_rs = []
                 for r in current_rows
                     nr = Dict{String,Any}(string(k) => v for (k, v) in r)
                     u_s = lowercase(strip(string(get(nr, "Unit", ""))))
                     if contains(u_s, "%")
-                        nr["L1"] = clamp(FAST_SafeNum_DDEF(get(nr, "L1", 0.0)), 0.0, 100.0)
-                        nr["L2"] = clamp(FAST_SafeNum_DDEF(get(nr, "L2", 0.0)), 0.0, 100.0)
-                        nr["L3"] = clamp(FAST_SafeNum_DDEF(get(nr, "L3", 0.0)), 0.0, 100.0)
-                        nr["Min"] = clamp(FAST_SafeNum_DDEF(get(nr, "Min", 0.0)), 0.0, 100.0)
-                        nr["Max"] = clamp(FAST_SafeNum_DDEF(get(nr, "Max", 0.0)), 0.0, 100.0)
+                        nr["L1"] = clamp(DECK_SafeNumZero_DDEF(get(nr, "L1", 0.0)), 0.0, 100.0)
+                        nr["L2"] = clamp(DECK_SafeNumZero_DDEF(get(nr, "L2", 0.0)), 0.0, 100.0)
+                        nr["L3"] = clamp(DECK_SafeNumZero_DDEF(get(nr, "L3", 0.0)), 0.0, 100.0)
+                        nr["Min"] = clamp(DECK_SafeNumZero_DDEF(get(nr, "Min", 0.0)), 0.0, 100.0)
+                        nr["Max"] = clamp(DECK_SafeNumZero_DDEF(get(nr, "Max", 0.0)), 0.0, 100.0)
                     end
                     push!(new_rs, nr)
                 end
                 
                 n_st = Dict{String,Any}("rows" => new_rs, "count" => isnothing(store_data) ? length(new_rs) : FAST_SafeGet_DDEF(store_data, "count", length(new_rs)))
-                return DECK_AssembleReturn_DDEF(n_st, NO, NO, new_stoch["Volume"], new_stoch["Conc"], NO, NO, NO, NO, NO, NO, new_stoch, fill(NO, 6))
+                return assemble_return(n_st, NO, NO, new_stoch["Volume"], new_stoch["Conc"], NO, NO, NO, NO, NO, NO, new_stoch, fill(NO, 6))
 
             elseif trig == "deck-upload" && !isnothing(up_cont)
                 try
                     if up_cont == ""
-                        rows = [DECK_GetDefaultRow_DDEF(i) for i in 1:5]
-                        return DECK_AssembleReturn_DDEF(Dict("rows" => rows, "count" => 5), rows, [Dict("label" => "Loading...", "value" => "NONE")], 0.0, 0.0, "DoECISORY", "BoxBehnken", NO, NO, "No data source", "NONE", NO, fill(NO, 6))
+                        rows = [DECK_GetDefaultRow_DDEF(i) for i in 1:6]
+                        return assemble_return(Dict("rows" => rows, "count" => 6), rows, [Dict("label" => "Loading...", "value" => "NONE")], 0.0, 0.0, "DoECISORY", "BB15", NO, NO, "No data source", "NONE", NO, fill(NO, 6))
                     end
                     
                     extracted_proj = FAST_ExtractProjectName_DDEF(fname)
@@ -1515,22 +1505,24 @@ function DECK_RegisterCallbacks_DDEF(app)
                         
                         loaded_stoch = Dict(
                             "FillerName" => string(get(g, "FillerName", "")),
-                            "FillerMW" => Float64(get(g, "FillerMW", 0.0)),
-                            "Volume" => Float64(get(g, "Volume", 0.0)),
-                            "Conc" => Float64(get(g, "Conc", 0.0))
+                            "FillerMW" => DECK_SafeNumZero_DDEF(get(g, "FillerMW", 0.0)),
+                            "Volume" => DECK_SafeNumZero_DDEF(get(g, "Volume", 0.0)),
+                            "Conc" => DECK_SafeNumZero_DDEF(get(g, "Conc", 0.0))
                         )
                         dir_vals = FAST_ExtractDirections_DDEF(g, filtered_ingreds)
-                        return DECK_AssembleReturn_DDEF(Dict("rows" => mapped[1:DECK_MaxRows_DDEC], "count" => nc), mapped[1:DECK_MaxRows_DDEC], ph_opts,
+                        return assemble_return(Dict("rows" => mapped[1:DECK_MaxRows_DDEC], "count" => nc), mapped[1:DECK_MaxRows_DDEC], ph_opts,
                             get(g, "Volume", 0.0), get(g, "Conc", 0.0), proj_v, method_val, NO, NO, stat_msg, "Phase1", loaded_stoch, out_vals, dir_vals)
                     else
                         tmp = FAST_GetTransientPath_DDEF(up_cont)
                         if !isfile(tmp)
-                             return DECK_AssembleReturn_DDEF(NO, NO, NO, NO, NO, proj_v, NO, html_div("❌ Data session stale. Please re-upload.", className="badge w-100 p-2", style=Dict("color" => "var(--colour-val0-purwhi)", "backgroundColor" => "var(--colour-chr0-huered)")), NO, NO, NO, NO, fill(NO, 6))
+                             return assemble_return(NO, NO, NO, NO, NO, proj_v, NO, html_div("❌ Data session stale. Please re-upload.", className="badge w-100 p-2", style=Dict("color" => "var(--colour-val0-purwhi)", "backgroundColor" => "var(--colour-chr0-huered)")), NO, NO, NO, NO, fill(NO, 6))
                         end
 
-                        cfg = FAST_ReadConfig_DDEF(tmp)
-                        df_data = FAST_ReadExcel_DDEF(tmp, FAST_Data_DDEC.SHEET_DATA)
-                        FAST_CleanTransient_DDEF(tmp)
+                        cfg, df_data = try
+                            FAST_ReadConfig_DDEF(tmp), FAST_ReadExcel_DDEF(tmp, C.SHEET_DATA)
+                        finally
+                            FAST_CleanTransient_DDEF(tmp)
+                        end
                         
                         if !isempty(cfg) && (haskey(cfg, "Ingredients") || haskey(cfg, :Ingredients))
                             g = FAST_SafeGet_DDEF(cfg, "Global", Dict())
@@ -1563,8 +1555,8 @@ function DECK_RegisterCallbacks_DDEF(app)
                             stat_msg = html_span("✅ Sync: Valid Workspace", className="small fw-bold", style=Dict("color" => "var(--colour-chr4-tongre)"))
                             
                             detected_phases = String[]
-                            if !isempty(df_data) && hasproperty(df_data, Symbol(FAST_Data_DDEC.COL_PHASE))
-                                raw_p = filter(!ismissing, unique(df_data[!, Symbol(FAST_Data_DDEC.COL_PHASE)]))
+                            if !isempty(df_data) && hasproperty(df_data, Symbol(C.COL_PHASE))
+                                raw_p = filter(!ismissing, unique(df_data[!, Symbol(C.COL_PHASE)]))
                                 detected_phases = String[string(p) for p in raw_p]
                             end
                             if isempty(detected_phases)
@@ -1584,24 +1576,24 @@ function DECK_RegisterCallbacks_DDEF(app)
 
                             loaded_stoch = Dict(
                                 "FillerName" => string(get(g, "FillerName", "")),
-                                "FillerMW" => Float64(get(g, "FillerMW", 0.0)),
-                                "Volume" => Float64(get(g, "Volume", 0.0)),
-                                "Conc" => Float64(get(g, "Conc", 0.0))
+                                "FillerMW" => DECK_SafeNumZero_DDEF(get(g, "FillerMW", 0.0)),
+                                "Volume" => DECK_SafeNumZero_DDEF(get(g, "Volume", 0.0)),
+                                "Conc" => DECK_SafeNumZero_DDEF(get(g, "Conc", 0.0))
                             )
 
                             dir_vals = FAST_ExtractDirections_DDEF(g, filtered_ingreds, active_ph)
-                            return DECK_AssembleReturn_DDEF(Dict("rows" => mapped[1:DECK_MaxRows_DDEC], "count" => nc, "vault" => up_cont), mapped[1:DECK_MaxRows_DDEC], ph_opts,
+                            return assemble_return(Dict("rows" => mapped[1:DECK_MaxRows_DDEC], "count" => nc, "vault" => up_cont), mapped[1:DECK_MaxRows_DDEC], ph_opts,
                                 get(g, "Volume", 0.0), get(g, "Conc", 0.0), proj_v, method_val, NO, NO, stat_msg, active_ph, loaded_stoch, out_vals, dir_vals)
                         end
                     end
                 catch e
                     @error "Import failed" exception = (e, catch_backtrace())
-                    return DECK_AssembleReturn_DDEF(NO, NO, NO, NO, NO, NO, NO, html_div("❌ Import Failed: $e", className="badge w-100 p-2", style=Dict("color" => "var(--colour-val0-purwhi)", "backgroundColor" => "var(--colour-chr0-huered)")), NO, NO, NO, NO, fill(NO, 6))
+                    return assemble_return(NO, NO, NO, NO, NO, NO, NO, html_div("❌ Import Failed: $e", className="badge w-100 p-2", style=Dict("color" => "var(--colour-val0-purwhi)", "backgroundColor" => "var(--colour-chr0-huered)")), NO, NO, NO, NO, fill(NO, 6))
                 end
             end
 
             if trig == "deck-upload" && (isnothing(up_cont) || up_cont == "")
-                return DECK_AssembleReturn_DDEF(NO, NO, [Dict("label" => "Loading...", "value" => "NONE")], NO, NO, NO, NO, NO, NO, "No data source", "NONE", NO, fill(NO, 6))
+                return assemble_return(NO, NO, [Dict("label" => "Loading...", "value" => "NONE")], NO, NO, NO, NO, NO, NO, "No data source", "NONE", NO, fill(NO, 6))
             end
 
             return (ntuple(_ -> Dash.no_update(), 21)...,)
@@ -1743,7 +1735,7 @@ function DECK_RegisterCallbacks_DDEF(app)
 
             icon = res_status ? "fa-check-circle" : "fa-exclamation-triangle"
             label = res_status ? "Audit Passed" : "Audit Failed"
-            cls = res_status ? "" : ""
+            cls = res_status ? "colourtx-c4tg" : "colourtx-c0hr"
 
             header = html_div([
                     html_i(className="fas $icon me-2"),
@@ -1813,9 +1805,9 @@ function DECK_RegisterCallbacks_DDEF(app)
             dir_x2 = something(args[end-2], -1)
             dir_x1 = something(args[end-3], -1)
             stoch_settings = args[end-4]
-            dx1 = dir_x1 isa Number ? Int(dir_x1) : parse(Int, string(dir_x1))
-            dx2 = dir_x2 isa Number ? Int(dir_x2) : parse(Int, string(dir_x2))
-            dx3 = dir_x3 isa Number ? Int(dir_x3) : parse(Int, string(dir_x3))
+            dx1 = dir_x1 isa Number ? Int(dir_x1) : something(tryparse(Int, string(dir_x1)), -1)
+            dx2 = dir_x2 isa Number ? Int(dir_x2) : something(tryparse(Int, string(dir_x2)), -1)
+            dx3 = dir_x3 isa Number ? Int(dir_x3) : something(tryparse(Int, string(dir_x3)), -1)
             direction_vec = [dx1, dx2, dx3]
             (n === nothing || n == 0) && return Dash.no_update(), "", Dash.no_update()
  
@@ -1865,15 +1857,13 @@ function DECK_RegisterCallbacks_DDEF(app)
                 is_rad = false
                 hl_val = 0.0
                 hl_unit = "Hours"
-                is_fill = false
                 if !isnothing(store_data) && (haskey(store_data, "rows") || haskey(store_data, :rows))
                     r_list = get(store_data, "rows", get(store_data, :rows, []))
                     if i <= length(r_list)
                         prow = r_list[i]
                         is_rad = get(prow, "IsRadioactive", get(prow, :IsRadioactive, false))
-                        hl_val = Float64(get(prow, "HalfLife", get(prow, :HalfLife, 0.0)))
+                        hl_val = DECK_SafeNumZero_DDEF(get(prow, "HalfLife", get(prow, :HalfLife, 0.0)))
                         hl_unit = string(get(prow, "HalfLifeUnit", get(prow, :HalfLifeUnit, "Hours")))
-                        is_fill = false
                     end
                 end
 
@@ -1904,32 +1894,35 @@ function DECK_RegisterCallbacks_DDEF(app)
 
             path = !isnothing(vault_source) ? FAST_GetTransientPath_DDEF(vault_source) : FAST_GetTransientPath_DDEF()
             target_phase_str = isnothing(sel_phase) ? nothing : string(sel_phase)
-            ok, msg = DECK_GenProtocol_DDEF(path, in_d, out_d, vol, conc, method, stoch_settings, project; direction=direction_vec, target_phase=target_phase_str)
+            return try
+                ok, msg = DECK_GenProtocol_DDEF(path, in_d, out_d, vol, conc, method, stoch_settings, project; direction=direction_vec, target_phase=target_phase_str)
                 !ok && return Dash.no_update(), html_div(msg, className="", style=Dict("color" => "var(--colour-chr0-huered)")), Dash.no_update()
 
-            store_content = FAST_ReadToStore_DDEF(path)
-            raw_base64 = base64encode(read(path))
+                store_content = FAST_ReadToStore_DDEF(path)
+                raw_base64 = base64encode(read(path))
 
-            current_phase = if !isnothing(target_phase_str) && !isempty(strip(target_phase_str))
-                strip(target_phase_str)
-            elseif !isnothing(session_data) && session_data != ""
-                try
-                    get(JSON3.read(session_data), "TargetPhase", "Phase1")
-                catch
+                current_phase = if !isnothing(target_phase_str) && !isempty(strip(target_phase_str))
+                    strip(target_phase_str)
+                elseif !isnothing(session_data) && session_data != ""
+                    try
+                        get(JSON3.read(session_data), "TargetPhase", "Phase1")
+                    catch
+                        "Phase1"
+                    end
+                else
                     "Phase1"
                 end
-            else
-                "Phase1"
-            end
-            fname = FAST_GenSmartName_DDEF(project, current_phase, "DESIGN", "xlsx")
-            rm(path; force=true)
+                fname = FAST_GenSmartName_DDEF(project, current_phase, "DESIGN", "xlsx")
 
-            return (
-                Dict("filename" => fname, "content" => raw_base64, "base64" => true),
-                html_span([html_i(className="fas fa-check-circle me-1"),
-                "Design generated."], className="", style=Dict("color" => "var(--colour-chr4-tongre)")),
-                store_content,
-            )
+                (
+                    Dict("filename" => fname, "content" => raw_base64, "base64" => true),
+                    html_span([html_i(className="fas fa-check-circle me-1"),
+                    "Design generated."], className="", style=Dict("color" => "var(--colour-chr4-tongre)")),
+                    store_content,
+                )
+            finally
+                FAST_CleanTransient_DDEF(path)
+            end
         catch e
             bt = sprint(showerror, e, catch_backtrace())
             FAST_Log_DDEF("DECK", "PROTOCOL_CRASH", bt, "FAIL")
@@ -1957,7 +1950,7 @@ function DECK_RegisterCallbacks_DDEF(app)
     ) do args...
 
         ctx = callback_context()
-        isempty(ctx.triggered) && return (ntuple(_ -> Dash.no_update(), 9)...,)
+        isempty(ctx.triggered) && return (ntuple(_ -> Dash.no_update(), 7)...,)
         trig = split(ctx.triggered[1].prop_id, ".")[1]
 
         if trig == "btn-prop-cancel"
@@ -1965,7 +1958,7 @@ function DECK_RegisterCallbacks_DDEF(app)
         end
 
         if trig == "btn-prop-save"
-            return false, Dash.no_update(), Dash.no_update(), Dash.no_update(), Dash.no_update(), (randn()), Dash.no_update()
+            return false, Dash.no_update(), Dash.no_update(), Dash.no_update(), Dash.no_update(), time(), Dash.no_update()
         end
 
         m = match(r"(btn-prop|deck-dot1|deck-dot2)-(\d+)", trig)
@@ -1976,17 +1969,14 @@ function DECK_RegisterCallbacks_DDEF(app)
             title = "Input Component #$idx Properties"
             mw_state = 0.0
             hl_state, hlu_state = 0.0, "Hours"
-            rad_state, fill_state = false, false
 
             if !isnothing(store_data) && (haskey(store_data, "rows") || haskey(store_data, :rows))
                 r_list = get(store_data, "rows", get(store_data, :rows, []))
                 if idx <= length(r_list)
                     prow = r_list[idx]
                     mw_state = FAST_SafeNum_DDEF(get(prow, "MW", get(prow, :MW, 0.0)))
-                    rad_state = get(prow, "IsRadioactive", get(prow, :IsRadioactive, false))
                     hl_state = FAST_SafeNum_DDEF(get(prow, "HalfLife", get(prow, :HalfLife, 0.0)))
                     hlu_state = string(get(prow, "HalfLifeUnit", get(prow, :HalfLifeUnit, "Hours")))
-                    fill_state = false
                     cur_name = get(prow, "Name", get(prow, :Name, ""))
                     if cur_name != ""
                         title = "Properties: $cur_name"
@@ -1997,7 +1987,7 @@ function DECK_RegisterCallbacks_DDEF(app)
             return true, title, Dict("type" => "in", "index" => idx), hl_state, hlu_state, Dash.no_update(), mw_state
         end
 
-        return (ntuple(_ -> Dash.no_update(), 9)...,)
+        return (ntuple(_ -> Dash.no_update(), 7)...,)
     end
 
     callback!(app,
@@ -2023,7 +2013,7 @@ function DECK_RegisterCallbacks_DDEF(app)
     ) do n_open, n_cancel, n_save, n_template, n_clear, up_memo, up_cont, is_open, store_data, f_name, f_mw, s_vol, s_conc
         NO = Dash.no_update()
         ctx = callback_context()
-        isempty(ctx.triggered) && return (ntuple(_ -> NO, 6)...,)
+        isempty(ctx.triggered) && return (ntuple(_ -> NO, 5)...,)
         trig = split(ctx.triggered[1].prop_id, ".")[1]
 
         if trig == "deck-btn-stoch-settings"
@@ -2094,9 +2084,9 @@ function DECK_RegisterCallbacks_DDEF(app)
             dir_x1 = something(args[end-2], -1)
             dir_x2 = something(args[end-1], -1)
             dir_x3 = something(args[end],   -1)
-            dx1 = dir_x1 isa Number ? Int(dir_x1) : parse(Int, string(dir_x1))
-            dx2 = dir_x2 isa Number ? Int(dir_x2) : parse(Int, string(dir_x2))
-            dx3 = dir_x3 isa Number ? Int(dir_x3) : parse(Int, string(dir_x3))
+            dx1 = dir_x1 isa Number ? Int(dir_x1) : something(tryparse(Int, string(dir_x1)), -1)
+            dx2 = dir_x2 isa Number ? Int(dir_x2) : something(tryparse(Int, string(dir_x2)), -1)
+            dx3 = dir_x3 isa Number ? Int(dir_x3) : something(tryparse(Int, string(dir_x3)), -1)
             direction_vec = [dx1, dx2, dx3]
             ctx = callback_context()
             trig = isempty(ctx.triggered) ? "" : split(ctx.triggered[1].prop_id, ".")[1]
@@ -2236,16 +2226,17 @@ function DECK_RegisterCallbacks_DDEF(app)
                 html_div([
                     html_div("Experimental Design Vitals", className="small fw-bold mb-1", style=Dict("color" => "var(--colour-val3-darlow)")),
                     dbc_row([
-                            let d_thresh = (occursin("BBD", uppercase(method)) || occursin("CCD", uppercase(method)) || occursin("BOX", uppercase(method))) ? 0.35 : 0.60
-                                dbc_col(BASE_BuildVitalCard_DDEF("D-Efficiency", @sprintf("%.1f%%", d_eff * 100), d_eff >= d_thresh ? "var(--colour-chr4-tongre)" : "var(--colour-chr5-hueyel)"), xs=6, md=3)
+                            let d_thresh = CORE_GetMethodType_DDEF(method) isa CORE_MethodTL09_DDES ? C.EVAL_DEFF_LIN_MIN : C.EVAL_DEFF_QUAD_MIN
+                                dbc_col(BASE_BuildVitalCard_DDEF("D-Efficiency", @sprintf("%.1f%%", d_eff * 100), d_eff >= d_thresh ? "colourtx-c4tg" : "colourtx-c5hy"), xs=6, md=3)
                             end,
-                            dbc_col(BASE_BuildVitalCard_DDEF("A-Efficiency", @sprintf("%.2f", metrics["A"]), "var(--colour-chr3-toncya)"), xs=6, md=3),
-                            dbc_col(BASE_BuildVitalCard_DDEF("G-Efficiency", @sprintf("%.2f", metrics["G"]), "var(--colour-chr3-toncya)"), xs=6, md=3),
-                            dbc_col(BASE_BuildVitalCard_DDEF("I-Efficiency", @sprintf("%.2f", metrics["I"]), "var(--colour-chr3-toncya)"), xs=6, md=3),
+                            dbc_col(BASE_BuildVitalCard_DDEF("A-Efficiency", @sprintf("%.2f", metrics["A"]), "colourtx-c3tc"), xs=6, md=3),
+                            dbc_col(BASE_BuildVitalCard_DDEF("G-Efficiency", @sprintf("%.2f", metrics["G"]), "colourtx-c3tc"), xs=6, md=3),
+                            dbc_col(BASE_BuildVitalCard_DDEF("I-Efficiency", @sprintf("%.2f", metrics["I"]), "colourtx-c3tc"), xs=6, md=3),
                         ], className="mb-2 g-2"),
                     dbc_row([
                             let (c_val, _, c_col) = FAST_FormatConditionNumber_DDEF(metrics["Condition"])
-                                dbc_col(BASE_BuildVitalCard_DDEF("Matrix Condition Number (κ)", c_val, c_col), xs=12)
+                                c_cls = occursin("chr4", c_col) ? "colourtx-c4tg" : occursin("chr5", c_col) ? "colourtx-c5hy" : occursin("chr0", c_col) ? "colourtx-c0hr" : "colourtx-c3tc"
+                                dbc_col(BASE_BuildVitalCard_DDEF("Matrix Condition Number (κ)", c_val, c_cls), xs=12)
                             end
                         ], className="mb-3 g-2")
                 ]),

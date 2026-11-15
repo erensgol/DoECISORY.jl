@@ -34,6 +34,8 @@ export CORE_GenDesign_DDEF, CORE_BuildMatrix_DDEF, CORE_MapLevels_DDEF,
 # SECTION 1: DESIGN METHOD & MODEL DISPATCHERS
 # ------------------------------------------------------------------------------
 
+const C = FAST_Data_DDEC
+
 abstract type CORE_AbstractDesignMethod_DDET end
 struct CORE_MethodBB15_DDES <: CORE_AbstractDesignMethod_DDET end
 struct CORE_MethodTL09_DDES <: CORE_AbstractDesignMethod_DDET end
@@ -177,7 +179,7 @@ end
 CORE_GetModelType_DDEF(m::CORE_AbstractModelType_DDET) = m
 
 """
-    CORE_BuildMatrix_DDEF(Method, fc=3, dir=[-1, -1, -1]) -> Matrix{Float64}
+    CORE_BuildMatrix_DDEF(Method, fc=3, dir=[-1, -1, -1]) -> Matrix{Int8}
 Generate the normalised design matrix for the specified experimental method dispatch type or string identifier.
 Validates the factor count requirement and dispatches to the corresponding topology constructor.
 
@@ -187,7 +189,7 @@ Validates the factor count requirement and dispatches to the corresponding topol
 - `dir`: Search direction vector for directional designs (e.g. DF14).
 
 # Returns
-- A `Matrix{Float64}` containing normalised coordinate points in the domain `[-1, 1]`.
+- A `Matrix{Int8}` containing normalised coordinate points in the domain `[-1, 1]`.
 """
 CORE_BuildMatrix_DDEF(::CORE_MethodTL09_DDES, fc::Integer, dir::AbstractVector=[-1, -1, -1]) = 
     fc == 3 ? copy(CORE_DesignTL09_DDEC) : throw(ArgumentError("Method TL09 requires exactly 3 factors (received $fc)."))
@@ -435,7 +437,7 @@ function CORE_OptimiseDesirability_DDEF(Models::AbstractVector, Goals::AbstractV
         closures[m] = CORE_GetPredictor_DDEF(mod_type, private_beta)
     end
 
-    function CORE_CalcObjective_DDEF(x)
+    calc_objective(x) = begin
         prod_u = 1.0
         prod_e = 1.0
         for (j, m) in enumerate(active_indices)
@@ -489,14 +491,14 @@ function CORE_OptimiseDesirability_DDEF(Models::AbstractVector, Goals::AbstractV
     end
 
     try
-        res = bboptimize(CORE_CalcObjective_DDEF; bbo_kwargs...)
+        res = bboptimize(calc_objective; bbo_kwargs...)
         best_x = best_candidate(res)
         best_score = -best_fitness(res)
         FAST_Log_DDEF("CORE", "BBO_SUCCESS", "Global Optimum Found -> Score: $(round(best_score, digits=4))", "OK")
         
-        refined_x, refined_score = CORE_RefineLocal_DDEF(CORE_CalcObjective_DDEF, best_candidate(res), search_range)
+        refined_x, refined_score = CORE_RefineLocal_DDEF(calc_objective, best_candidate(res), search_range)
         
-        if refined_score > best_score + 1e-6
+        if refined_score > best_score + CORE_OptMinImprove_DDEC
             FAST_Log_DDEF("CORE", "LOCAL_REFINE", "Optimum Polished: $(round(best_score; digits=4)) -> $(round(refined_score; digits=4))", "OK")
             return refined_x, refined_score
         end
@@ -507,23 +509,29 @@ function CORE_OptimiseDesirability_DDEF(Models::AbstractVector, Goals::AbstractV
     end
 end
 
-function CORE_RefineLocal_DDEF(obj_fn, start_x, range; iters=100)
+const CORE_RefineStepRatio_DDEC  = 0.05
+const CORE_RefineMinImprove_DDEC = 1e-7
+const CORE_RefineMinStep_DDEC    = 1e-6
+const CORE_OptMinImprove_DDEC    = 1e-6
+
+function CORE_RefineLocal_DDEF(obj_fn, start_x, bounds_range; iters=100)
     dim = length(start_x)
     current_x = copy(start_x)
+    test_x = similar(current_x)
     current_score = -obj_fn(current_x)
     
     # Adaptive step size starting at 5% of the total span
-    step_sizes = [(r[2] - r[1]) * 0.05 for r in range]
+    step_sizes = [(r[2] - r[1]) * CORE_RefineStepRatio_DDEC for r in bounds_range]
     
     for _ in 1:iters
         improved = false
         for d in 1:dim
-            for sign in [-1, 1]
-                test_x = copy(current_x)
-                test_x[d] = clamp(test_x[d] + sign * step_sizes[d], range[d][1], range[d][2])
+            for dir_sign in (-1, 1)
+                copyto!(test_x, current_x)
+                test_x[d] = clamp(test_x[d] + dir_sign * step_sizes[d], bounds_range[d][1], bounds_range[d][2])
                 
                 test_score = -obj_fn(test_x)
-                if test_score > current_score + 1e-7
+                if test_score > current_score + CORE_RefineMinImprove_DDEC
                     current_x[d] = test_x[d]
                     current_score = test_score
                     improved = true
@@ -531,7 +539,7 @@ function CORE_RefineLocal_DDEF(obj_fn, start_x, range; iters=100)
             end
         end
         !improved && (step_sizes .*= 0.5)
-        all(s < 1e-6 for s in step_sizes) && break
+        all(s < CORE_RefineMinStep_DDEC for s in step_sizes) && break
     end
     
     return current_x, current_score
@@ -566,7 +574,6 @@ Reads the specified phase candidate table, retrieves the global best or user-sel
 - `Dict{String, Any}`: Dictionary containing `"ID"`, `"Score"`, `"Vals"` (factor coordinates), and `"InputNames"`.
 """
 function CORE_ExtractLeader_DDEF(FilePath::AbstractString, PhaseCode::AbstractString, SelectedID::AbstractString="", VarNames::AbstractVector{<:AbstractString}=String[])
-    C     = FAST_Data_DDEC
     sheet = C.PREFIX_LEADERS * PhaseCode
 
     df = FAST_ReadExcel_DDEF(FilePath, sheet)
@@ -644,12 +651,12 @@ Checks for minimum sample size, zero-variance columns, excessive duplicate runs,
 - `Tuple{Bool, String}`: `(is_valid, report)` indicating rank sufficiency, column variance, and duplicate runs.
 """
 function CORE_ValidateDesign_DDEF(DesignMatrix::AbstractMatrix, Config::AbstractVector=[])
-    R, C   = size(DesignMatrix)
+    R, K   = size(DesignMatrix)
     issues = String[]
 
     R < 3 && push!(issues, "Design has fewer than 3 runs ($R). Regression will fail.")
 
-    @inbounds for j in 1:C
+    @inbounds for j in 1:K
         col = view(DesignMatrix, :, j)
         if all(==(col[1]), col)
             push!(issues, "Column $j has zero variance (all values = $(col[1])).")
@@ -668,7 +675,7 @@ function CORE_ValidateDesign_DDEF(DesignMatrix::AbstractMatrix, Config::Abstract
     end
     dup_count > R ÷ 2 && push!(issues, "Design has $dup_count duplicate rows out of $R total.")
 
-    if R >= C
+    if R >= K
         X_sc    = DesignMatrix ./ max.(maximum(abs, DesignMatrix; dims=1), 1e-9)
         det_val = det(X_sc' * X_sc)
         if det_val < 1e-8
@@ -678,7 +685,7 @@ function CORE_ValidateDesign_DDEF(DesignMatrix::AbstractMatrix, Config::Abstract
 
     is_valid = isempty(issues)
     if is_valid
-        FAST_Log_DDEF("CORE", "VALIDATE", "Design matrix OK ($R×$C, $(R-dup_count) unique).", "OK")
+        FAST_Log_DDEF("CORE", "VALIDATE", "Design matrix OK ($R×$K, $(R-dup_count) unique).", "OK")
     else
         FAST_Log_DDEF("CORE", "VALIDATE", "Design issues: $(join(issues, " | "))", "WARN")
     end
@@ -703,11 +710,11 @@ Enables scale-invariant model fitting and condition number evaluation across fac
 - `Matrix{Float64}`: Dimensionless coded matrix with coordinates scaled to `[-1.0, 1.0]`.
 """
 function CORE_CodeMatrix_DDEF(X::AbstractMatrix, Bounds::Union{AbstractMatrix, Nothing}=nothing)
-    R, C = size(X)
-    X_coded = Matrix{Float64}(undef, R, C)
+    R, K = size(X)
+    X_coded = Matrix{Float64}(undef, R, K)
     
-    for j in 1:C
-        col = X[:, j]
+    @inbounds for j in 1:K
+        col = @view X[:, j]
         c_min, c_max = minimum(col), maximum(col)
         
         if Bounds !== nothing
@@ -743,8 +750,8 @@ Generates intercept, linear terms, cross-product two-way interactions, and pure 
 - `Matrix{Float64}`: Expanded model matrix of size `N × 4` (linear) or `N × 10` (intercept, linear, interaction, quadratic).
 """
 function CORE_ExpandModelMatrix_DDEF(X::AbstractMatrix, ModelType::CORE_AbstractModelType_DDET=CORE_ModelQuadratic_DDES())::Matrix{Float64}
-    R, C = size(X)
-    C != 3 && throw(ArgumentError("DoECISORY model matrix expansion requires exactly 3 factor columns. Found: $C"))
+    R, K = size(X)
+    K != 3 && throw(ArgumentError("DoECISORY model matrix expansion requires exactly 3 factor columns. Found: $K"))
 
     if isa(ModelType, CORE_ModelLinear_DDES)
         X_exp = Matrix{Float64}(undef, R, 4)
@@ -885,9 +892,9 @@ Provides a comprehensive diagnostic assessment of parameter variance, prediction
 - `Dict{String, Float64}`: Dictionary containing `"D"`, `"A"`, `"G"`, `"I"` efficiency scores and matrix `"Condition"`.
 """
 function CORE_CalcDesignMetrics_DDEF(X::AbstractMatrix, ModelType::CORE_AbstractModelType_DDET=CORE_ModelQuadratic_DDES())
-    R, C = size(X)
+    R, K = size(X)
     res  = Dict("D" => 0.0, "A" => 0.0, "G" => 0.0, "I" => 0.0, "Condition" => Inf)
-    C != 3 && return res
+    K != 3 && return res
 
     effective_model = (R < 10 && ModelType isa CORE_ModelQuadratic_DDES) ? CORE_ModelLinear_DDES() : ModelType
     X_sc = CORE_CodeMatrix_DDEF(X)

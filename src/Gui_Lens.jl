@@ -38,6 +38,8 @@ export LENS_BuildLayout_DDEF, LENS_RegisterCallbacks_DDEF, LENS_GetGraphMeta_DDE
 # SECTION 1: SYSTEM CONSTANTS
 # ------------------------------------------------------------------------------
 
+const C = FAST_Data_DDEC
+
 # Thread-safe in-memory payload bridges for deferred batch rendering.
 # Single-writer (background thread) / single-reader (callback) guarantees safety.
 const LENS_BatchPayload_DDEC     = Ref{Any}(nothing)
@@ -70,7 +72,6 @@ Includes robust key guards and fallback aliases for asynchronous safety.
 function LENS_BuildLeadersTable_DDEF(ldf::DataFrame, res::AbstractDict)
     (isempty(ldf) || size(ldf, 1) == 0) && return ""
     
-    C = FAST_Data_DDEC
     lcols = names(ldf)
     
     # Column Identification
@@ -238,7 +239,6 @@ Deduplicates transition configuration across wizard preview and evolution execut
 Integrates ASTM linear scaling (Alpha, Beta) with ACTA domain contraction.
 """
 function LENS_ApplySlotCustomisation_DDEF!(conf::AbstractVector, slots::AbstractVector, leader_vals::AbstractVector, Contraction::Real=1.0, old_conf::AbstractVector=conf)
-    C = FAST_Data_DDEC
     vi = 0
     for c in conf
         get(c, "Role", "") != C.ROLE_VAR && continue
@@ -342,44 +342,47 @@ end
 Centralised, idiomatic dispatch system for metric classification styling.
 Eliminates repetitive branching within UI table construction.
 """
-LENS_EvalBadgeClass_DDEF(::Val{:d_eff}, v) = let f = LENS_SafeFloat_DDEF(v)
-    (isnothing(f) || f <= 0.0) ? "fw-bold colourtx-v5pb" : (f >= 0.35 ? "fw-bold colourtx-c4tg" : "fw-bold colourtx-c0hr")
+function LENS_EvalBadgeClass_DDEF(::Val{:d_eff}, v, is_quadratic::Bool=true)
+    f = LENS_SafeFloat_DDEF(v)
+    (isnothing(f) || f <= 0.0) && return "fw-bold colourtx-v5pb"
+    thresh = is_quadratic ? C.EVAL_DEFF_QUAD_MIN : C.EVAL_DEFF_LIN_MIN
+    return f >= thresh ? "fw-bold colourtx-c4tg" : "fw-bold colourtx-c0hr"
 end
 
 LENS_EvalBadgeClass_DDEF(::Val{:vif}, v) = let f = LENS_SafeFloat_DDEF(v)
-    isnothing(f) ? "fw-bold colourtx-v5pb" : (f <= 5.0 ? "fw-bold colourtx-c4tg" : (f <= 10.0 ? "fw-bold colourtx-c5hy" : "fw-bold colourtx-c0hr"))
+    isnothing(f) ? "fw-bold colourtx-v5pb" : (f <= C.EVAL_VIF_LOW ? "fw-bold colourtx-c4tg" : (f <= C.EVAL_VIF_CRIT ? "fw-bold colourtx-c5hy" : "fw-bold colourtx-c0hr"))
 end
 
 LENS_EvalBadgeClass_DDEF(::Val{:lof}, v) = let f = LENS_SafeFloat_DDEF(v)
-    isnothing(f) ? "fw-bold colourtx-v5pb" : (f >= 0.05 ? "fw-bold colourtx-c4tg" : "fw-bold colourtx-c0hr")
+    isnothing(f) ? "fw-bold colourtx-v5pb" : (f >= C.EVAL_ALPHA_SIG ? "fw-bold colourtx-c4tg" : "fw-bold colourtx-c0hr")
 end
 
 LENS_EvalBadgeClass_DDEF(::Val{:q2}, v) = let f = LENS_SafeFloat_DDEF(v)
-    isnothing(f) ? "" : (f < 0.0 ? "fw-bold colourtx-c0hr" : (f >= 0.50 ? "fw-bold colourtx-c4tg" : ""))
+    isnothing(f) ? "" : (f < 0.0 ? "fw-bold colourtx-c0hr" : (f >= C.EVAL_Q2_MOD ? "fw-bold colourtx-c4tg" : ""))
 end
 
 LENS_EvalBadgeClass_DDEF(::Val{:pval}, v) = let f = LENS_SafeFloat_DDEF(v)
-    isnothing(f) ? "" : (f < 0.05 ? "fw-bold colourtx-c4tg" : "fw-bold colourtx-c0hr")
+    isnothing(f) ? "" : (f < C.EVAL_ALPHA_SIG ? "fw-bold colourtx-c4tg" : "fw-bold colourtx-c0hr")
 end
 
 LENS_EvalBadgeClass_DDEF(::Val{:coef_pval}, pv) = let f = LENS_SafeFloat_DDEF(pv)
-    (!isnothing(f) && f < 0.05) ? "fw-bold colourtx-c4tg" : ""
+    (!isnothing(f) && f < C.EVAL_ALPHA_SIG) ? "fw-bold colourtx-c4tg" : ""
 end
 
 LENS_EvalBadgeClass_DDEF(::Val{:coef_vif}, j, vf) = let f = LENS_SafeFloat_DDEF(vf)
-    (j > 1 && !isnothing(f) && f > 5.0) ? "fw-bold colourtx-c0hr" : ""
+    (j > 1 && !isnothing(f) && f > C.EVAL_VIF_LOW) ? "fw-bold colourtx-c0hr" : ""
 end
 
 LENS_EvalBadgeClass_DDEF(::Val{:sensitivity}, s) = let f = LENS_SafeFloat_DDEF(s)
-    (!isnothing(f) && f > 0.5) ? "fw-bold colourtx-v5pb" : "colourtx-v5pb"
+    (!isnothing(f) && f > C.EVAL_SENS_HIGH) ? "fw-bold colourtx-v5pb" : "colourtx-v5pb"
 end
 
 function LENS_EvalBadgeClass_DDEF(::Val{:anova}, src::AbstractString, p)
     f = LENS_SafeFloat_DDEF(p)
     isnothing(f) && return ""
-    src == "Model" && return f < 0.05 ? "fw-bold colourtx-c4tg" : "fw-bold colourtx-c0hr"
-    src == "Lack of Fit" && return f < 0.05 ? "fw-bold colourtx-c0hr" : "fw-bold colourtx-c4tg"
-    return f < 0.05 ? "fw-bold" : ""
+    src == "Model" && return f < C.EVAL_ALPHA_SIG ? "fw-bold colourtx-c4tg" : "fw-bold colourtx-c0hr"
+    src == "Lack of Fit" && return f < C.EVAL_ALPHA_SIG ? "fw-bold colourtx-c0hr" : "fw-bold colourtx-c4tg"
+    return f < C.EVAL_ALPHA_SIG ? "fw-bold" : ""
 end
 
 LENS_EvalBadgeClass_DDEF(sym::Symbol, args...) = LENS_EvalBadgeClass_DDEF(Val(sym), args...)
@@ -1196,7 +1199,6 @@ end
 Initialises the reactive architecture and callback registry for the LENS module.
 """
 function LENS_RegisterCallbacks_DDEF(app)
-    C = FAST_Data_DDEC
 
 # ------------------------------------------------------------------------------
 # SECTION 7: UPLOAD & SYNC PIPELINES
@@ -1267,7 +1269,6 @@ function LENS_RegisterCallbacks_DDEF(app)
                 return [], html_span([html_i(className="fas fa-times-circle me-2"), "This is not a valid Excel file! (Please upload .xlsx)"], className="small colourtx-c0hr"), "w-100 mb-2 fw-bold pulse-green", nothing, Dict("status" => 2, "dataid" => ""), "d-none", proj_v
             end
 
-            C = FAST_Data_DDEC
             df = FAST_ReadExcel_DDEF(path, C.SHEET_DATA)
             isempty(df) && (df = FAST_ReadExcel_DDEF(path, "DATA_RECORDS"))
 
@@ -1289,7 +1290,7 @@ function LENS_RegisterCallbacks_DDEF(app)
             default_phase = FAST_DetectActivePhase_DDEF(df, phase_list)
 
             config = FAST_ReadConfig_DDEF(path)
-            has_radio_headers = any(c -> occursin("TIME_FORW_", string(c)) || occursin("TIME_REVE_", string(c)) || occursin("TIME_DCYP_", string(c)), names(df))
+            has_radio_headers = any(c -> occursin(C.PRE_TIME_FORW, string(c)) || occursin(C.PRE_TIME_REVE, string(c)) || occursin(C.PRE_TIME_DCYP, string(c)), names(df))
             has_radio_config = false
             if haskey(config, "Ingredients")
                 has_radio_config = has_radio_config || any(get(f, "IsRadioactive", false) == true for f in config["Ingredients"])
@@ -1679,7 +1680,7 @@ function LENS_RegisterCallbacks_DDEF(app)
                     vals = Float64[Float64(v) for v in skipmissing(df[!, Symbol(c)]) if v isa Number && !isnan(v)]
                 end
                 mn, mx = isempty(vals) ? (0.0, 0.0) : extrema(vals)
-                goals_name[i]   = FAST_FormatDisplayHeader_DDEF(VISE_ResolveName_DDEF(c, C.PRE_RESULT, outputs_cfg, C))
+                goals_name[i]   = FAST_FormatDisplayHeader_DDEF(VISE_ResolveName_DDEF(c, C.PRE_RESULT, outputs_cfg))
                 goals_type[i]   = "Nominal"
                 goals_min[i]    = round(mn; digits=2)
                 goals_max[i]    = round(mx; digits=2)
@@ -1722,9 +1723,9 @@ function LENS_RegisterCallbacks_DDEF(app)
                     saved_g = saved_goals[g_idx]
                     goals_type[i]   = string(get(saved_g, "Type", "Nominal"))
                     goals_weight[i] = Printf.@sprintf("%.2f", FAST_SafeNum_DDEF(get(saved_g, "Weight", 1.0)))
-                    goals_target[i] = Float64(get(saved_g, "Target", goals_target[i]))
-                    goals_min[i]    = Float64(get(saved_g, "Min",    goals_min[i]))
-                    goals_max[i]    = Float64(get(saved_g, "Max",    goals_max[i]))
+                    goals_target[i] = let v = FAST_SafeNum_DDEF(get(saved_g, "Target", goals_target[i])); isnan(v) ? goals_target[i] : v end
+                    goals_min[i]    = let v = FAST_SafeNum_DDEF(get(saved_g, "Min",    goals_min[i])); isnan(v) ? goals_min[i] : v end
+                    goals_max[i]    = let v = FAST_SafeNum_DDEF(get(saved_g, "Max",    goals_max[i])); isnan(v) ? goals_max[i] : v end
                 end
             end
 
@@ -1882,11 +1883,11 @@ function LENS_RegisterCallbacks_DDEF(app)
                 push!(active_gnames, strip(string(gnames[i])))
                 push!(goals, Dict(
                     "Name"   => string(gnames[i]),
-                    "Min"    => isnothing(gmins[i])    ? 0.0 : Float64(gmins[i]),
-                    "Target" => isnothing(gtargets[i]) ? 0.0 : Float64(gtargets[i]),
-                    "Max"    => isnothing(gmaxes[i])   ? 0.0 : Float64(gmaxes[i]),
+                    "Min"    => isnothing(gmins[i])    ? 0.0 : (let v = FAST_SafeNum_DDEF(gmins[i]); isnan(v) ? 0.0 : v end),
+                    "Target" => isnothing(gtargets[i]) ? 0.0 : (let v = FAST_SafeNum_DDEF(gtargets[i]); isnan(v) ? 0.0 : v end),
+                    "Max"    => isnothing(gmaxes[i])   ? 0.0 : (let v = FAST_SafeNum_DDEF(gmaxes[i]); isnan(v) ? 0.0 : v end),
                     "Type"   => isnothing(gtypes[i])   ? "Nominal" : string(gtypes[i]),
-                    "Weight" => isnothing(gweights[i]) ? 1.0 : parse(Float64, string(gweights[i]))
+                    "Weight" => isnothing(gweights[i]) ? 1.0 : (let v = FAST_SafeNum_DDEF(gweights[i]); isnan(v) ? 1.0 : v end)
                 ))
             end
         end
@@ -1957,15 +1958,14 @@ function LENS_RegisterCallbacks_DDEF(app)
 
             Threads.@spawn begin
                 try
-                    C, Log = FAST_Data_DDEC, FAST_Log_DDEF
+                    Log = FAST_Log_DDEF
                     
                     config_b = FAST_ReadConfig_DDEF(path)
                     in_n = collect(String, res["InNames"])
                     out_n = collect(String, res["OutNames"])
                     
-                    x_nom = get(res, "X_Nominal", res["X_Clean"])
                     bp, bs, ldf, sc, warns = VISE_RunOptimisation_DDEF(
-                        res["X_Clean"], res["Models"], goals, config_b, phase_str, in_n, out_n, opts, C, Log; X_Nominal=x_nom
+                        res["X_Clean"], res["Models"], goals, config_b, phase_str, in_n, out_n, opts, Log
                     )
                     
                     # 1. Unify pre-BBO sheets and Leaders sheet into a single atomic write transaction
@@ -1998,9 +1998,8 @@ function LENS_RegisterCallbacks_DDEF(app)
                     # 4. Render deferred graphs (66 units)
                     def_opts = copy(opts)
                     def_opts["Mode"] = :Deferred
-                    x_nom_render = get(res, "X_Nominal", res["X_Clean"])
                     def_raw = ARTS_Render_DDEF(
-                        res["Models"], x_nom_render, res["Y_Clean"], get(res, "DisplayInNames", res["InNames"]), get(res, "DisplayOutNames", res["OutNames"]), 
+                        res["Models"], res["X_Clean"], res["Y_Clean"], get(res, "DisplayInNames", res["InNames"]), get(res, "DisplayOutNames", res["OutNames"]), 
                         goals, res["R2_Adj"], res["Q2"], def_opts, ldf, res["Sensitivities"], res["Residuals"]
                     )
                     pkg_graphs = [
@@ -2080,7 +2079,11 @@ function LENS_RegisterCallbacks_DDEF(app)
                                 html_span("D-Efficiency: ", className="colourtx-v4dh"),
                                 html_span(
                                     LENS_FormatMetric_DDEF(:d_eff, get(res["Vitals"], "D", NaN)),
-                                    className = LENS_EvalBadgeClass_DDEF(:d_eff, get(res["Vitals"], "D", NaN))
+                                    className = LENS_EvalBadgeClass_DDEF(
+                                        :d_eff,
+                                        get(res["Vitals"], "D", NaN),
+                                        lowercase(string(get(res["Vitals"], "VitalsModelType", ""))) == "quadratic"
+                                    )
                                 )
                             ], className="mx-2"),
                             html_span("•", className="colourtx-v2mw"),
@@ -2103,29 +2106,49 @@ function LENS_RegisterCallbacks_DDEF(app)
                         let c_raw   = get(res["Vitals"], "Condition", NaN),
                             (c_val, _, c_col) = FAST_FormatConditionNumber_DDEF(c_raw),
                             max_vif = get(res["Vitals"], "MaxVIF", NaN),
-                            lof_val = get(res["Vitals"], "LOF", NaN)
+                            lof_val = get(res["Vitals"], "LOF", NaN),
+                            fd_raw  = get(res["Vitals"], "ForwDrift", nothing)
                             html_div([
-                                html_span([
-                                    html_span("Max VIF: ", className="colourtx-v4dh"),
-                                    html_span(
-                                        LENS_FormatMetric_DDEF(:vif, max_vif),
-                                        className = LENS_EvalBadgeClass_DDEF(:vif, max_vif)
-                                    )
-                                ], className="mx-3"),
-                                html_span("•", className="colourtx-v2mw"),
-                                html_span([
-                                    html_span("Matrix Condition (κ): ", className="colourtx-v4dh"),
-                                    html_span(c_val, className="fw-bold", style=Dict("color" => c_col))
-                                ], className="mx-3"),
-                                html_span("•", className="colourtx-v2mw"),
-                                html_span([
-                                    html_span("Lack-of-Fit P: ", className="colourtx-v4dh"),
-                                    html_span(
-                                        LENS_FormatMetric_DDEF(:lof, lof_val),
-                                        className = LENS_EvalBadgeClass_DDEF(:lof, lof_val)
-                                    )
-                                ], className="mx-3"),
-                            ], className="d-flex justify-content-center align-items-center flex-wrap py-1 border-top", style=Dict("borderColor" => "var(--colour-val1-lighig)"))
+                                html_div([
+                                    html_span([
+                                        html_span("Max VIF: ", className="colourtx-v4dh"),
+                                        html_span(
+                                            LENS_FormatMetric_DDEF(:vif, max_vif),
+                                            className = LENS_EvalBadgeClass_DDEF(:vif, max_vif)
+                                        )
+                                    ], className="mx-3"),
+                                    html_span("•", className="colourtx-v2mw"),
+                                    html_span([
+                                        html_span("Matrix Condition (κ): ", className="colourtx-v4dh"),
+                                        html_span(c_val, className="fw-bold", style=Dict("color" => c_col))
+                                    ], className="mx-3"),
+                                    html_span("•", className="colourtx-v2mw"),
+                                    html_span([
+                                        html_span("Lack-of-Fit P: ", className="colourtx-v4dh"),
+                                        html_span(
+                                            LENS_FormatMetric_DDEF(:lof, lof_val),
+                                            className = LENS_EvalBadgeClass_DDEF(:lof, lof_val)
+                                        )
+                                    ], className="mx-3"),
+                                ], className="d-flex justify-content-center align-items-center flex-wrap py-1 border-top", style=Dict("borderColor" => "var(--colour-val1-lighig)")),
+                                ((ismissing(lof_val) || isnan(lof_val)) && !isnothing(fd_raw) && haskey(fd_raw, "Responses") && !isempty(fd_raw["Responses"]) ?
+                                    let items = [
+                                            begin
+                                                p_v   = get(r, "NominalRefLOF", NaN)
+                                                cv_v  = get(r, "NominalCentreCV", NaN)
+                                                res_v = get(r, "PostForwResidSD", NaN)
+                                                p_s   = (!ismissing(p_v) && !isnan(p_v)) ? (Float64(p_v) < 1e-4 ? "<0.0001" : @sprintf("%.4f", Float64(p_v))) : "N/A"
+                                                cv_s  = (!ismissing(cv_v) && !isnan(cv_v)) ? @sprintf("%.2f%%", Float64(cv_v)) : "N/A"
+                                                res_s = (!ismissing(res_v) && !isnan(res_v)) ? @sprintf("%.4f", Float64(res_v)) : "N/A"
+                                                "$(get(r, "Response", "Y")): Nominal Ref p=$(p_s) (non-formal), Centre CV=$(cv_s), Post-FORW Resid SD=$(res_s)"
+                                            end for r in fd_raw["Responses"]
+                                        ]
+                                        html_div([
+                                            html_span("FORW Drift (Formal LOF N/A): ", className="fw-bold colourtx-c0hr"),
+                                            html_span(join(items, "  |  "), className="colourtx-v4dh")
+                                        ], className="text-center x-small py-1 border-top", style=Dict("borderColor" => "var(--colour-val1-lighig)"))
+                                    end : html_div())
+                            ])
                         end
                     ], className="border rounded py-1 px-2 mb-3 colourbg-v0pw small"),
                     html_hr(style=Dict("height" => "1px", "border" => "none", "borderTop" => "1px solid var(--colour-val1-lighig)", "margin" => "15px 0"))
@@ -2356,7 +2379,7 @@ function LENS_RegisterCallbacks_DDEF(app)
     ) do vault, sync_flag, results, diag_force, _n_int
         trig = BASE_GetTrigger_DDEF(callback_context())
 
-        if trig == "lens-store-diag-force" && diag_force > 0
+        if trig == "lens-store-diag-force" && !isnothing(diag_force) && diag_force > 0
             FAST_Log_DDEF("LENS", "Guard", "Emergency Unlock triggered via Diagnostics.", "OK")
             if !isnothing(results) && haskey(results, "dataid")
                 return ntuple(_ -> false, 3)
@@ -2491,7 +2514,7 @@ function LENS_RegisterCallbacks_DDEF(app)
         State("lens-store-report",    "data"),
         prevent_initial_call=true
     ) do n, report
-        if n > 0 && !isnothing(report) && !isempty(report)
+        if !isnothing(n) && n > 0 && !isnothing(report) && !isempty(report)
             return true, LENS_RenderAcademicReport_DDEF(report)
         end
         return false, html_div()
@@ -2564,10 +2587,11 @@ function LENS_RegisterCallbacks_DDEF(app)
         isnothing(base64_file) && return [], []
 
         path = FAST_GetTransientPath_DDEF(base64_file)
-        C = FAST_Data_DDEC
-        config_full = FAST_ReadConfig_DDEF(path)
-        data = FLOW_GetCandidates_DDEF(path, src)
-        FAST_CleanTransient_DDEF(path)
+        config_full, data = try
+            FAST_ReadConfig_DDEF(path), FLOW_GetCandidates_DDEF(path, src)
+        finally
+            FAST_CleanTransient_DDEF(path)
+        end
 
         isempty(data) && return [], []
 
@@ -2667,7 +2691,6 @@ function LENS_RegisterCallbacks_DDEF(app)
 
         (isnothing(base64_file) || isnothing(sel_rows) || isempty(sel_rows)) && return Dict(), ret_z, Dash.no_update(), slot_names..., slot_leaders..., slot_modes..., nu, nu, nu
 
-        C = FAST_Data_DDEC
         path = FAST_GetTransientPath_DDEF(base64_file)
         try
             config_full = FAST_ReadConfig_DDEF(path)
@@ -2752,8 +2775,6 @@ function LENS_RegisterCallbacks_DDEF(app)
         vol         = Float64(FAST_SafeNum_DDEF(FAST_SafeGet_DDEF(header_info, "Volume", 0.0)))
         conc        = Float64(FAST_SafeNum_DDEF(FAST_SafeGet_DDEF(header_info, "Conc", 0.0)))
         contraction_f = FAST_SafeNum_DDEF(FAST_SafeGet_DDEF(res, "SelectedContraction", 0.5))
-
-        C = FAST_Data_DDEC
 
         display_conf = [Dict{String,Any}(string(k) => (v isa AbstractVector ? copy(v) : v) for (k,v) in pairs(c)) for c in new_conf]
 
@@ -2898,9 +2919,9 @@ function LENS_RegisterCallbacks_DDEF(app)
             html_tbody(rows)
         ], className="table table-sm table-hover align-middle small")
 
-        # Dummy hidden buttons for any unused indices up to 8, ensuring Dash never lacks Input targets
+        # Dummy hidden buttons for unused indices up to MAX_FIXED_ROWS, ensuring Dash never lacks Input targets.
         dummy_buttons = html_div([
-            dbc_button(id="lens-const-del-$k", style=Dict("display" => "none")) for k in (fix_idx+1):8
+            dbc_button(id="lens-const-del-$k", n_clicks=0, style=Dict("display" => "none")) for k in (fix_idx+1):C.MAX_FIXED_ROWS
         ], style=Dict("display" => "none"))
 
         tbl_component = html_div([tbl, dummy_buttons])
@@ -2966,21 +2987,23 @@ function LENS_RegisterCallbacks_DDEF(app)
     callback!(app,
         Output("lens-store-excluded-constants", "data"),
         Input("lens-store-next-phase-proposal", "data"),
-        [Input("lens-const-del-$i", "n_clicks") for i in 1:8]...,
+        [Input("lens-const-del-$i", "n_clicks") for i in 1:C.MAX_FIXED_ROWS]...,
         State("lens-store-excluded-constants", "data"),
         State("lens-store-next-phase-proposal", "data"),
         State("lens-store-slot-config", "data"),
         prevent_initial_call=true
-    ) do prop_data, c1, c2, c3, c4, c5, c6, c7, c8, cur_excluded, prop_state, slot_cfg
+    ) do prop_data, args...
         trig = BASE_GetTrigger_DDEF(callback_context())
+        max_fixed = C.MAX_FIXED_ROWS
+        clicks = args[1:max_fixed]
+        cur_excluded, prop_state, slot_cfg = args[max_fixed+1], args[max_fixed+2], args[max_fixed+3]
         prop = (!isnothing(prop_state) && (haskey(prop_state, "NewConfig") || haskey(prop_state, :NewConfig))) ? prop_state : 
                (!isnothing(prop_data) && (haskey(prop_data, "NewConfig") || haskey(prop_data, :NewConfig)) ? prop_data : Dict{String,Any}())
         if trig == "lens-store-next-phase-proposal" || isempty(prop)
             return String[]
         end
 
-        clicks = [c1, c2, c3, c4, c5, c6, c7, c8]
-        del_idx = findfirst(i -> trig == "lens-const-del-$i", 1:8)
+        del_idx = findfirst(i -> trig == "lens-const-del-$i", 1:max_fixed)
         if isnothing(del_idx)
             return Dash.no_update()
         end
@@ -3302,30 +3325,35 @@ function LENS_RegisterCallbacks_DDEF(app)
 
             # 4. Construct Bundled Portfolio Archive
             zip_path = joinpath(FAST_TempRoot_DDEC, fname)
-            let zdir = ZipFile.Writer(zip_path)
-                for file in readdir(export_dir)
-                    fpath = joinpath(export_dir, file)
-                    if isfile(fpath)
-                        f = ZipFile.addfile(zdir, file; method=ZipFile.Deflate)
-                        write(f, read(fpath))
-                    end
-                end
-                if isdir(dir_png)
-                    for pfile in readdir(dir_png)
-                        pfpath = joinpath(dir_png, pfile)
-                        if isfile(pfpath)
-                            f = ZipFile.addfile(zdir, "$folder_png/$pfile"; method=ZipFile.Deflate)
-                            write(f, read(pfpath))
+            bytes = try
+                zdir = ZipFile.Writer(zip_path)
+                try
+                    for file in readdir(export_dir)
+                        fpath = joinpath(export_dir, file)
+                        if isfile(fpath)
+                            f = ZipFile.addfile(zdir, file; method=ZipFile.Deflate)
+                            write(f, read(fpath))
                         end
                     end
+                    if isdir(dir_png)
+                        for pfile in readdir(dir_png)
+                            pfpath = joinpath(dir_png, pfile)
+                            if isfile(pfpath)
+                                f = ZipFile.addfile(zdir, "$folder_png/$pfile"; method=ZipFile.Deflate)
+                                write(f, read(pfpath))
+                            end
+                        end
+                    end
+                finally
+                    close(zdir)
                 end
-                close(zdir)
-            end
 
-            bytes = read(zip_path)
+                read(zip_path)
+            finally
+                rm(zip_path; force=true)
+            end
             svg_plate_count = count(p -> endswith(p, ".svg"), readdir(export_dir))
             rm(export_dir; recursive=true, force=true)
-            rm(zip_path; force=true)
 
             FAST_Log_DDEF("LENS", "Export", "Portfolio exported with $plot_count individual PNGs, $svg_plate_count composite SVG plates, report, and scientific workbook.", "OK")
             return (
@@ -3407,8 +3435,11 @@ function LENS_RegisterCallbacks_DDEF(app)
         )
 
         path   = FAST_GetTransientPath_DDEF(active_cont)
-        config = FAST_ReadConfig_DDEF(path)
-        FAST_CleanTransient_DDEF(path)
+        config = try
+            FAST_ReadConfig_DDEF(path)
+        finally
+            FAST_CleanTransient_DDEF(path)
+        end
 
         ingreds = get(config, "Ingredients", [])
         outputs = get(config, "Outputs", [])
@@ -3683,8 +3714,11 @@ function LENS_RegisterCallbacks_DDEF(app)
         (isnothing(active_cont) || active_cont == "") && return false, "w-100 fw-bold lens-radio-inactive", "fas fa-radiation-alt me-2"
 
         path   = FAST_GetTransientPath_DDEF(active_cont)
-        config = FAST_ReadConfig_DDEF(path)
-        FAST_CleanTransient_DDEF(path)
+        config = try
+            FAST_ReadConfig_DDEF(path)
+        finally
+            FAST_CleanTransient_DDEF(path)
+        end
         
         radio_opts = get(config, "RadioOpts", Dict("Apply" => false))
         apply_flag = get(radio_opts, "Apply", false)

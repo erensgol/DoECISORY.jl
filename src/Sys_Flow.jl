@@ -353,6 +353,49 @@ function FLOW_BuildIPKT_DDEF(MasterFile::Union{AbstractString,AbstractDict,Nothi
             Outputs    = [FLOW_FormatStringDict_DDEF(o) for o in get(RawConf, "Outputs", [])]
             GlobalInfo = FLOW_FormatStringDict_DDEF(get(RawConf, "Global", nothing))
 
+            # Align FORW-corrected variable bounds to observed ACTUAL bounds before ASTM -> ACTA preserves 3 clean levels in Phase N+1.
+            r_opts = FLOW_FormatStringDict_DDEF(get(RawConf, "RadioOpts", nothing))
+            f_opts = FLOW_FormatStringDict_DDEF(get(r_opts, "FORW", nothing))
+            forw_on = (get(r_opts, "Apply", false) in (true, 1, "ON", "true", "TRUE")) &&
+                      (get(f_opts, "Enabled", false) in (true, 1, "ON", "true", "TRUE"))
+            if forw_on
+                df_data = FAST_ReadExcel_DDEF(target_file, C.SHEET_DATA)
+                if !isempty(df_data)
+                    col_phase = FAST_GetColumn_DDEF(df_data, C.COL_PHASE)
+                    phase_mask = isempty(col_phase) ? trues(nrow(df_data)) :
+                        [(!ismissing(v) && strip(string(v)) == strip(string(CurrentPhase))) for v in df_data[!, Symbol(col_phase)]]
+                    df_phase = view(df_data, phase_mask, :)
+                    if nrow(df_phase) > 0
+                        p_names = string.(names(df_data))
+                        for conf in OldConfig
+                            get(conf, "Role", "") == C.ROLE_VAR || continue
+                            v_name = strip(string(get(conf, "Name", "")))
+                            (haskey(f_opts, v_name) && f_opts[v_name] isa AbstractDict) || continue
+
+                            col_act = FAST_GetColumn_DDEF(df_data, C.PRE_ACTUAL * v_name)
+                            if isempty(col_act)
+                                v_clean = replace(v_name, " " => "_")
+                                pfx, pfx_u = C.PRE_ACTUAL * v_name, C.PRE_ACTUAL * v_clean
+                                act_match = findfirst(c -> c == pfx || startswith(c, pfx * "_") || c == pfx_u || startswith(c, pfx_u * "_"), p_names)
+                                !isnothing(act_match) && (col_act = p_names[act_match])
+                            end
+                            isempty(col_act) && continue
+
+                            act_vals = Float64[]
+                            for raw_v in df_phase[!, Symbol(col_act)]
+                                ismissing(raw_v) && continue
+                                val_num = Float64(FAST_SafeNum_DDEF(raw_v))
+                                (!isnan(val_num) && isfinite(val_num) && val_num > 0.0) && push!(act_vals, val_num)
+                            end
+                            if length(act_vals) >= 2
+                                act_min, act_max = extrema(act_vals)
+                                act_max > act_min && (conf["Levels"] = Float64[act_min, 0.5 * (act_min + act_max), act_max])
+                            end
+                        end
+                    end
+                end
+            end
+
         catch e
             FAST_Log_DDEF("FLOW", "STATE_RESTORE", "JSON configuration sync failed: $e", "FAIL")
         end
@@ -775,27 +818,27 @@ function FLOW_AppendRadioColumns_DDEF!(df::DataFrame, NewConfig::AbstractVector,
             rn = string(FAST_SafeGet_DDEF(c, "Name", ""))
             ru = string(FAST_SafeGet_DDEF(c, "Unit", "mCi"))
             if !isempty(rn)
-                df[!, "TIME_FORW_MINS_" * rn] = fill(0.0, n_runs)
+                df[!, C.PRE_TIME_FORW * rn] = fill(0.0, n_runs)
                 
                 dcyp_vals = fill(0.0, n_runs)
                 for vi in var_indices
-                v_r = NewConfig[vi]
-                v_u = string(FAST_SafeGet_DDEF(v_r, "Unit", ""))
-                v_n = string(FAST_SafeGet_DDEF(v_r, "Name", ""))
-                if MOLE_IsTimeUnit_DDEF(v_u) || occursin(r"(?i)min|time|duration", v_n)
-                col_cand  = C.PRE_VAR * v_n * "_" * v_u
-                col_cand2 = C.PRE_VAR * v_n
-                target_c  = hasproperty(df, Symbol(col_cand)) ? Symbol(col_cand) : (hasproperty(df, Symbol(col_cand2)) ? Symbol(col_cand2) : nothing)
-                if !isnothing(target_c)
-                dcyp_vals = Float64.(df[!, target_c])
-                break
+                    v_r = NewConfig[vi]
+                    v_u = string(FAST_SafeGet_DDEF(v_r, "Unit", ""))
+                    v_n = string(FAST_SafeGet_DDEF(v_r, "Name", ""))
+                    if MOLE_IsTimeUnit_DDEF(v_u) || occursin(r"(?i)min|time|duration", v_n)
+                        col_cand  = C.PRE_VAR * v_n * "_" * v_u
+                        col_cand2 = C.PRE_VAR * v_n
+                        target_c  = hasproperty(df, Symbol(col_cand)) ? Symbol(col_cand) : (hasproperty(df, Symbol(col_cand2)) ? Symbol(col_cand2) : nothing)
+                        if !isnothing(target_c)
+                            dcyp_vals = Float64.(df[!, target_c])
+                            break
+                        end
+                    end
                 end
-                end
-                end
-                df[!, "TIME_DCYP_MINS_" * rn] = dcyp_vals
-                df[!, "TIME_REVE_MINS_" * rn] = fill(0.0, n_runs)
+                df[!, C.PRE_TIME_DCYP * rn] = dcyp_vals
+                df[!, C.PRE_TIME_REVE * rn] = fill(0.0, n_runs)
 
-                act_header = (isempty(ru) || ru == "-") ? "ACTUAL_" * rn : "ACTUAL_" * rn * "_" * ru
+                act_header = (isempty(ru) || ru == "-") ? C.PRE_ACTUAL * rn : C.PRE_ACTUAL * rn * "_" * ru
                 df[!, act_header] = Vector{Union{Missing, Float64}}(missing, n_runs)
             end
         end

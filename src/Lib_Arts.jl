@@ -39,22 +39,24 @@ export ARTS_RenderPareto_DDEF, ARTS_RenderFit_DDEF, ARTS_RenderSurface_DDEF,
 # SECTION 1: THEME & CONSTANTS
 # ------------------------------------------------------------------------------
 
+const C = FAST_Data_DDEC
+
 abstract type ARTS_AbstractPlotType_DDET end
-struct ARTS_PlotPareto_DDES          <: ARTS_AbstractPlotType_DDET end
-struct ARTS_PlotFit_DDES             <: ARTS_AbstractPlotType_DDET end
-struct ARTS_PlotSurface_DDES         <: ARTS_AbstractPlotType_DDET end
-struct ARTS_PlotContour_DDES         <: ARTS_AbstractPlotType_DDET end
-struct ARTS_PlotSlice_DDES           <: ARTS_AbstractPlotType_DDET end
-struct ARTS_PlotTrend_DDES           <: ARTS_AbstractPlotType_DDET end
-struct ARTS_PlotFeasibleSpace_DDES   <: ARTS_AbstractPlotType_DDET end
-struct ARTS_PlotOptimalZone_DDES     <: ARTS_AbstractPlotType_DDET end
-struct ARTS_PlotSweetSpot_DDES       <: ARTS_AbstractPlotType_DDET end
-struct ARTS_PlotDesignSpace_DDES     <: ARTS_AbstractPlotType_DDET end
-struct ARTS_PlotCandidates_DDES      <: ARTS_AbstractPlotType_DDET end
+struct ARTS_PlotPareto_DDES            <: ARTS_AbstractPlotType_DDET end
+struct ARTS_PlotFit_DDES               <: ARTS_AbstractPlotType_DDET end
+struct ARTS_PlotSurface_DDES           <: ARTS_AbstractPlotType_DDET end
+struct ARTS_PlotContour_DDES           <: ARTS_AbstractPlotType_DDET end
+struct ARTS_PlotSlice_DDES             <: ARTS_AbstractPlotType_DDET end
+struct ARTS_PlotTrend_DDES             <: ARTS_AbstractPlotType_DDET end
+struct ARTS_PlotFeasibleSpace_DDES     <: ARTS_AbstractPlotType_DDET end
+struct ARTS_PlotOptimalZone_DDES       <: ARTS_AbstractPlotType_DDET end
+struct ARTS_PlotSweetSpot_DDES         <: ARTS_AbstractPlotType_DDET end
+struct ARTS_PlotDesignSpace_DDES       <: ARTS_AbstractPlotType_DDET end
+struct ARTS_PlotCandidates_DDES        <: ARTS_AbstractPlotType_DDET end
 struct ARTS_PlotInteractionMatrix_DDES <: ARTS_AbstractPlotType_DDET end
-struct ARTS_PlotQQ_DDES               <: ARTS_AbstractPlotType_DDET end
-struct ARTS_PlotResiduals_DDES        <: ARTS_AbstractPlotType_DDET end
-struct ARTS_PlotSensitivity_DDES      <: ARTS_AbstractPlotType_DDET end
+struct ARTS_PlotQQ_DDES                <: ARTS_AbstractPlotType_DDET end
+struct ARTS_PlotResiduals_DDES         <: ARTS_AbstractPlotType_DDET end
+struct ARTS_PlotSensitivity_DDES       <: ARTS_AbstractPlotType_DDET end
 
 """
     ARTS_PlotPriority_DDEC
@@ -80,45 +82,40 @@ const ARTS_PlotPriority_DDEC = Dict{String, Int}(
     "SweetSpot"       => 15
 )
 
-const ARTS_Theme_DDEC = let C = FAST_Data_DDEC
-    (
-        PURWHI = C.COLOUR_PURWHI,
-        LIGHIG = C.COLOUR_LIGHIG,
-        LIGLOW = C.COLOUR_LIGLOW,
-        DARLOW = C.COLOUR_DARLOW,
-        DARHIG = C.COLOUR_DARHIG,
-        PURBLA = C.COLOUR_PURBLA,
-        HUERED = C.COLOUR_HUERED,
-        SHAMAG = C.COLOUR_SHAMAG,
-        SHABLU = C.COLOUR_SHABLU,
-        TONCYA = C.COLOUR_TONCYA,
-        TONGRE = C.COLOUR_TONGRE,
-        HUEYEL = C.COLOUR_HUEYEL,
-        INFORG = C.COLOUR_INFORG,
-        FONT   = C.FONT_DEFAULT
-    )
-end
+const ARTS_Theme_DDEC = (
+    PURWHI = C.COLOUR_PURWHI,
+    LIGHIG = C.COLOUR_LIGHIG,
+    LIGLOW = C.COLOUR_LIGLOW,
+    DARLOW = C.COLOUR_DARLOW,
+    DARHIG = C.COLOUR_DARHIG,
+    PURBLA = C.COLOUR_PURBLA,
+    HUERED = C.COLOUR_HUERED,
+    SHAMAG = C.COLOUR_SHAMAG,
+    SHABLU = C.COLOUR_SHABLU,
+    TONCYA = C.COLOUR_TONCYA,
+    TONGRE = C.COLOUR_TONGRE,
+    HUEYEL = C.COLOUR_HUEYEL,
+    INFORG = C.COLOUR_INFORG,
+    FONT   = C.FONT_DEFAULT
+)
 
 const ARTS_FactorPairs_DDEC = ((1, 2), (1, 3), (2, 3))
 const ARTS_SlicePairs_DDEC  = ((1, 2), (2, 3), (3, 1), (1, 3), (2, 1), (3, 2))
+const ARTS_DefaultVolumeGridN_DDEC = 41
 
-const ARTS_ViridisScale_DDEC = let C = FAST_Data_DDEC
-    [
-        [0.00, C.COLOUR_SHAMAG],
-        [0.25, C.COLOUR_SHABLU],
-        [0.50, C.COLOUR_TONCYA],
-        [0.75, C.COLOUR_TONGRE],
-        [1.00, C.COLOUR_HUEYEL]
-    ]
-end
+const ARTS_ViridisScale_DDEC = [
+    [0.00, C.COLOUR_SHAMAG],
+    [0.25, C.COLOUR_SHABLU],
+    [0.50, C.COLOUR_TONCYA],
+    [0.75, C.COLOUR_TONGRE],
+    [1.00, C.COLOUR_HUEYEL]
+]
 
-const ARTS_BipolarScale_DDEC = let C = FAST_Data_DDEC
-    [
-        [0.00, C.COLOUR_SHABLU],
-        [0.50, C.COLOUR_PURWHI],
-        [1.00, C.COLOUR_INFORG]
-    ]
-end
+const ARTS_BipolarScale_DDEC = [
+    [0.00, C.COLOUR_SHABLU],
+    [0.50, C.COLOUR_PURWHI],
+    [1.00, C.COLOUR_INFORG]
+]
 
 """
     ARTS_FormatSigned_DDEF(Value::Real) -> String
@@ -595,7 +592,6 @@ Generates a custom Viridis colorscale with a smooth alpha-gradient at the thresh
 Eliminates aliasing by using fragment-level transparency instead of mesh-level NaN clipping.
 """
 function ARTS_GenAlphaViridis_DDEF(thresh::AbstractFloat)
-    C = FAST_Data_DDEC
     fade_start = max(0.0, thresh - 0.10)
     
     base_cols = [
@@ -687,7 +683,7 @@ function ARTS_Draw_DDEF(::ARTS_PlotPareto_DDES, Model::AbstractDict, OutName::Ab
     perm = sortperm(magnitudes)
     sorted_mag, sorted_nms, sorted_sgn = magnitudes[perm], clean_nms[perm], clean_signs[perm]
 
-    df, alpha = max(1, N_Samples - length(Coefs)), 0.05 / length(clean_eff)
+    df, alpha = max(1, N_Samples - length(Coefs)), C.EVAL_ALPHA_SIG / length(clean_eff)
     t_crit = quantile(TDist(df), 1.0 - alpha / 2)
 
     sorted_nms_bold = ["<b>$nm</b>" for nm in sorted_nms]
@@ -1202,7 +1198,7 @@ function ARTS_Draw_DDEF(::ARTS_PlotCandidates_DDES, Models, Goals, X, Idx, Lbls,
 end
 
 function ARTS_AddLeaderMarkers_DDEF!(traces::Vector{GenericTrace}, Leaders_DF::AbstractDataFrame, ix::Int, iy::Int, iz::Int)
-    C, th = FAST_Data_DDEC, ARTS_Theme_DDEC
+    th = ARTS_Theme_DDEC
     
     top_x, top_y, top_z, top_txt = Float64[], Float64[], Float64[], String[]
     var_x, var_y, var_z, var_txt = Float64[], Float64[], Float64[], String[]
@@ -1400,7 +1396,7 @@ function ARTS_RenderFeasibleSpace_DDEF(Models, Goals, X::AbstractMatrix{Float64}
 end
 
 function ARTS_Draw_DDEF(::ARTS_PlotFeasibleSpace_DDES, Models, Goals, X::AbstractMatrix{Float64}, InNames::AbstractVector{<:AbstractString}, Leaders_DF::AbstractDataFrame)
-    N = 41
+    N = ARTS_DefaultVolumeGridN_DDEC
     ranges = [range(minimum(view(X, :, i)), maximum(view(X, :, i)); length=N) for i in 1:3]
     Grid = Matrix{Float64}(undef, N^3, 3)
     idx = 1
@@ -1502,7 +1498,7 @@ function ARTS_RenderOptimalZone_DDEF(Models, Goals, X::AbstractMatrix{Float64}, 
 end
 
 function ARTS_Draw_DDEF(::ARTS_PlotOptimalZone_DDES, Models, Goals, X::AbstractMatrix{Float64}, InNames::AbstractVector{<:AbstractString}, Leaders_DF::AbstractDataFrame)
-    N = 41 
+    N = ARTS_DefaultVolumeGridN_DDEC
     ranges = [range(minimum(view(X, :, i)), maximum(view(X, :, i)); length=N) for i in 1:3]
     Grid = Matrix{Float64}(undef, N^3, 3)
     idx = 1
@@ -1617,7 +1613,7 @@ function ARTS_RenderSweetSpot_DDEF(Models, Goals, X::AbstractMatrix{Float64}, In
 end
 
 function ARTS_Draw_DDEF(::ARTS_PlotSweetSpot_DDES, Models, Goals, X::AbstractMatrix{Float64}, InNames::AbstractVector{<:AbstractString}, Leaders_DF::AbstractDataFrame)
-    N = 41 
+    N = ARTS_DefaultVolumeGridN_DDEC
     ranges = [range(minimum(view(X, :, i)), maximum(view(X, :, i)); length=N) for i in 1:3]
     Grid = Matrix{Float64}(undef, N^3, 3)
     idx = 1

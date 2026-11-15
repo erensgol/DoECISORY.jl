@@ -41,6 +41,8 @@ export BASE_StyleCell_DDEC, BASE_StyleInput_DDEC, BASE_StyleInputCentre_DDEC,
 # SECTION 1: DATATABLE AESTHETICS & GRID TOKENS
 # ------------------------------------------------------------------------------
 
+const C = FAST_Data_DDEC
+
 const BASE_StyleCell_DDEC = Dict(
     "backgroundColor" => "transparent",
     "border"          => "none",
@@ -95,32 +97,30 @@ const BASE_StyleInlineHeader_DDEC = Dict(
 
 const BASE_StyleHr_DDEC = Dict("borderColor" => "var(--colour-val1-lighig)", "margin" => "6px 0")
 
-const BASE_EmptyFigure_DDEC = let C = FAST_Data_DDEC
-    Dict(
-        "data"   => [],
-        "layout" => Dict(
-            "width"          => 480,
-            "height"         => 380,
-            "autosize"       => false,
-            "paper_bgcolor"  => C.COLOUR_PURWHI,
-            "plot_bgcolor"   => C.COLOUR_LIGLOW,
-            "xaxis"          => Dict("visible" => false, "showgrid" => false, "zeroline" => false),
-            "yaxis"          => Dict("visible" => false, "showgrid" => false, "zeroline" => false),
-            "margin"         => Dict("l" => 0, "r" => 0, "t" => 0, "b" => 0),
-            "annotations"    => [
-                Dict(
-                    "text"      => "<b>No Visualisation Data</b><br><span style='font-size:12px'>Run analysis to generate plots</span>",
-                    "showarrow" => false,
-                    "xref"      => "paper",
-                    "yref"      => "paper",
-                    "x"         => 0.5,
-                    "y"         => 0.5,
-                    "font"      => Dict("color" => C.COLOUR_DARHIG, "size" => 16, "family" => C.FONT_DEFAULT),
-                )
-            ],
-        ),
-    )
-end
+const BASE_EmptyFigure_DDEC = Dict(
+    "data"   => [],
+    "layout" => Dict(
+        "width"          => 480,
+        "height"         => 380,
+        "autosize"       => false,
+        "paper_bgcolor"  => C.COLOUR_PURWHI,
+        "plot_bgcolor"   => C.COLOUR_LIGLOW,
+        "xaxis"          => Dict("visible" => false, "showgrid" => false, "zeroline" => false),
+        "yaxis"          => Dict("visible" => false, "showgrid" => false, "zeroline" => false),
+        "margin"         => Dict("l" => 0, "r" => 0, "t" => 0, "b" => 0),
+        "annotations"    => [
+            Dict(
+                "text"      => "<b>No Visualisation Data</b><br><span style='font-size:12px'>Run analysis to generate plots</span>",
+                "showarrow" => false,
+                "xref"      => "paper",
+                "yref"      => "paper",
+                "x"         => 0.5,
+                "y"         => 0.5,
+                "font"      => Dict("color" => C.COLOUR_DARHIG, "size" => 16, "family" => C.FONT_DEFAULT),
+            )
+        ],
+    ),
+)
 
 # ------------------------------------------------------------------------------
 # SECTION 2: GENERAL COMPONENT CONSTRUCTORS
@@ -221,7 +221,6 @@ Transforms a PlotlyJS figure object into a high-contrast white theme suitable fo
 """
 function BASE_ApplyPlotlyWhite_DDEF!(fig_dict)
     if haskey(fig_dict, "layout")
-        C               = FAST_Data_DDEC
         lay             = fig_dict["layout"]
         lay["template"]      = "plotly_white"
         lay["paper_bgcolor"] = C.COLOUR_PURWHI
@@ -419,10 +418,12 @@ function BASE_BuildIDRow_DDEF(i, row, visible, show_del=false)
     )
 
     # Automated determination of radioactivity status for UI synchronisation.
-    hl_v     = Float64(get(row, "HalfLife", 0.0))
+    hl_raw   = FAST_SafeNum_DDEF(get(row, "HalfLife", 0.0))
+    hl_v     = isnan(hl_raw) ? 0.0 : hl_raw
     is_radio = (get(row, "IsRadioactive", false) == true) || (hl_v > 0.0)
 
-    mw_v        = Float64(get(row, "MW", 0.0))
+    mw_raw   = FAST_SafeNum_DDEF(get(row, "MW", 0.0))
+    mw_v     = isnan(mw_raw) ? 0.0 : mw_raw
     # Chromatic orchestration for molecular weight and radioactivity indicators.
     dot1_class  = mw_v > 0.0 ? "colourtx-c2sb" : "colourtx-v4dh" 
     dot2_class  = hl_v > 0.0 ? "colourtx-c4tg" : "colourtx-v4dh"
@@ -533,14 +534,14 @@ Generates the technical diagnostic interface for monitoring system health and re
 """
 function BASE_BuildSystemAudit_DDEF()
     nt = Threads.nthreads()
-    thread_colour = nt > 1 ? "var(--colour-chr4-tongre)" : "var(--colour-chr5-hueyel)"
+    thread_colour = nt > 1 ? "colourtx-c4tg" : "colourtx-c5hy"
     thread_stat   = nt > 1 ? "OPTIMAL" : "LIMITED"
 
     free_mem  = Sys.free_memory() / 1024^3
     total_mem = Sys.total_memory() / 1024^3
     mem_str   = "$(round(free_mem, digits=1)) / $(round(total_mem, digits=1)) GB"
     mem_perc  = (total_mem - free_mem) / total_mem
-    mem_colour = mem_perc > 0.9 ? "var(--colour-chr0-huered)" : "var(--colour-chr4-tongre)"
+    mem_colour = mem_perc > 0.9 ? "colourtx-c0hr" : "colourtx-c4tg"
 
     cache_len = lock(FAST_CacheLock_DDEC) do
         length(FAST_CacheStore_DDEC)
@@ -554,13 +555,13 @@ function BASE_BuildSystemAudit_DDEF()
     status_text = (nt > 1 && mem_perc <= 0.9) ? "System Status: MISSION READY" : "System Status: SUB-OPTIMAL"
 
     return dbc_container([
-        html_h6("DOECISORY SYSTEM DIAGNOSTICS", className="fw-bold mb-3 colourtx-c3te text-center", style=Dict("letterSpacing" => "1px")),
+        html_h6("DOECISORY SYSTEM DIAGNOSTICS", className="fw-bold mb-3 colourtx-c3tc text-center", style=Dict("letterSpacing" => "1px")),
         html_hr(style=BASE_StyleHr_DDEC),
         dbc_row([
             dbc_col(BASE_BuildVitalCard_DDEF("Thread Count", "$nt [$thread_stat]", thread_colour), xs=12, md=3),
             dbc_col(BASE_BuildVitalCard_DDEF("Memory Free", mem_str, mem_colour), xs=12, md=3),
-            dbc_col(BASE_BuildVitalCard_DDEF("Cache Entries", string(cache_len), "var(--colour-chr3-toncya)"), xs=12, md=3),
-            dbc_col(BASE_BuildVitalCard_DDEF("Active Locks", string(lock_len), "var(--colour-chr3-toncya)"), xs=12, md=3),
+            dbc_col(BASE_BuildVitalCard_DDEF("Cache Entries", string(cache_len), "colourtx-c3tc"), xs=12, md=3),
+            dbc_col(BASE_BuildVitalCard_DDEF("Active Locks", string(lock_len), "colourtx-c3tc"), xs=12, md=3),
         ], className="g-3 mb-4 mt-2", style=Dict("marginRight" => "0", "marginLeft" => "0")),
         html_div([
             html_i(className="fas $status_icon me-2"),
@@ -604,9 +605,9 @@ function BASE_BuildSciAudit_DDEF()
 
     has_metrics = isdefined(pm, :Lib_Core) && isdefined(pm.Lib_Core, :CORE_CalcDesignMetrics_DDEF)
 
-    mod_colour = isempty(missing_mods) ? "var(--colour-chr4-tongre)" : "var(--colour-chr0-huered)"
-    bridge_colour = isempty(broken_bridges) ? "var(--colour-chr4-tongre)" : "var(--colour-chr0-huered)"
-    metrics_colour = has_metrics ? "var(--colour-chr4-tongre)" : "var(--colour-chr0-huered)"
+    mod_colour = isempty(missing_mods) ? "colourtx-c4tg" : "colourtx-c0hr"
+    bridge_colour = isempty(broken_bridges) ? "colourtx-c4tg" : "colourtx-c0hr"
+    metrics_colour = has_metrics ? "colourtx-c4tg" : "colourtx-c0hr"
 
     is_passed = isempty(missing_mods) && isempty(broken_bridges) && has_metrics
  
@@ -620,7 +621,7 @@ function BASE_BuildSciAudit_DDEF()
     msg_text = is_passed ? "Final Integrity Check: PASSED. Project ready for academic submission." : "Final Integrity Check: FAILED. Please resolve missing modules or broken bridges."
 
     return dbc_container([
-        html_h6("SYSTEM INTEGRITY CERTIFICATE", className="fw-bold mb-3 colourtx-c3te text-center", style=Dict("letterSpacing" => "1px")),
+        html_h6("SYSTEM INTEGRITY CERTIFICATE", className="fw-bold mb-3 colourtx-c3tc text-center", style=Dict("letterSpacing" => "1px")),
         html_hr(style=BASE_StyleHr_DDEC),
         dbc_row([
             dbc_col(BASE_BuildVitalCard_DDEF("Core Modules", stat_mod, mod_colour), xs=12, md=4),
@@ -686,7 +687,7 @@ function BASE_BuildNavbar_DDEF()
         ], className="nav-links d-flex justify-content-center"),
 
         html_div([
-            html_span(FAST_Data_DDEC.VERSION, 
+            html_span(C.VERSION, 
                 className="badge opacity-75", 
                 style=Dict("backgroundColor" => "var(--colour-val3-darlow)", "color" => "var(--colour-val0-purwhi)")
             ),
@@ -798,9 +799,9 @@ Top-level routing orchestrator for navigating between experimental and analytica
 function BASE_RoutePage_DDEF(pathname::AbstractString)
     pm = parentmodule(@__MODULE__)
     if pathname == "/design"
-        return isdefined(pm, :Gui_Deck) ? pm.Gui_Deck.DECK_BuildLayout_DDEF() : pm.Gui_Deck.DECK_BuildLayout_DDEF()
+        return pm.Gui_Deck.DECK_BuildLayout_DDEF()
     elseif pathname == "/analysis"
-        return isdefined(pm, :Gui_Lens) ? pm.Gui_Lens.LENS_BuildLayout_DDEF() : pm.Gui_Lens.LENS_BuildLayout_DDEF()
+        return pm.Gui_Lens.LENS_BuildLayout_DDEF()
     else
         # Central application portal dashboard interface.
         nt::Int, tstyle::String, tmsg::String = FAST_GetThreadInfo_DDEF()
@@ -1156,12 +1157,12 @@ function BASE_WarmupApp_DDEF()::Nothing
         MOLE_CalcMass_DDEF(names_mock, mw_mock, ratios_mock, 5.0, 10.0, units_mock, 1.0; SuppressLog=true)
         
         # Synthesised audit batch parameters including auto-balancing filler components.
-        table_mock = [Dict("Name"=>"A", "MW"=>100.0, "Unit"=>"%M", "Type"=>"Variable", "Min"=>0.0, "Max"=>50.0, "Mid"=>25.0, "Rows"=>[[Dict("Unit"=>"%M")]]),
-                     Dict("Name"=>"W", "MW"=>18.0, "Unit"=>"%", "Type"=>"Filler", "Min"=>0.0, "Max"=>100.0, "Mid"=>50.0)]
-        design_mock = fill(20.0, 5, 1) 
+        table_mock = [Dict("Name"=>"A", "MW"=>100.0, "Unit"=>"%M", "Role"=>"Variable", "L1"=>0.0, "L2"=>25.0, "L3"=>50.0),
+                     Dict("Name"=>"W", "MW"=>18.0, "Unit"=>"%M", "Role"=>"Filler", "L1"=>0.0, "L2"=>50.0, "L3"=>100.0)]
+        design_mock = fill(20.0, 5, 1)
 
         MOLE_AuditBatch_DDEF(table_mock, design_mock, 5.0, 10.0)
-        pfx_in, pfx_out = FAST_Data_DDEC.PRE_VAR, FAST_Data_DDEC.PRE_RESULT
+        pfx_in, pfx_out = C.PRE_VAR, C.PRE_RESULT
 
         # Standard BB15 matrix from Lib_Core for JIT pulse
         X_dummy = Float64.(CORE_DesignBB15_DDEC)
@@ -1171,7 +1172,7 @@ function BASE_WarmupApp_DDEF()::Nothing
         
         names_in = ["X1", "X2", "X3"]
         bounds_dummy = [-1.0 1.0; -1.0 1.0; -1.0 1.0]
-        goal_dummy = Dict{String, Any}("Type"=>"Maximise", "Min"=>0.0, "Max"=>20.0, "Target"=>15.0, "Weight"=>1.0, "WeightVal" => 1.0)
+        goal_dummy = Dict{String, Any}("Type"=>"Maximise", "Min"=>0.0, "Max"=>20.0, "Target"=>15.0, "Weight"=>1.0)
 
         # PULSE 1: Linear Path Warmup
         FAST_Log_DDEF("BOOT", "Warmup", "Pulsing Algorithmic Layer (Phase-A: Linear)...", "WAIT")
@@ -1191,8 +1192,12 @@ function BASE_WarmupApp_DDEF()::Nothing
         # PULSE 3: Optimisation & Stoichiometry Pulse (The BBO & Mole Path)
         FAST_Log_DDEF("BOOT", "Warmup", "Pulsing Algorithmic Layer (Phase-C: BBO & Audit)...", "WAIT")
         CORE_OptimiseDesirability_DDEF([mod_quad], [goal_dummy], bounds_dummy; MaxTime=0.1)
-        ingredients_dummy = [Dict("Name"=>"X1", "MW"=>100.0, "Unit"=>"mg", "Ratio"=>1.0)]
-        MOLE_AuditBatch_DDEF(ingredients_dummy, X_dummy, 5.0, 10.0)
+        ingredients_dummy = [
+            Dict("Name"=>"X1", "Role"=>"Variable", "MW"=>100.0, "Unit"=>"mg", "L1"=>1.0, "L2"=>2.0, "L3"=>3.0),
+            Dict("Name"=>"X2", "Role"=>"Variable", "MW"=>100.0, "Unit"=>"mg", "L1"=>1.0, "L2"=>2.0, "L3"=>3.0),
+            Dict("Name"=>"X3", "Role"=>"Variable", "MW"=>100.0, "Unit"=>"mg", "L1"=>1.0, "L2"=>2.0, "L3"=>3.0),
+        ]
+        MOLE_AuditBatch_DDEF(ingredients_dummy, abs.(X_dummy) .+ 1.0, 5.0, 10.0)
 
         # PULSE 4: Diagnostic Statistics Pulse (ANOVA & Normality)
         FAST_Log_DDEF("BOOT", "Warmup", "Pulsing Algorithmic Layer (Phase-D: Diagnostics)...", "WAIT")

@@ -23,6 +23,8 @@ using DoECISORY.Gui_Base
 using DoECISORY.Gui_Deck
 using DoECISORY.Gui_Lens
 
+const C = Sys_Fast.FAST_Data_DDEC
+
 # ==============================================================================
 # DOECISORY TEST METRICS & TRACKING HARNESS
 # ==============================================================================
@@ -211,7 +213,6 @@ const SUITE_START_TIME = time()
 
     t_g1 = time()
     @testset "Group 1: Sys_Fast Infrastructure, Resilience & Excel I/O" begin
-        C    = Sys_Fast.FAST_Data_DDEC
         FACT = Sys_Fast.FAST_CleanTransient_DDEF
 
         # 1: Scientific, decimal, and malformed numeric parsing
@@ -304,13 +305,31 @@ const SUITE_START_TIME = time()
             cfg_dict  = Sys_Fast.FAST_ReadConfig_DDEF(Dict("A" => 1)),
             cfg_nil   = Sys_Fast.FAST_ReadConfig_DDEF(123),
             w_nil1    = Sys_Fast.FAST_WriteExcel_DDEF(nothing, "Sheet", DataFrame(A=[1])),
-            w_nil2    = Sys_Fast.FAST_WriteExcel_DDEF(nothing, Dict("Sheet" => DataFrame(A=[1])))
+            w_nil2    = Sys_Fast.FAST_WriteExcel_DDEF(nothing, Dict("Sheet" => DataFrame(A=[1]))),
+            eval_ok = (C.EVAL_DEFF_QUAD_MIN == 0.35 && C.EVAL_DEFF_QUAD_OPT == 0.45 &&
+                       C.EVAL_DEFF_LIN_MIN == 0.60 && C.EVAL_DEFF_LIN_OPT == 0.80 &&
+                       C.EVAL_COND_WELL == 100.0 && C.EVAL_COND_CRIT == 1000.0 &&
+                       C.EVAL_VIF_LOW == 5.0 && C.EVAL_VIF_CRIT == 10.0 &&
+                       C.EVAL_ALPHA_SIG == 0.05 && C.EVAL_ALPHA_STRICT == 0.01 &&
+                       C.EVAL_ALPHA_HIGH == 0.001 && C.EVAL_Q2_MOD == 0.50 &&
+                       C.EVAL_Q2_HIGH == 0.70 && C.EVAL_OVERFIT_GAP == 0.20 &&
+                       C.EVAL_DESIR_MOD == 0.50 && C.EVAL_DESIR_OPT == 0.80 &&
+                       C.EVAL_SENS_HIGH == 0.50 &&
+                       C.EVAL_DEFF_QUAD_MIN < C.EVAL_DEFF_QUAD_OPT &&
+                       C.EVAL_DEFF_LIN_MIN < C.EVAL_DEFF_LIN_OPT &&
+                       C.EVAL_COND_WELL < C.EVAL_COND_CRIT &&
+                       C.EVAL_VIF_LOW < C.EVAL_VIF_CRIT &&
+                       C.EVAL_ALPHA_HIGH < C.EVAL_ALPHA_STRICT < C.EVAL_ALPHA_SIG &&
+                       C.EVAL_Q2_MOD < C.EVAL_Q2_HIGH &&
+                       C.EVAL_DESIR_MOD < C.EVAL_DESIR_OPT)
             @track G1 c1[1] == "41.2" && c1[3] == "var(--colour-chr4-tongre)" && c2[1] == "Singular" && c2[3] == "var(--colour-chr0-huered)" &&
-                      c3[1] == "N/A" && c3[3] == "var(--colour-val3-darlow)" && occursin("Well-Conditioned", c4[2]) &&
-                      occursin("Moderate", c5[2]) && occursin("Ill-Conditioned", c6[2]) && c7[1] == "N/A" && c8[1] == "Singular" &&
-                      c9[1] == "N/A" && occursin("Ideal", c10[2]) && c11[1] == "N/A" && num_ok && pop_ok &&
+                      c3[1] == "N/A" && c3[3] == "var(--colour-val3-darlow)" && occursin("Moderate ill-conditioning", c4[2]) &&
+                      c4[3] == "var(--colour-chr5-hueyel)" && occursin("Severe ill-conditioning", c5[2]) &&
+                      occursin("Severe ill-conditioning", c6[2]) && c7[1] == "N/A" && c8[1] == "Singular" &&
+                      c9[1] == "N/A" && occursin("Well-conditioned", c10[2]) && c11[1] == "N/A" && num_ok && pop_ok &&
                       fmt_fixed == "FIXED_Buffer" && fmt_fill == "FILL_Water" && fmt_act == "ACTUAL_Yield" &&
-                      fmt_gen == "Other" && cfg_dict["A"] == 1 && isempty(cfg_nil) && isnothing(w_nil1) && isnothing(w_nil2)
+                      fmt_gen == "Other" && cfg_dict["A"] == 1 && isempty(cfg_nil) && isnothing(w_nil1) && isnothing(w_nil2) &&
+                      eval_ok
         end
 
         # 6: Configuration cache isolation and update roundtrip
@@ -1126,7 +1145,6 @@ const SUITE_START_TIME = time()
     Sys_Fast.FAST_ActiveGroup_DDEC[] = "G4"
     t_g4 = time()
     @testset "Group 4: Lib_Vise Statistical Modelling, OLS & Tournament" begin
-        C = Sys_Fast.FAST_Data_DDEC
         X_quad = Float64.(Lib_Core.CORE_DesignBB15_DDEC)
         Y_quad = [10.0 + 2.0*r[1] - 1.5*r[2] + 0.8*r[3] + 2.5*r[1]^2 - 3.0*r[2]^2 + 1.2*r[1]*r[2] for r in eachrow(X_quad)]
         Y_lin_quad = [5.0 + 3.0*r[1] - 2.0*r[2] + 1.5*r[3] for r in eachrow(X_quad)]
@@ -1160,7 +1178,7 @@ const SUITE_START_TIME = time()
             P      = [p, missing, missing]
         )
 
-        _mock_bundle(; models=[_mock_model()], anova=[_mock_anova()], vitals=Dict("D"=>0.72), normality=[Dict("p"=>0.35, "IsNormal"=>true)], extra...) = Dict{String, Any}(
+        _mock_bundle(; models=[_mock_model()], anova=[_mock_anova()], vitals=Dict{String, Any}("D"=>0.72, "VitalsModelType"=>"linear"), normality=[Dict("p"=>0.35, "IsNormal"=>true)], extra...) = Dict{String, Any}(
             "Phase" => "Phase1", "OutNames" => ["Yield"], "DisplayOutNames" => ["Yield (%)"],
             "Models" => models, "ANOVA" => anova, "Vitals" => vitals, "Normality" => normality,
             "Sensitivities" => [[0.5, 0.3, 0.2]], "InNames" => ["X1", "X2", "X3"],
@@ -1416,9 +1434,9 @@ const SUITE_START_TIME = time()
                 "REVE" => Dict("Enabled" => true, "ProductActivity" => Dict("Source" => "Ga-68"), "Purity%" => Dict("Source" => "Ga-68"))
             )),
             opts_no_radio = Dict("RadioOpts" => Dict("Apply" => false)),
-            audit = VAFRD(X_test, Y_test, in_n, out_n, df_test, cfg_test, opts_test, C, FALog),
-            audit_off = VAFRD(X_test, Y_test, in_n, out_n, df_test, cfg_test, opts_no_radio, C, FALog),
-            audit_nil = VAFRD(X_test, Y_test, in_n, out_n, df_test, cfg_test, opts_test, C, FALog; mask=falses(1))
+            audit = VAFRD(X_test, Y_test, in_n, out_n, df_test, cfg_test, opts_test, FALog),
+            audit_off = VAFRD(X_test, Y_test, in_n, out_n, df_test, cfg_test, opts_no_radio, FALog),
+            audit_nil = VAFRD(X_test, Y_test, in_n, out_n, df_test, cfg_test, opts_test, FALog; mask=falses(1))
             @track G4 length(audit) >= 3 && isapprox(X_test[1, 1], 50.0; atol=1e-2) && isapprox(Y_test[1, 1], 100.0; atol=1e-2) &&
                       isapprox(Y_test[1, 2], 50.0; atol=1e-2) && !ismissing(df_test[1, :ACTUAL_Fixed]) && df_test[1, :ACTUAL_Fixed] > 0.0 &&
                       isempty(audit_off) && isempty(audit_nil)
@@ -1459,7 +1477,7 @@ const SUITE_START_TIME = time()
                 C.PRE_RESULT * "Yield" => [75.0, "", 88.0, missing]
             ),
             cfg = Dict("Ingredients" => [Dict("Name" => "Temp"), Dict("Name" => "Time")], "Outputs" => [Dict("Name" => "Yield")]),
-            (X_c, Y_c, in_n, out_n, mask) = VEM(df_raw, cfg, C, FALog),
+            (X_c, Y_c, in_n, out_n, mask) = VEM(df_raw, cfg, FALog),
             df_4vars = DataFrame(
                 "EXP_ID" => ["R1", "R2"],
                 C.PRE_VAR * "A" => [1.0, 2.0],
@@ -1468,19 +1486,19 @@ const SUITE_START_TIME = time()
                 C.PRE_VAR * "D" => [7.0, 8.0],
                 C.PRE_RESULT * "Y" => [10.0, 20.0]
             ),
-            (X_4, Y_4, _, _, _) = VEM(df_4vars, cfg, C, FALog),
+            (X_4, Y_4, _, _, _) = VEM(df_4vars, cfg, FALog),
             df_empty_ingest = DataFrame("EXP_ID" => ["R1"]),
-            (X_e, Y_e, _, _, _) = VEM(df_empty_ingest, cfg, C, FALog),
+            (X_e, Y_e, _, _, _) = VEM(df_empty_ingest, cfg, FALog),
             df_all_nan = DataFrame(
                 "EXP_ID" => ["R1", "R2"],
                 C.PRE_VAR * "Temp" => [20.0, 40.0],
                 C.PRE_VAR * "Time" => [10.0, 20.0],
                 C.PRE_RESULT * "Yield" => [NaN, NaN]
             ),
-            (X_nan, Y_nan, _, _, mask_nan) = VEM(df_all_nan, cfg, C, FALog),
-            res_n1 = VRN("VARIA_Temp", "VARIA_", [Dict("Name" => "Temp")], C),
-            res_n2 = VRN("Temp", "VARIA_", [Dict("Name" => "Temp", "Unit" => "C")], C),
-            res_n3 = VRN("Temp_C", "VARIA_", [Dict("Name" => "Temp", "Unit" => "C")], C)
+            (X_nan, Y_nan, _, _, mask_nan) = VEM(df_all_nan, cfg, FALog),
+            res_n1 = VRN("VARIA_Temp", "VARIA_", [Dict("Name" => "Temp")]),
+            res_n2 = VRN("Temp", "VARIA_", [Dict("Name" => "Temp", "Unit" => "C")]),
+            res_n3 = VRN("Temp_C", "VARIA_", [Dict("Name" => "Temp", "Unit" => "C")])
             @track G4 size(X_c) == (2, 2) && size(Y_c) == (2, 1) && mask == [true, false, true, false] &&
                       size(X_4, 2) == 3 && size(Y_4, 2) == 1 && res_n1 == "Temp" && res_n2 == "Temp" && res_n3 == "Temp" &&
                       isempty(X_e) && isempty(Y_e) && isempty(X_nan) && all(.!mask_nan)
@@ -1527,10 +1545,10 @@ const SUITE_START_TIME = time()
                     SS = [120.5, 4.2, 2.1, 6.3, 126.8], df = [3, 2, 4, 6, 9], MS = [40.17, 2.1, 0.525, 1.05, 14.09],
                     F = [38.25, 4.0, missing, missing, missing], P = [0.0002, 0.11, missing, missing, missing]
                 )],
-                vitals = Dict("D" => 0.72, "A" => 0.4, "G" => 0.5, "I" => 0.4, "Condition" => 45.0, "MaxVIF" => 1.0, "LOF" => 0.25)
+                vitals = Dict{String, Any}("D" => 0.72, "A" => 0.4, "G" => 0.5, "I" => 0.4, "Condition" => 45.0, "MaxVIF" => 1.0, "LOF" => 0.25, "VitalsModelType" => "linear")
             ),
             rep_lin_hi = VGSR(b_lin_hi),
-            b_lin_lo = merge(b_lin_hi, Dict("Vitals" => Dict("D" => 0.45, "Condition" => 250.0, "MaxVIF" => 3.5, "LOF" => 0.15))),
+            b_lin_lo = merge(b_lin_hi, Dict("Vitals" => Dict{String, Any}("D" => 0.45, "Condition" => 250.0, "MaxVIF" => 3.5, "LOF" => 0.15, "VitalsModelType" => "linear"))),
             rep_lin_lo = VGSR(b_lin_lo),
             b_severe = _mock_bundle(
                 models = [_mock_model(type="quadratic", r2_adj=0.90, q2=-0.15, rmse=2.5, p=0.12,
@@ -1541,13 +1559,13 @@ const SUITE_START_TIME = time()
                     SS = [80.0, 40.0, 1.0, 41.0, 121.0], df = [9, 3, 2, 5, 14], MS = [8.89, 13.33, 0.5, 8.2, 8.64],
                     F = [1.08, 26.66, missing, missing, missing], P = [0.45, 0.036, missing, missing, missing]
                 )],
-                vitals = Dict("D" => 0.25, "Condition" => 2500.0, "MaxVIF" => 15.0, "LOF" => 0.01),
+                vitals = Dict{String, Any}("D" => 0.25, "Condition" => 2500.0, "MaxVIF" => 15.0, "LOF" => 0.01, "VitalsModelType" => "quadratic"),
                 normality = [Dict("p" => 0.002, "IsNormal" => false)],
                 Goals = [], BestPoint = [1.0, 1.0, 1.0], BestScore = 0.35, BoundaryWarnings = ["X1 at boundary limit"], Elapsed = "0.3s"
             ),
             rep_severe = VGSR(b_severe),
             b_quad_hi = merge(b_severe, Dict(
-                "Vitals" => Dict("D" => 0.48, "Condition" => 80.0, "MaxVIF" => 6.0, "LOF" => NaN),
+                "Vitals" => Dict{String, Any}("D" => 0.48, "Condition" => 80.0, "MaxVIF" => 6.0, "LOF" => NaN, "VitalsModelType" => "quadratic"),
                 "Models" => [_mock_model(type="quadratic", r2_adj=0.90, q2=NaN, rmse=1.0, p=0.0001,
                                          terms=["(Intercept)"; ["X$i" for i in 1:9]], coefs=zeros(10),
                                          p_coefs=fill(0.0005, 10), vifs=[1.0; fill(6.0, 9)])],
@@ -1560,11 +1578,27 @@ const SUITE_START_TIME = time()
             rep_low_q2 = VGSR(b_low_q2),
             rep_low = VGSR(merge(b_lin_hi, Dict("BestScore" => 0.42))),
             rep_mid = VGSR(merge(b_lin_hi, Dict("BestScore" => 0.65))),
+            b_eval_edge = merge(b_lin_hi, Dict(
+                "Vitals" => Dict{String, Any}(
+                    "D" => C.EVAL_DEFF_QUAD_MIN, "Condition" => C.EVAL_COND_WELL - 1.0,
+                    "MaxVIF" => C.EVAL_VIF_LOW, "LOF" => C.EVAL_ALPHA_SIG, "VitalsModelType" => "quadratic"
+                ),
+                "Models" => [_mock_model(r2_adj=0.80, q2=C.EVAL_Q2_HIGH)]
+            )),
+            ev_edge = Lib_Vise.VISE_AssessEvals_DDEF(b_eval_edge["Vitals"]),
+            stars_ok = (Lib_Vise.VISE_AssessEvals_DDEF(Val(:pstars), 0.0005) == "***" &&
+                        Lib_Vise.VISE_AssessEvals_DDEF(Val(:pstars), 0.005) == "**" &&
+                        Lib_Vise.VISE_AssessEvals_DDEF(Val(:pstars), 0.03) == "*" &&
+                        Lib_Vise.VISE_AssessEvals_DDEF(Val(:pstars), 0.20) == ""),
+            rep_eval_edge = VGSR(b_eval_edge),
             sample_rep = "# Diagnostics\n| Output | P-Value |\n| Yield | <0.0001 |\n* Note: (κ < 100) satisfies (p < 0.05).\n<span class=\"badge\">Tagged Content</span>",
             clean_math = replace(replace(sample_rep, r"</?[a-zA-Z][a-zA-Z0-9]*\b[^>]*>" => ""), "&lt;" => "<", "&gt;" => ">"),
             preserves_math = all(s -> occursin(s, clean_math), ("<0.0001", "(κ < 100)", "(p < 0.05)")) && !occursin("<span", clean_math)
             @track G4 !isempty(rep_md) && occursin("not conducted", rep_empty) && occursin("Adequate efficiency", rep_lin_hi) &&
-                      occursin("High efficiency", rep_quad_hi) &&
+                      occursin("High efficiency", rep_quad_hi) && occursin("Adequate efficiency", rep_eval_edge) &&
+                      occursin("Well-conditioned", rep_eval_edge) && occursin("Low collinearity", rep_eval_edge) &&
+                      occursin("High (Q² ≥ 0.70)", rep_eval_edge) &&
+                      ev_edge.d_label == "Adequate efficiency" && ev_edge.c_tier === :well && ev_edge.v_tier === :low && stars_ok &&
                       occursin("Low efficiency", rep_lin_lo) && occursin("Severe multicollinearity", rep_severe) &&
                       occursin("Overfitted", rep_severe) && occursin("exceeds 0.20", rep_gap) &&
                       occursin("Low (0 ≤ Q² < 0.50)", rep_low_q2) && occursin("significant compromise", rep_low) &&
@@ -1583,12 +1617,12 @@ const SUITE_START_TIME = time()
         let VRN = Lib_Vise.VISE_ResolveName_DDEF,
             VICA! = Lib_Vise.VISE_InsertColumnAfter_DDEF!,
             x1_ingr = [Dict("Name" => "X1", "Unit" => "mg")],
-            vrn_ok = VRN("VARIA_X1_mg", "VARIA_", x1_ingr, C) == "X1" &&
-                     VRN("VARIA_X2", "VARIA_", [Dict("Name" => "X2", "Unit" => "-")], C) == "X2" &&
-                     VRN("X3", "", [Dict("Name" => "X3")], C) == "X3" &&
-                     isempty(VRN("", "VARIA_", [], C)) &&
-                     all(VRN(c, "VARIA_", x1_ingr, C) == "X1" for c in ("VARIA_X1 mg", "VARIA_X1_extra", "X1_mg")) &&
-                     VRN("VARIA_UnknownCol", "VARIA_", [], C) == "UnknownCol",
+            vrn_ok = VRN("VARIA_X1_mg", "VARIA_", x1_ingr) == "X1" &&
+                     VRN("VARIA_X2", "VARIA_", [Dict("Name" => "X2", "Unit" => "-")]) == "X2" &&
+                     VRN("X3", "", [Dict("Name" => "X3")]) == "X3" &&
+                     isempty(VRN("", "VARIA_", [])) &&
+                     all(VRN(c, "VARIA_", x1_ingr) == "X1" for c in ("VARIA_X1 mg", "VARIA_X1_extra", "X1_mg")) &&
+                     VRN("VARIA_UnknownCol", "VARIA_", []) == "UnknownCol",
             df_col_ops = DataFrame("A" => ["1.0", "", missing], "B" => [1.0, 2.0, 3.0]),
             col_ops_ok = try
                 Lib_Vise.VISE_WidenColumnFloat_DDEF!(df_col_ops, :A)
@@ -1629,7 +1663,7 @@ const SUITE_START_TIME = time()
             )),
             audit_fwd_rev = Lib_Vise.VISE_ApplyFRDecay_DDEF(
                 X_fwd_rev, Y_fwd_rev, ["Precursor", "X2", "X3"], ["Yield"],
-                df_fwd_rev, cfg_fwd_rev, opts_fwd_rev, C, Sys_Fast.FAST_Log_DDEF
+                df_fwd_rev, cfg_fwd_rev, opts_fwd_rev, Sys_Fast.FAST_Log_DDEF
             )
             @track G4 vrn_ok && col_ops_ok &&
                       length(mods_dcyp_extr) == 1 && length(audit_fwd_rev) >= 1 && any(c -> startswith(c, "ACTUAL_Yield"), names(df_fwd_rev)) &&
@@ -1693,9 +1727,54 @@ const SUITE_START_TIME = time()
                 "Leaders" => [Dict("EXP_ID" => "L1", "SCORE" => 0.95)]
             ))
             exp_dup_ok = VETE(bundle_dup, t_exp_dup)
-            foreach(FACT, (t_exp_dup, t_core_xlsx, t_exp_xlsx))
+            t_fd_xlsx = joinpath(FATR, "DOECISORY_TEMP_FORW_DRIFT.xlsx")
+            t_fd_ipkt = joinpath(FATR, "DOECISORY_TEMP_FORW_IPKT.xlsx")
+            df_fd = DataFrame(
+                C.COL_EXP_ID => ["EXP_$i" for i in 1:15],
+                C.COL_PHASE  => fill("Phase1", 15),
+                C.PRE_VAR * "X1" => 20.0 .+ 10.0 .* X_quad[:, 1],
+                C.PRE_VAR * "X2" => 20.0 .+ 5.0 .* X_quad[:, 2],
+                C.PRE_VAR * "X3" => 20.0 .+ 5.0 .* X_quad[:, 3],
+                "TIME_FORW_MINS_X1" => [i in (1, 6, 11) ? (i == 1 ? 10.0 : (i == 6 ? 45.0 : 80.0)) : 30.0 for i in 1:15],
+                C.PRE_RESULT * "Yield"  => Y_quad,
+                C.PRE_RESULT * "Purity" => Y_lin_quad
+            )
+            cfg_fd = Dict{String, Any}(
+                "Ingredients" => [
+                    Dict("Name" => "X1", "Role" => C.ROLE_VAR, "Levels" => [10.0, 20.0, 30.0], "IsRadioactive" => true, "HalfLife" => 67.71, "HalfLifeUnit" => "min"),
+                    Dict("Name" => "X2", "Role" => C.ROLE_VAR, "Levels" => [15.0, 20.0, 25.0]),
+                    Dict("Name" => "X3", "Role" => C.ROLE_VAR, "Levels" => [15.0, 20.0, 25.0])
+                ],
+                "Outputs" => deepcopy(cfg_core["Outputs"]),
+                "RadioOpts" => Dict(
+                    "Apply" => true,
+                    "FORW"  => Dict("Enabled" => true, "X1" => Dict("Name" => "X1_Actual", "Unit" => "mCi"))
+                )
+            )
+            opts_fd = Dict{String, Any}("MaxTime" => 0.05, "GridSteps" => 11, "RadioOpts" => cfg_fd["RadioOpts"])
+            (res_fd, sheets_fd) = VEI(deepcopy(df_fd), cfg_fd, "Phase1", goals_core, "quadratic"; Opts=opts_fd, RenderMode=:Minimal)
+            rep_fd = Lib_Vise.VISE_GenSciReport_DDEF(res_fd)
+            exp_fd_ok = VETE(res_fd, t_fd_xlsx)
+            Sys_Fast.FAST_WriteExcel_DDEF(t_fd_ipkt, merge(sheets_fd, Dict(
+                C.SHEET_CONFIG => DataFrame("PARAMETER" => ["MasterConfig"], "VALUE_JSON" => [JSON3.write(cfg_fd)])
+            )))
+            ipkt_fd = Sys_Flow.FLOW_BuildIPKT_DDEF(t_fd_ipkt, "Phase1", "", 0.5)
+            forw_drift_ok = isnan(res_fd["Vitals"]["LOF"]) &&
+                            haskey(res_fd["Vitals"], "ForwDrift") &&
+                            length(res_fd["Vitals"]["ForwDrift"]["Responses"]) == 2 &&
+                            res_fd["BestPoint"][1] >= minimum(res_fd["X_Clean"][:, 1]) - 1e-6 &&
+                            res_fd["BestPoint"][1] <= maximum(res_fd["X_Clean"][:, 1]) + 1e-6 &&
+                            res_fd["BestPoint"][1] < 25.0 &&
+                            occursin("Formal Lack-of-Fit cannot be computed", rep_fd) &&
+                            occursin("Nominal Ref LOF (Non-Formal)*", rep_fd) &&
+                            exp_fd_ok &&
+                            ipkt_fd["Status"] == "OK" &&
+                            length(ipkt_fd["NewConfig"][1]["Levels"]) == 3 &&
+                            ipkt_fd["NewConfig"][1]["OldLevels"][3] < 25.0
+            foreach(FACT, (t_exp_dup, t_core_xlsx, t_exp_xlsx, t_fd_xlsx, t_fd_ipkt))
             @track G4 exec_res["Status"] == "OK" && exec_no_opt["Status"] == "OK" && haskey(exec_no_opt, "_Hidden_Sheets") &&
                       exec_bad_phase["Status"] == "FAIL" && exp_ok && !exp_bad && exp_full_ok && exp_dup_ok &&
+                      forw_drift_ok &&
                       contains(rep_full_md, "Radiochemical Decay Corrections") && fail_samples["Status"] == "FAIL" &&
                       core_radio["Status"] == "OK" && fail_mod["Status"] == "FAIL" && isnan(cv_short)
         end
@@ -1704,12 +1783,12 @@ const SUITE_START_TIME = time()
         let VLPD = Lib_Vise.VISE_LoadPhaseData_DDEF,
             t_ph_xlsx = joinpath(Sys_Fast.FAST_TempRoot_DDEC, "DOECISORY_TEMP_PHASE_LOAD.xlsx"),
             _ = Sys_Fast.FAST_WriteExcel_DDEF(t_ph_xlsx, Dict(C.SHEET_DATA => df_core)),
-            df_ph_file  = VLPD(t_ph_xlsx, "Phase1", C),
+            df_ph_file  = VLPD(t_ph_xlsx, "Phase1"),
             _ = Sys_Fast.FAST_CleanTransient_DDEF(t_ph_xlsx),
-            df_ph_empty = VLPD(DataFrame(), "Phase1", C),
-            df_ph_all   = VLPD(df_core, "", C),
-            df_ph_p1    = VLPD(df_core, "Phase1", C),
-            df_ph_noph  = VLPD(DataFrame("A" => [1.0]), "Phase1", C)
+            df_ph_empty = VLPD(DataFrame(), "Phase1"),
+            df_ph_all   = VLPD(df_core, ""),
+            df_ph_p1    = VLPD(df_core, "Phase1"),
+            df_ph_noph  = VLPD(DataFrame("A" => [1.0]), "Phase1")
             @track G4 isempty(df_ph_empty) && nrow(df_ph_all) == 15 && nrow(df_ph_p1) == 15 &&
                       nrow(df_ph_file) == 15 && nrow(df_ph_noph) == 1
         end
@@ -1853,7 +1932,6 @@ const SUITE_START_TIME = time()
     t_g6 = time()
     struct FLOW_BoundaryCustom_DDES <: Sys_Flow.FLOW_AbstractBoundaryMode_DDET end
     @testset "Group 6: Sys_Flow ACTA Adaptive Transitions & Space Map" begin
-        C = Sys_Fast.FAST_Data_DDEC
         df_leads = DataFrame(
             "EXP_ID" => ["RUN_01", "RUN_02"],
             "SCORE"  => [0.82, 0.94],
@@ -2176,6 +2254,40 @@ const SUITE_START_TIME = time()
             lead_empty_vars = Lib_Core.CORE_ExtractLeader_DDEF(t_build, "Phase1", "EXP_P1_02", String[])
             cfg_disk = Sys_Fast.FAST_ReadConfig_DDEF(t_build)
             FACT(t_build)
+
+            t_forw_align = joinpath(FATR, "DOECISORY_TEMP_FORW_ACTUAL_IPKT.xlsx")
+            FACT(t_forw_align)
+            df_fa_data = DataFrame(
+                "EXP_ID" => ["FA_01", "FA_02"],
+                "PHASE" => ["Phase1", "Phase1"],
+                C.PRE_VAR * "Dose" => [10.0, 30.0],
+                C.PRE_ACTUAL * "Dose_mCi" => [6.0, 18.0],
+                C.PRE_VAR * "Precursor Mass" => [10.0, 30.0],
+                C.PRE_ACTUAL * "Precursor_Mass_mg" => [8.0, 24.0],
+                C.PRE_VAR * "Tracer" => [10.0, 30.0],
+                C.PRE_ACTUAL * "Tracer" => [4.0, 12.0]
+            )
+            df_fa_cfg = DataFrame("PARAMETER" => ["MasterConfig"], "VALUE_JSON" => [JSON3.write(Dict(
+                "Ingredients" => [
+                    Dict("Name" => "Dose", "Role" => C.ROLE_VAR, "Levels" => [10.0, 20.0, 30.0], "IsRadioactive" => true, "HalfLife" => 67.71, "Unit" => "mCi"),
+                    Dict("Name" => "Precursor Mass", "Role" => C.ROLE_VAR, "Levels" => [10.0, 20.0, 30.0], "Unit" => "mg"),
+                    Dict("Name" => "Tracer", "Role" => C.ROLE_VAR, "Levels" => [10.0, 20.0, 30.0])
+                ],
+                "RadioOpts" => Dict("Apply" => true, "FORW" => Dict(
+                    "Enabled" => true,
+                    "Dose" => Dict("Name" => "Dose"),
+                    "Precursor Mass" => Dict("Name" => "Precursor Mass"),
+                    "Tracer" => Dict("Name" => "Tracer")
+                ))
+            ))])
+            df_fa_lead = DataFrame("EXP_ID" => ["FA_02"], "SCORE" => [0.95], "PHASE" => ["Phase1"], "Dose" => [12.0], "Precursor Mass" => [16.0], "Tracer" => [8.0])
+            Sys_Fast.FAST_WriteExcel_DDEF(t_forw_align, Dict(
+                C.SHEET_DATA => df_fa_data,
+                C.SHEET_CONFIG => df_fa_cfg,
+                C.PREFIX_LEADERS * "Phase1" => df_fa_lead
+            ))
+            ipkt_fa = Sys_Flow.FLOW_BuildIPKT_DDEF(t_forw_align, "Phase1", "FA_02", 0.5)
+            FACT(t_forw_align)
             @track G6 next_conf[1]["Name"] == "Precursor" && next_conf[1]["MW"] == 1435.0 && next_conf[1]["Unit"] == "mg" &&
                       acta_astm[1]["Alpha"] == 1.0 && acta_astm[1]["Beta"] == 0.0 && acta_astm[1]["EffectiveLeader"] == 80.0 &&
                       ok_write == true && !err_write && nrow(df_read_lead) == 1 && df_read_lead.SCORE[1] == 0.95 &&
@@ -2186,7 +2298,11 @@ const SUITE_START_TIME = time()
                       length(collect(Sys_Flow.FLOW_IterateEntries_DDEF(Dict("k" => 1)))) == 1 &&
                       Sys_Flow.FLOW_IsTruthy_DDEF(1) &&
                       length(acta_l123[1]["Levels"]) == 3 &&
-                      lead_empty_vars["ID"] == "EXP_P1_02"
+                      lead_empty_vars["ID"] == "EXP_P1_02" &&
+                      ipkt_fa["Status"] == "OK" && ipkt_fa["NewConfig"][1]["OldLevels"] == [6.0, 12.0, 18.0] &&
+                      ipkt_fa["NewConfig"][2]["OldLevels"] == [8.0, 16.0, 24.0] &&
+                      ipkt_fa["NewConfig"][3]["OldLevels"] == [4.0, 8.0, 12.0] &&
+                      length(ipkt_fa["NewConfig"][1]["Levels"]) == 3
         end
     end
     TRACKER["G6"].duration = round(time() - t_g6; digits=2)
@@ -2375,11 +2491,52 @@ const SUITE_START_TIME = time()
             tbl_lim = Gui_Deck.DECK_BuildLimitsTable_DDEF(1:3, tbl_rows, 3),
             out_row = Gui_Deck.DECK_BuildOutputRow_DDEF(1, "Yield", "%"),
             safe_z = Gui_Deck.DECK_SafeNumZero_DDEF(NaN) == 0.0 && Gui_Deck.DECK_SafeNumZero_DDEF(5.5) == 5.5,
-            safe_k = Sys_Fast.FAST_SafeGet_DDEF(Dict("k" => 1), "k", 0) == 1 && Sys_Fast.FAST_SafeGet_DDEF(Dict(), "k", 42) == 42
+            safe_k = Sys_Fast.FAST_SafeGet_DDEF(Dict("k" => 1), "k", 0) == 1 && Sys_Fast.FAST_SafeGet_DDEF(Dict(), "k", 42) == 42,
+            cap_nil = Gui_Deck.DECK_CaptureRows_DDEF(
+                nothing,
+                ["V1", "V2", "V3", "F1", "F2", "F3", "F4"],
+                fill(10.0, 7), fill(20.0, 7), fill(30.0, 7),
+                fill(5.0, 7), fill(35.0, 7), fill(100.0, 7),
+                ["mg", "mg", "mg", "mg", "mg", "mg", "mg"]
+            ),
+            cap_store = Dict(
+                "count" => 4,
+                "rows" => [
+                    Dict("MW" => 150.0, "IsRadioactive" => true, "HalfLife" => 67.71, "HalfLifeUnit" => "Minutes"),
+                    Dict("MW" => 0.0, "IsRadioactive" => false),
+                    Dict(),
+                    Dict("MW" => 18.0)
+                ]
+            ),
+            cap_merged = Gui_Deck.DECK_CaptureRows_DDEF(
+                cap_store,
+                ["PctVar", "ChemVar", "TimeVar", "Water"],
+                [-5.0, 120.0, 10.0, 50.0],
+                [50.0, 150.0, 20.0, 50.0],
+                [125.0, 180.0, 30.0, 50.0],
+                [-10.0, 100.0, 5.0, 0.0],
+                [150.0, 200.0, 35.0, 100.0],
+                [0.0, 95.0, 0.0, 0.0],
+                ["%m", "mg", "Minutes", "%"]
+            ),
+            cap_max = Gui_Deck.DECK_CaptureRows_DDEF(
+                Dict("count" => Gui_Deck.DECK_MaxRows_DDEC + 5),
+                fill("X", Gui_Deck.DECK_MaxRows_DDEC),
+                fill(1.0, Gui_Deck.DECK_MaxRows_DDEC), fill(2.0, Gui_Deck.DECK_MaxRows_DDEC), fill(3.0, Gui_Deck.DECK_MaxRows_DDEC),
+                fill(0.0, Gui_Deck.DECK_MaxRows_DDEC), fill(5.0, Gui_Deck.DECK_MaxRows_DDEC), fill(10.0, Gui_Deck.DECK_MaxRows_DDEC),
+                fill("mg", Gui_Deck.DECK_MaxRows_DDEC)
+            )
             @track G7 row_deck["Role"] == "Variable" && row_fixed["Role"] == "Fixed" && haskey(row_deck, "MW") && haskey(row_deck, "Unit") &&
                       m_chem isa Dash.Component && m_stoch isa Dash.Component && m_audit isa Dash.Component &&
                       tbl_id isa Dash.Component && tbl_lvl isa Dash.Component && tbl_lim isa Dash.Component &&
-                      out_row isa Dash.Component && safe_z && safe_k
+                      out_row isa Dash.Component && safe_z && safe_k &&
+                      length(cap_nil) == 7 && cap_nil[1]["Role"] == "Variable" && cap_nil[4]["Role"] == "Fixed" &&
+                      length(cap_merged) == 4 && cap_merged[1]["L1"] == 0.0 && cap_merged[1]["L3"] == 100.0 &&
+                      cap_merged[1]["Min"] == 0.0 && cap_merged[1]["Max"] == 100.0 &&
+                      cap_merged[1]["MW"] == 150.0 && cap_merged[1]["IsRadioactive"] &&
+                      cap_merged[1]["HalfLife"] == 67.71 && cap_merged[1]["HalfLifeUnit"] == "Minutes" &&
+                      cap_merged[2]["L1"] == 120.0 && cap_merged[2]["MW"] == 95.0 && cap_merged[4]["MW"] == 18.0 &&
+                      length(cap_max) == Gui_Deck.DECK_MaxRows_DDEC
         end
 
         # 94: Factor row import mapping and data normalisation
@@ -2409,7 +2566,7 @@ const SUITE_START_TIME = time()
                 Dict("FillerName" => "Water", "FillerMW" => 18.0), "ProjDeck";
                 direction=[1, -1, 1], target_phase="Phase1"
             )
-            df_deck_p1 = Sys_Fast.FAST_ReadExcel_DDEF(t_deck, Sys_Fast.FAST_Data_DDEC.SHEET_DATA)
+            df_deck_p1 = Sys_Fast.FAST_ReadExcel_DDEF(t_deck, C.SHEET_DATA)
             has_fill_water = "FILL_Water_%M" in names(df_deck_p1) && !any(ismissing, df_deck_p1[!, "FILL_Water_%M"])
             res_gen_phase2 = DGP(t_deck, in_deck, out_deck, 10.0, 1.0, "BB15", Dict(), "ProjDeck")
             in_time_rad = deepcopy(in_deck); in_time_rad[1]["Unit"] = "Minutes"; in_time_rad[1]["MW"] = 0.0
@@ -2448,8 +2605,7 @@ const SUITE_START_TIME = time()
         end
 
         # 96: Slot configuration modification and level update
-        let C = Sys_Fast.FAST_Data_DDEC,
-            mock_conf = [
+        let mock_conf = [
                 Dict{String,Any}("Name" => "Temp", "Role" => C.ROLE_VAR, "Levels" => [20.0, 50.0, 80.0]),
                 Dict{String,Any}("Name" => "Time", "Role" => C.ROLE_VAR, "Levels" => [10.0, 20.0, 30.0]),
                 Dict{String,Any}("Name" => "Dose", "Role" => C.ROLE_VAR, "Levels" => [1.0, 2.0, 3.0])
@@ -2471,8 +2627,7 @@ const SUITE_START_TIME = time()
         end
 
         # 97: Leaderboard Dash HTML component table generation
-        let C = Sys_Fast.FAST_Data_DDEC,
-            LBLT = Gui_Lens.LENS_BuildLeadersTable_DDEF,
+        let LBLT = Gui_Lens.LENS_BuildLeadersTable_DDEF,
             LSF = Gui_Lens.LENS_SafeFloat_DDEF,
             LEBC = Gui_Lens.LENS_EvalBadgeClass_DDEF,
             LFM = Gui_Lens.LENS_FormatMetric_DDEF,
@@ -2496,11 +2651,15 @@ const SUITE_START_TIME = time()
             empty_html = LBLT(DataFrame(), Dict()),
             badges_ok = (
                 occursin("c4tg", LEBC(:d_eff, 0.45)) && occursin("c0hr", LEBC(:d_eff, 0.15)) && occursin("v5pb", LEBC(:d_eff, nothing)) &&
+                occursin("c4tg", LEBC(:d_eff, C.EVAL_DEFF_QUAD_MIN, true)) && occursin("c0hr", LEBC(:d_eff, 0.45, false)) &&
+                occursin("c4tg", LEBC(:d_eff, C.EVAL_DEFF_LIN_MIN, false)) && occursin("c4tg", LEBC(:d_eff, 0.65, false)) &&
                 occursin("c4tg", LEBC(:vif, 2.5)) && occursin("c5hy", LEBC(:vif, 7.5)) && occursin("c0hr", LEBC(:vif, 12.0)) &&
                 occursin("c4tg", LEBC(:lof, 0.20)) && occursin("c0hr", LEBC(:lof, 0.01)) &&
                 occursin("c4tg", LEBC(:q2, 0.75)) && occursin("c0hr", LEBC(:q2, -0.30)) &&
                 occursin("c4tg", LEBC(:pval, 0.01)) && occursin("c0hr", LEBC(:pval, 0.15)) &&
-                occursin("c4tg", LEBC(:coef_pval, 0.02)) && occursin("c0hr", LEBC(:coef_vif, 2, 8.0)) && occursin("v5pb", LEBC(:sensitivity, 0.85)) &&
+                occursin("c4tg", LEBC(:coef_pval, 0.02)) && isempty(LEBC(:coef_pval, 0.20)) &&
+                occursin("c0hr", LEBC(:coef_vif, 2, 8.0)) && isempty(LEBC(:coef_vif, 1, 8.0)) &&
+                occursin("v5pb", LEBC(:sensitivity, 0.85)) && !occursin("fw-bold", LEBC(:sensitivity, 0.20)) &&
                 occursin("c4tg", LEBC(:anova, "Model", 0.001)) && occursin("c0hr", LEBC(:anova, "Lack of Fit", 0.001)) && occursin("c4tg", LEBC(:anova, "Lack of Fit", 0.15))
             ),
             fmts_ok = (LFM(:d_eff, 0.725), LFM(:eff, 0.854), LFM(:vif, 1.25), LFM(:lof, 0.045), LFM(:lof, nothing)) == ("0.725", "0.85", "1.25", "0.045", "N/A"),

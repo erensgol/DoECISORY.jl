@@ -49,7 +49,7 @@ export FAST_Log_DDEF, FAST_ReadExcel_DDEF, FAST_Catalogue_DDES, FAST_SafeNum_DDE
 System-wide configuration, metadata structure, and primary colour palettes.
 """
 Base.@kwdef struct FAST_Catalogue_DDES
-    VERSION::String        = "v0.2.0"
+    VERSION::String        = "v0.2.2"
     COLOUR_PURWHI::String  = "#FFFFFF"
     COLOUR_LIGHIG::String  = "#E6E6E6"
     COLOUR_LIGLOW::String  = "#DCDCDC"
@@ -88,10 +88,28 @@ Base.@kwdef struct FAST_Catalogue_DDES
     ROLE_VAR::String       = "Variable"
     ROLE_FILL::String      = "Filler"
     ROLE_FIX::String       = "Fixed"
-    METHOD_BB15::String    = "BB15"
-    METHOD_TL09::String    = "TL09"
-    METHOD_CD17::String    = "CD17"
-    METHOD_DF14::String    = "DF14"
+    METHOD_BB15::String         = "BB15"
+    METHOD_TL09::String         = "TL09"
+    METHOD_CD17::String         = "CD17"
+    METHOD_DF14::String         = "DF14"
+    MAX_FIXED_ROWS::Int         = 12
+    EVAL_DEFF_QUAD_MIN::Float64 = 0.35
+    EVAL_DEFF_QUAD_OPT::Float64 = 0.45
+    EVAL_DEFF_LIN_MIN::Float64  = 0.60
+    EVAL_DEFF_LIN_OPT::Float64  = 0.80
+    EVAL_COND_WELL::Float64     = 100.0
+    EVAL_COND_CRIT::Float64     = 1000.0
+    EVAL_VIF_LOW::Float64       = 5.0
+    EVAL_VIF_CRIT::Float64      = 10.0
+    EVAL_ALPHA_SIG::Float64     = 0.05
+    EVAL_ALPHA_STRICT::Float64  = 0.01
+    EVAL_ALPHA_HIGH::Float64    = 0.001
+    EVAL_Q2_MOD::Float64        = 0.50
+    EVAL_Q2_HIGH::Float64       = 0.70
+    EVAL_OVERFIT_GAP::Float64   = 0.20
+    EVAL_DESIR_MOD::Float64     = 0.50
+    EVAL_DESIR_OPT::Float64     = 0.80
+    EVAL_SENS_HIGH::Float64     = 0.50
 end
 
 """
@@ -101,6 +119,7 @@ Global constant instance of `FAST_Catalogue_DDES` providing system-wide sheet na
 column headers, status indicators, and design topology identifiers.
 """
 const FAST_Data_DDEC = FAST_Catalogue_DDES()
+const C = FAST_Data_DDEC
 
 # ------------------------------------------------------------------------------
 # SECTION 2: TRANSIENT STORAGE MANAGEMENT
@@ -245,7 +264,7 @@ function FAST_WrapDetail_DDEF(Detail::AbstractString, MaxWidth::Int=45, Indent::
                         cur = ""
                     end
                     push!(lines, String(first(w, MaxWidth)))
-                    w = String(w[(MaxWidth + 1):end])
+                    w = String(chop(w; head=MaxWidth, tail=0))
                 end
                 if isempty(cur)
                     cur = w
@@ -267,8 +286,8 @@ end
     FAST_Log_DDEF(Source, Event, [Detail], [Type])
 Standardised console logging with ANSI colour support and timestamps. Bridged to Value-Dispatch.
 """
-function FAST_Log_DDEF(::Val{Type}, Source, Event, Detail) where {Type}
-    c       = get(FAST_LogColours_DDEC, Type, "\e[34m")
+function FAST_Log_DDEF(::Val{MsgType}, Source, Event, Detail) where {MsgType}
+    c       = get(FAST_LogColours_DDEC, MsgType, "\e[34m")
     ts      = Dates.format(now(), "HH:MM:SS.sss")
     det_str = isnothing(Detail) ? "null" : string(Detail)
     grp_pfx = isempty(FAST_ActiveGroup_DDEC[]) ? "" : "[$(FAST_ActiveGroup_DDEC[])] "
@@ -285,7 +304,7 @@ end
 # ------------------------------------------------------------------------------
 
 """
-    FAST_Log_DDEF(Source::AbstractString, Event::AbstractString, Detail::Any="", Type::AbstractString="INFO") -> Nothing
+    FAST_Log_DDEF(Source::AbstractString, Event::AbstractString, Detail::Any="", MsgType::AbstractString="INFO") -> Nothing
 Format and emit a structured console telemetry log with timestamp and severity colour coding.
 Dispatches value types to render ANSI terminal escapes for real-time operation tracking.
 
@@ -293,13 +312,13 @@ Dispatches value types to render ANSI terminal escapes for real-time operation t
 - `Source::AbstractString`: Emitting subsystem tag (e.g. `"CORE"`, `"VISE"`, `"FAST"`).
 - `Event::AbstractString`: Operation or event identifier.
 - `Detail::Any`: Contextual message, metric, or status payload (default: `""`).
-- `Type::AbstractString`: Severity level (`"INFO"`, `"OK"`, `"WAIT"`, `"WARN"`, or `"FAIL"`).
+- `MsgType::AbstractString`: Severity level (`"INFO"`, `"OK"`, `"WAIT"`, `"WARN"`, or `"FAIL"`).
 
 # Returns
 - `Nothing`.
 """
-function FAST_Log_DDEF(Source::AbstractString, Event::AbstractString, Detail::Any="", Type::AbstractString="INFO")
-    FAST_Log_DDEF(Val(Symbol(Type)), Source, Event, Detail)
+function FAST_Log_DDEF(Source::AbstractString, Event::AbstractString, Detail::Any="", MsgType::AbstractString="INFO")
+    FAST_Log_DDEF(Val(Symbol(MsgType)), Source, Event, Detail)
 end
 
 const FAST_FilenameMap_DDEC = Dict(
@@ -390,7 +409,7 @@ function FAST_ReadExcel_DDEF(FilePath::AbstractString, SheetName::AbstractString
                 df = DataFrame(XLSX.gettable(xf[SheetName]))
                 
                 # Enforcement of mandatory structural columns.
-                is_data_sheet = SheetName == FAST_Data_DDEC.SHEET_DATA || startswith(SheetName, FAST_Data_DDEC.PREFIX_LEADERS)
+                is_data_sheet = SheetName == C.SHEET_DATA || startswith(SheetName, C.PREFIX_LEADERS)
                 if is_data_sheet && !FAST_ValidateSheetStructure_DDEF(df, SheetName)
                     throw(ArgumentError("Structural mismatch in sheet [$SheetName]."))
                 end
@@ -511,25 +530,26 @@ function FAST_ApplyExcelStyle_DDEF(File::AbstractString, ValidPairs::Vector{Pair
 
         isempty(col_widths) && return nothing
 
-        zin = ZipFile.Reader(File)
-        
-        # Ingest archive entries preserving exact original order
         entries = Tuple{String, Vector{UInt8}, UInt16}[]
         wb_xml_str = ""
         rels_xml_str = ""
         all_ws = String[]
-        for f in zin.files
-            b = read(f)
-            push!(entries, (f.name, b, f.method))
-            if f.name == "xl/workbook.xml"
-                wb_xml_str = String(copy(b))
-            elseif f.name == "xl/_rels/workbook.xml.rels"
-                rels_xml_str = String(copy(b))
-            elseif occursin(r"^xl/worksheets/sheet\d+\.xml$", f.name)
-                push!(all_ws, f.name)
+        zin = ZipFile.Reader(File)
+        try
+            for f in zin.files
+                b = read(f)
+                push!(entries, (f.name, b, f.method))
+                if f.name == "xl/workbook.xml"
+                    wb_xml_str = String(copy(b))
+                elseif f.name == "xl/_rels/workbook.xml.rels"
+                    rels_xml_str = String(copy(b))
+                elseif occursin(r"^xl/worksheets/sheet\d+\.xml$", f.name)
+                    push!(all_ws, f.name)
+                end
             end
+        finally
+            close(zin)
         end
-        close(zin)
         
         # Build mapping from worksheet filename to sheet name via workbook metadata
         rel_to_name = Dict{String, String}()
@@ -552,81 +572,84 @@ function FAST_ApplyExcelStyle_DDEF(File::AbstractString, ValidPairs::Vector{Pair
         
         # Re-pack archive with auto-fitted column tags and OpenXML structural compliance
         zout = ZipFile.Writer(temp_file)
-        for (name, bytes, method) in entries
-            f_out = ZipFile.addfile(zout, name; method=method)
-            m_sheet = match(r"^xl/worksheets/(sheet\d+\.xml)$", name)
-            
-            if name == "[Content_Types].xml"
-                xml_ct = String(copy(bytes))
-                # Ensure all worksheet parts have an explicit Override tag to prevent Excel repair prompt
-                for ws in all_ws
-                    part_name = "/$ws"
-                    if !occursin("PartName=\"$part_name\"", xml_ct)
-                        override_tag = "<Override PartName=\"$part_name\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml\"/>"
-                        pos_types = findlast("</Types>", xml_ct)
-                        if pos_types !== nothing
-                            xml_ct = xml_ct[1:first(pos_types)-1] * override_tag * xml_ct[first(pos_types):end]
-                        end
-                    end
-                end
-                write(f_out, xml_ct)
-            elseif name == "xl/workbook.xml"
-                xml_wb = String(copy(bytes))
-                # Remove obsolete developer machine absolute path metadata causing external link warning
-                xml_wb = replace(xml_wb, r"<mc:AlternateContent\b[^>]*>.*?</mc:AlternateContent>"s => "")
-                write(f_out, xml_wb)
-            elseif m_sheet !== nothing
-                xml = String(copy(bytes))
-                # Purge invalid IEEE 754 numeric tokens (NaN, Inf) that cause Excel recovery dialogs
-                xml = replace(xml, r"<c\b([^>]*\br=\"[A-Z0-9]+\"[^>]*)><v>(?:NaN|Inf|-Inf)<\/v><\/c>" => s"<c\1/>")
-                xml = replace(xml, r"<v>(?:NaN|Inf|-Inf)<\/v>" => "")
+        try
+            for (name, bytes, method) in entries
+                f_out = ZipFile.addfile(zout, name; method=method)
+                m_sheet = match(r"^xl/worksheets/(sheet\d+\.xml)$", name)
                 
-                sheet_filename = m_sheet.captures[1]
-                
-                # Resolve target sheet column widths
-                sheet_widths = Float64[]
-                if haskey(file_to_sheet, sheet_filename)
-                    sn = file_to_sheet[sheet_filename]
-                    if haskey(col_widths, sn)
-                        sheet_widths = col_widths[sn]
-                    end
-                end
-                
-                if isempty(sheet_widths)
-                    idx_match = match(r"sheet(\d+)\.xml", sheet_filename)
-                    if idx_match !== nothing
-                        idx = parse(Int, idx_match.captures[1])
-                        if 1 <= idx <= length(sheet_order)
-                            sn = sheet_order[idx]
-                            if haskey(col_widths, sn)
-                                sheet_widths = col_widths[sn]
+                if name == "[Content_Types].xml"
+                    xml_ct = String(copy(bytes))
+                    # Ensure all worksheet parts have an explicit Override tag to prevent Excel repair prompt
+                    for ws in all_ws
+                        part_name = "/$ws"
+                        if !occursin("PartName=\"$part_name\"", xml_ct)
+                            override_tag = "<Override PartName=\"$part_name\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml\"/>"
+                            pos_types = findlast("</Types>", xml_ct)
+                            if pos_types !== nothing
+                                xml_ct = xml_ct[1:first(pos_types)-1] * override_tag * xml_ct[first(pos_types):end]
                             end
                         end
                     end
-                end
-                
-                if !isempty(sheet_widths)
-                    cols_buf = IOBuffer()
-                    print(cols_buf, "<cols>")
-                    for (i, w) in enumerate(sheet_widths)
-                        print(cols_buf, "<col min=\"", i, "\" max=\"", i, "\" width=\"", w, "\" customWidth=\"1\"/>")
-                    end
-                    print(cols_buf, "</cols>")
-                    cols_tag = String(take!(cols_buf))
+                    write(f_out, xml_ct)
+                elseif name == "xl/workbook.xml"
+                    xml_wb = String(copy(bytes))
+                    # Remove obsolete developer machine absolute path metadata causing external link warning
+                    xml_wb = replace(xml_wb, r"<mc:AlternateContent\b[^>]*>.*?</mc:AlternateContent>"s => "")
+                    write(f_out, xml_wb)
+                elseif m_sheet !== nothing
+                    xml = String(copy(bytes))
+                    # Purge invalid IEEE 754 numeric tokens (NaN, Inf) that cause Excel recovery dialogs
+                    xml = replace(xml, r"<c\b([^>]*\br=\"[A-Z0-9]+\"[^>]*)><v>(?:NaN|Inf|-Inf)<\/v><\/c>" => s"<c\1/>")
+                    xml = replace(xml, r"<v>(?:NaN|Inf|-Inf)<\/v>" => "")
                     
-                    xml = replace(xml, r"<(?:\w+:)?cols\b[^>]*(?:\/>|>.*?<\/(?:\w+:)?cols>)"s => "")
-                    m_data = match(r"<((?:\w+:)?sheetData)[>\s]", xml)
-                    if m_data !== nothing
-                        pos = m_data.offset
-                        xml = xml[1:pos-1] * cols_tag * xml[pos:end]
+                    sheet_filename = m_sheet.captures[1]
+                    
+                    # Resolve target sheet column widths
+                    sheet_widths = Float64[]
+                    if haskey(file_to_sheet, sheet_filename)
+                        sn = file_to_sheet[sheet_filename]
+                        if haskey(col_widths, sn)
+                            sheet_widths = col_widths[sn]
+                        end
                     end
+                    
+                    if isempty(sheet_widths)
+                        idx_match = match(r"sheet(\d+)\.xml", sheet_filename)
+                        if idx_match !== nothing
+                            idx = parse(Int, idx_match.captures[1])
+                            if 1 <= idx <= length(sheet_order)
+                                sn = sheet_order[idx]
+                                if haskey(col_widths, sn)
+                                    sheet_widths = col_widths[sn]
+                                end
+                            end
+                        end
+                    end
+                    
+                    if !isempty(sheet_widths)
+                        cols_buf = IOBuffer()
+                        print(cols_buf, "<cols>")
+                        for (i, w) in enumerate(sheet_widths)
+                            print(cols_buf, "<col min=\"", i, "\" max=\"", i, "\" width=\"", w, "\" customWidth=\"1\"/>")
+                        end
+                        print(cols_buf, "</cols>")
+                        cols_tag = String(take!(cols_buf))
+                        
+                        xml = replace(xml, r"<(?:\w+:)?cols\b[^>]*(?:\/>|>.*?<\/(?:\w+:)?cols>)"s => "")
+                        m_data = match(r"<((?:\w+:)?sheetData)[>\s]", xml)
+                        if m_data !== nothing
+                            pos = m_data.offset
+                            xml = xml[1:pos-1] * cols_tag * xml[pos:end]
+                        end
+                    end
+                    write(f_out, xml)
+                else
+                    write(f_out, bytes)
                 end
-                write(f_out, xml)
-            else
-                write(f_out, bytes)
             end
+        finally
+            close(zout)
         end
-        close(zout)
         mv(temp_file, File; force=true)
     catch e
         isfile(temp_file) && rm(temp_file; force=true)
@@ -840,18 +863,21 @@ FAST_FormatConditionNumber_DDEF(c::Any)    = FAST_FormatConditionNumber_DDEF(FAS
 
 function FAST_FormatConditionNumber_DDEF(c::Real)::Tuple{String, String, String}
     c_f = Float64(c)
+    c_well = C.EVAL_COND_WELL
+    c_crit = C.EVAL_COND_CRIT
     if isnan(c_f)
         return ("N/A", "Unknown", "var(--colour-val3-darlow)")
     elseif isinf(c_f) || c_f > 1e12
         return ("Singular", "Ill-Conditioned Matrix", "var(--colour-chr0-huered)")
-    elseif c_f < 100.0
-        return (@sprintf("%.1f", c_f), "Ideal Orthogonality (κ < 100)", "var(--colour-chr4-tongre)")
-    elseif c_f < 1000.0
-        return (@sprintf("%.0f", c_f), "Well-Conditioned (κ < 1,000)", "var(--colour-chr4-tongre)")
-    elseif c_f < 10000.0
-        return (@sprintf("%.0f", c_f), "Moderate Collinearity (κ < 10,000)", "var(--colour-chr5-hueyel)")
+    elseif c_f < c_well
+        return (@sprintf("%.1f", c_f), @sprintf("Well-conditioned (κ < %g)", c_well), "var(--colour-chr4-tongre)")
+    elseif c_f < c_crit
+        crit_s = c_crit == 1000.0 ? "1,000" : @sprintf("%g", c_crit)
+        return (@sprintf("%.0f", c_f), @sprintf("Moderate ill-conditioning (%g ≤ κ < %s)", c_well, crit_s), "var(--colour-chr5-hueyel)")
     else
-        return (@sprintf("%.1e", c_f), "Ill-Conditioned (κ ≥ 10,000)", "var(--colour-chr0-huered)")
+        val_str = c_f >= 1e4 ? @sprintf("%.1e", c_f) : @sprintf("%.0f", c_f)
+        crit_s = c_crit == 1000.0 ? "1,000" : @sprintf("%g", c_crit)
+        return (val_str, @sprintf("Severe ill-conditioning (κ ≥ %s)", crit_s), "var(--colour-chr0-huered)")
     end
 end
 
@@ -861,11 +887,12 @@ Scientific integrity guard: Validates if a UI input value is a non-empty numeric
 """
 FAST_IsNumericInput_DDEF(::Nothing) = false
 FAST_IsNumericInput_DDEF(::Missing) = false
-FAST_IsNumericInput_DDEF(v::Number)  = !isnan(v)
+FAST_IsNumericInput_DDEF(v::Number)  = isfinite(v)
 function FAST_IsNumericInput_DDEF(v::AbstractString)::Bool
     s = strip(v)
     isempty(s) && return false
-    return !isnothing(tryparse(Float64, replace(s, ',' => '.')))
+    parsed = tryparse(Float64, replace(s, ',' => '.'))
+    return !isnothing(parsed) && isfinite(parsed)
 end
 FAST_IsNumericInput_DDEF(::Any) = false
 
@@ -963,7 +990,7 @@ Converts DataFrames to row-dicts and ensures NaNs/Missings map to 'null'.
 FAST_SanitiseJSON_DDEF(::Nothing) = nothing
 FAST_SanitiseJSON_DDEF(::Missing) = nothing
 function FAST_SanitiseJSON_DDEF(x::AbstractFloat)
-    isnan(x) ? nothing : x
+    !isfinite(x) ? nothing : x
 end
 function FAST_SanitiseJSON_DDEF(x::DataFrame)
     [FAST_SanitiseJSON_DDEF(Dict(string(k) => v for (k, v) in zip(keys(r), values(r)))) for r in eachrow(x)]
@@ -972,7 +999,7 @@ function FAST_SanitiseJSON_DDEF(x::AbstractDict)
     Dict(string(k) => FAST_SanitiseJSON_DDEF(v) for (k, v) in x)
 end
 function FAST_SanitiseJSON_DDEF(x::AbstractMatrix)
-    [FAST_SanitiseJSON_DDEF(x[i, :]) for i in axes(x, 1)]
+    [FAST_SanitiseJSON_DDEF(@view x[i, :]) for i in axes(x, 1)]
 end
 function FAST_SanitiseJSON_DDEF(x::AbstractVector)
     map(FAST_SanitiseJSON_DDEF, x)
@@ -1008,7 +1035,6 @@ Merges incoming experimental topologies with existing historical phases and pres
 function FAST_InitialiseMaster_DDEF(File::AbstractString, InNames::Vector{String}, OutNames::Vector{String}, 
     DesignData::DataFrame, Config::Dict{String,Any}=Dict{String,Any}())::Bool
     try
-        C = FAST_Data_DDEC
         FAST_Log_DDEF("FAST", "INIT_MASTER", "Syncing with DesignData: $File", "WAIT")
 
         # 1. Normalise input data columns and build comprehensive headers
@@ -1038,8 +1064,8 @@ function FAST_InitialiseMaster_DDEF(File::AbstractString, InNames::Vector{String
             n_clean = replace(strip(string(n)), " " => "_")
             res_matches = filter(c -> startswith(c, C.PRE_RESULT * n_clean), data_cols)
             if !isempty(res_matches)
-                for rm in res_matches
-                    rm ∉ headers && push!(headers, rm)
+                for res_col in res_matches
+                    res_col ∉ headers && push!(headers, res_col)
                 end
             else
                 col_res = C.PRE_RESULT * n_clean
@@ -1145,19 +1171,18 @@ end
     FAST_FormatColumn_DDEF(::Val{Role}, name::AbstractString) -> String
 Construct standardised DataFrame column headers prefixed by scientific role tag.
 """
-FAST_FormatColumn_DDEF(::Val{:Mass}, name::AbstractString)      = FAST_Data_DDEC.PRE_MASS * name * "_mg"
-FAST_FormatColumn_DDEF(::Val{:Variable}, name::AbstractString)  = FAST_Data_DDEC.PRE_VAR * name
-FAST_FormatColumn_DDEF(::Val{:Result}, name::AbstractString)    = FAST_Data_DDEC.PRE_RESULT * name
-FAST_FormatColumn_DDEF(::Val{:Predicted}, name::AbstractString) = FAST_Data_DDEC.PRE_PRED * name
-FAST_FormatColumn_DDEF(::Val{:Fixed}, name::AbstractString)     = FAST_Data_DDEC.PRE_FIXED * name
-FAST_FormatColumn_DDEF(::Val{:Filler}, name::AbstractString)    = FAST_Data_DDEC.PRE_FILL * name
-FAST_FormatColumn_DDEF(::Val{:Actual}, name::AbstractString)    = FAST_Data_DDEC.PRE_ACTUAL * name
+FAST_FormatColumn_DDEF(::Val{:Mass}, name::AbstractString)      = C.PRE_MASS * name * "_mg"
+FAST_FormatColumn_DDEF(::Val{:Variable}, name::AbstractString)  = C.PRE_VAR * name
+FAST_FormatColumn_DDEF(::Val{:Result}, name::AbstractString)    = C.PRE_RESULT * name
+FAST_FormatColumn_DDEF(::Val{:Predicted}, name::AbstractString) = C.PRE_PRED * name
+FAST_FormatColumn_DDEF(::Val{:Fixed}, name::AbstractString)     = C.PRE_FIXED * name
+FAST_FormatColumn_DDEF(::Val{:Filler}, name::AbstractString)    = C.PRE_FILL * name
+FAST_FormatColumn_DDEF(::Val{:Actual}, name::AbstractString)    = C.PRE_ACTUAL * name
 FAST_FormatColumn_DDEF(::Val{T}, name::AbstractString) where {T} = name
 
 function FAST_InitialiseMaster_DDEF(File::AbstractString, InNames::Vector{String}, OutNames::Vector{String}, 
     ::Nothing=nothing, Config::Dict{String,Any}=Dict{String,Any}())::Bool
     try
-        C = FAST_Data_DDEC
         FAST_Log_DDEF("FAST", "INIT_MASTER", "Baseline Initialisation: $File", "WAIT")
 
         headers = [C.COL_EXP_ID, C.COL_PHASE, C.COL_STATUS, C.COL_NOTES]
@@ -1177,7 +1202,10 @@ function FAST_InitialiseMaster_DDEF(File::AbstractString, InNames::Vector{String
         end
         C.COL_SCORE ∉ headers && push!(headers, C.COL_SCORE)
 
-        df_final_data = DataFrame([h => [] for h in headers]...)
+        df_final_data = DataFrame([
+            h => (h in (C.COL_EXP_ID, C.COL_PHASE, C.COL_STATUS, C.COL_NOTES) ? Union{Missing, String}[] : Union{Missing, Float64}[])
+            for h in headers
+        ]...)
         
         FAST_FinaliseMasterWrite_DDEF(File, df_final_data, Config)
         return true
@@ -1189,7 +1217,6 @@ end
 
 # Internal utility to handle the atomicity of Master write operations.
 function FAST_FinaliseMasterWrite_DDEF(File::AbstractString, df::DataFrame, Config::Dict)
-    C = FAST_Data_DDEC
     FAST_RoundColumns_DDEF!(df)
     
     clean_config = FAST_SanitiseJSON_DDEF(Config)
@@ -1364,7 +1391,6 @@ function FAST_ReadConfig_DDEF(File::AbstractString)::Dict{String,Any}
     !isnothing(cached) && return cached
 
     try
-        C = FAST_Data_DDEC
         df = FAST_ReadExcel_DDEF(File, C.SHEET_CONFIG)
         isempty(df) && return Dict{String,Any}()
         
@@ -1398,7 +1424,6 @@ FAST_UpdateConfig_DDEF(::Nothing, ::Dict) = false
 function FAST_UpdateConfig_DDEF(File::AbstractString, Updates::Dict)::Bool
     try
         (isempty(File) || !isfile(File)) && return false
-        C = FAST_Data_DDEC
 
         current_config = FAST_ReadConfig_DDEF(File)
         for (k, v) in Updates
@@ -1613,7 +1638,6 @@ function FAST_DetectPhaseMethod_DDEF(Config::AbstractDict, df_data::DataFrame, P
     end
     
     # 2. Inspect DataFrame run count for this phase
-    C = FAST_Data_DDEC
     col_p = Symbol(C.COL_PHASE)
     if hasproperty(df_data, col_p)
         r_count = count(p -> !ismissing(p) && replace(strip(string(p)), " " => "") == clean_p, df_data[!, col_p])
@@ -1662,7 +1686,6 @@ function FAST_DetectActivePhase_DDEF(df_data::DataFrame, Phases::AbstractVector)
     isempty(Phases) && return "Phase1"
     length(Phases) == 1 && return string(Phases[1])
     
-    C = FAST_Data_DDEC
     col_p = Symbol(C.COL_PHASE)
     !hasproperty(df_data, col_p) && return string(Phases[1])
     
@@ -1999,7 +2022,7 @@ function FAST_GetColumn_DDEF(df::DataFrame, Target::AbstractString)::String
     for n in names(df)
         n_str = string(n)
         n_norm = norm_col(n_str)
-        if startswith(n_norm, t_norm) && (length(n_norm) == length(t_norm) || n_norm[length(t_norm)+1] in ('_', ' ', '(', '%'))
+        if startswith(n_norm, t_norm) && (ncodeunits(n_norm) == ncodeunits(t_norm) || n_norm[ncodeunits(t_norm) + 1] in ('_', ' ', '(', '%'))
             return n_str
         end
     end
@@ -2014,11 +2037,10 @@ Standardises column headers through the removal of internal system prefixes.
 function FAST_SanitiseHeader_DDEF(Header::AbstractString)
     h = strip(string(Header))
     isempty(h) && return ""
-    C = FAST_Data_DDEC
     prefixes = (C.PRE_VAR, C.PRE_FIXED, C.PRE_FILL, C.PRE_MASS, C.PRE_RESULT, C.PRE_PRED, C.PRE_CHRO, C.PRE_ACTUAL, C.PRE_TIME_FORW, C.PRE_TIME_REVE, C.PRE_TIME_DCYP)
     for pfx in prefixes
         if startswith(uppercase(h), uppercase(pfx))
-            return string(strip(h[nextind(h, length(pfx)):end]))
+            return string(strip(chop(h; head=length(pfx), tail=0)))
         end
     end
     return h
@@ -2048,7 +2070,6 @@ System -> Mass -> Variables -> Fixed -> Fill -> Results -> Predictions -> Score 
 """
 function FAST_SortColumns_DDEF(cols::Vector{String})::Vector{String}
     isempty(cols) && return cols
-    C = FAST_Data_DDEC
 
     b_sys    = String[]
     b_mass   = String[]
@@ -2062,11 +2083,12 @@ function FAST_SortColumns_DDEF(cols::Vector{String})::Vector{String}
     b_time   = String[]
     b_other  = String[]
 
-    sys_order = [C.COL_EXP_ID, C.COL_PHASE, C.COL_STATUS, C.COL_NOTES, C.COL_RUN_ORDER]
+    sys_order = (C.COL_EXP_ID, C.COL_PHASE, C.COL_STATUS, C.COL_NOTES, C.COL_RUN_ORDER)
+    sys_order_up = uppercase.(sys_order)
 
     for col in cols
         c_up = uppercase(strip(col))
-        if col in sys_order || c_up in uppercase.(sys_order)
+        if col in sys_order || c_up in sys_order_up
             push!(b_sys, col)
         elseif startswith(c_up, uppercase(C.PRE_MASS))
             push!(b_mass, col)
@@ -2144,10 +2166,10 @@ function FAST_AssembleSvgPlate_DDEF(Images::AbstractVector{<:AbstractString}, La
         ty_str = @sprintf("%.3f", ty)
 
         raw = Images[i]
-        b64 = if isfile(raw)
-            Base64.base64encode(read(raw))
-        elseif startswith(raw, "data:image/png;base64,")
+        b64 = if startswith(raw, "data:image/png;base64,")
             raw[23:end]
+        elseif !occursin('\n', raw) && ncodeunits(raw) <= 512 && isfile(raw)
+            Base64.base64encode(read(raw))
         else
             raw
         end

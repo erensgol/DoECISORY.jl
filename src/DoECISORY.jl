@@ -28,7 +28,7 @@ module DoECISORY
 # ==============================================================================
 # DOECISORY - ROOT PACKAGE ENTRY POINT
 # ==============================================================================
-# Version:     v0.2.0  | October 2026
+# Version:     v0.2.2  | November 2026
 # Author:      Eren Selim GÖL, MPharm 
 # Description: Package root for DoECISORY. Integrates submodules, exports 
 #              public APIs, and provides high-level entry points.

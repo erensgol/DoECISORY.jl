@@ -8,6 +8,9 @@ using LoggingExtras
 
 # ---------------------
 
+const C = FAST_Data_DDEC
+
+# ---------------------
 """
     CALL_ResolvePort_DDEF(port::Int) -> Int
 Direct passthrough dispatch when an explicit port integer is provided.
@@ -73,7 +76,7 @@ function CALL_Launch_DDEF(; host::String="0.0.0.0", port::Union{Int, Nothing}=no
 
             println("\e[1m                  \e[32m_\e[0m")
             println("\e[1m      \e[34m_\e[0m       _ \e[31m_\e[32m(_)\e[35m_\e[0m     |")
-            println("\e[1m     \e[34m(_)\e[0m     | \e[31m(_)\e[0m \e[35m(_)\e[0m    |  \e[1mDoECISORY\e[0m $(FAST_Data_DDEC.VERSION)")
+            println("\e[1m     \e[34m(_)\e[0m     | \e[31m(_)\e[0m \e[35m(_)\e[0m    |  \e[1mDoECISORY\e[0m $(C.VERSION)")
             println("\e[1m      _ _   _| |_  __ _   |  System Status: $status\e[0m")
             println("\e[1m     | | | | | | |/ _` |  |  Author: E.S. GÖL, MPharm")
             println("\e[1m     | | |_| | | | (_| |  |  Department of Radiopharmacy")
@@ -237,6 +240,7 @@ function CALL_Design_DDEF(
     else
         length(limits) != 3 && throw(ArgumentError("Limits vector must specify bounds for exactly 3 factors."))
         for item in limits
+            length(item) != 2 && throw(ArgumentError("Each factor limit specification must contain exactly 2 bounds: (Min, Max)."))
             push!(norm_limits, (Float64(item[1]), Float64(item[2])))
         end
     end
@@ -275,7 +279,7 @@ function Base.show(io::IO, d::CALL_Design_DDES)
         l1, l2, l3 = d.levels[i]
         println(io, "    • $(d.factors[i]): L1=$l1, L2=$l2, L3=$l3")
     end
-    d_eff = get(d.metrics, "D", get(d.metrics, "D_Efficiency", 0.0))
+    d_eff = d.metrics["D"]
     print(io, "  D-Efficiency: $(round(d_eff * 100.0; digits=2))%")
 end
 # ---------------------
