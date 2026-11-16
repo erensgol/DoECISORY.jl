@@ -1056,6 +1056,8 @@ function DECK_RegisterCallbacks_DDEF(app)
         Output("deck-dir-x1",        "value"),
         Output("deck-dir-x2",        "value"),
         Output("deck-dir-x3",        "value"),
+        Output("deck-upload-memo",   "contents"),
+        Output("deck-upload",        "contents"),
         
         Input("deck-btn-add-row",        "n_clicks"),
         Input("deck-btn-clear",          "n_clicks"),
@@ -1145,7 +1147,7 @@ function DECK_RegisterCallbacks_DDEF(app)
                 end
 
                 if trig == ""
-                    return (ntuple(_ -> Dash.no_update(), 21)...,)
+                    return (ntuple(_ -> Dash.no_update(), 23)...,)
                 end
             else
                 trig = split(ctx.triggered[1].prop_id, ".")[1]
@@ -1156,9 +1158,9 @@ function DECK_RegisterCallbacks_DDEF(app)
             end
 
             # Orchestration of the standardised callback return protocol.
-            assemble_return(store, table, ph_opts, vol, conc, proj, method, msg, dl, up_stat, ph_val, stoch, out_vals, dir_vals=(Dash.no_update(), Dash.no_update(), Dash.no_update())) =
-                (store, table, ph_opts, vol, conc, proj, method, msg, dl, up_stat, ph_val, stoch, out_vals..., dir_vals...)
-            RET_NO = ntuple(_ -> Dash.no_update(), 21)
+            assemble_return(store, table, ph_opts, vol, conc, proj, method, msg, dl, up_stat, ph_val, stoch, out_vals, dir_vals=(Dash.no_update(), Dash.no_update(), Dash.no_update()); up_memo_c=Dash.no_update(), up_data_c=Dash.no_update()) =
+                (store, table, ph_opts, vol, conc, proj, method, msg, dl, up_stat, ph_val, stoch, out_vals..., dir_vals..., up_memo_c, up_data_c)
+            RET_NO = ntuple(_ -> Dash.no_update(), 23)
 
 # ------------------------------------------------------------------------------
 # SECTION 9: SYSTEM LEVEL HELPERS (POLYMORPHIC)
@@ -1180,7 +1182,7 @@ function DECK_RegisterCallbacks_DDEF(app)
             dir_vec_v = [dx1, dx2, dx3]
 
             if trig == "deck-prop-trigger-save"
-                isnothing(save_prop_trig) && return ntuple(_ -> Dash.no_update(), 21)
+                isnothing(save_prop_trig) && return RET_NO
                 
                 current_rows = DECK_CaptureRows_DDEF(store_data, all_names, all_l1s, all_l2s, all_l3s, all_mins, all_maxs, all_mws, all_units)
 
@@ -1226,15 +1228,15 @@ function DECK_RegisterCallbacks_DDEF(app)
                     cur_vault = !isnothing(store_data) ? get(store_data, "vault", get(store_data, :vault, nothing)) : nothing
                     count_val = isnothing(store_data) ? length(new_rows) : FAST_SafeGet_DDEF(store_data, "count", length(new_rows))
                     new_store = Dict{String,Any}("rows" => new_rows, "count" => count_val, "vault" => cur_vault)
-                    return (new_store, ntuple(_ -> Dash.no_update(), 20)...)
+                    return (new_store, ntuple(_ -> Dash.no_update(), 22)...)
                 end
-                return ntuple(_ -> Dash.no_update(), 21)
+                return RET_NO
             end
 
             # Automated Unit Synchronisation Protocol for stoichiometric consistency.
             if trig == "deck-stoch-trigger-unit"
                 st_data = args[idx_gl+6] 
-                isnothing(st_data) && return ntuple(_ -> Dash.no_update(), 21)
+                isnothing(st_data) && return RET_NO
 
                 has_fill = get(st_data, "FillerName", "") != "" && DECK_SafeNumZero_DDEF(get(st_data, "FillerMW", 0.0)) > 0.0
 
@@ -1253,9 +1255,9 @@ function DECK_RegisterCallbacks_DDEF(app)
                     end
                     cur_vault = !isnothing(store_data) ? get(store_data, "vault", get(store_data, :vault, nothing)) : nothing
                     ns = Dict{String,Any}("rows" => new_rows, "count" => isnothing(store_data) ? length(new_rows) : FAST_SafeGet_DDEF(store_data, "count", length(new_rows)), "vault" => cur_vault)
-                    return (ns, ntuple(_ -> Dash.no_update(), 20)...)
+                    return (ns, ntuple(_ -> Dash.no_update(), 22)...)
                 end
-                return ntuple(_ -> Dash.no_update(), 21)
+                return RET_NO
             end
 
             NO = Dash.no_update()
@@ -1294,12 +1296,15 @@ function DECK_RegisterCallbacks_DDEF(app)
                 return assemble_return(Dict("rows" => rows, "count" => 6), rows, [Dict("label" => "Phase 1", "value" => "Phase1")], 0.0, 0.0, "", "BB15", lbl, NO, "No data source", "Phase1", empty_stoch, vcat(["", "", ""], ["-", "-", "-"]), (-1, -1, -1))
 
             # Import of high-fidelity user profiles via JSON deserialisation.
-            elseif trig == "deck-upload-memo" && !isnothing(up_memo) && up_memo != ""
+            elseif trig == "deck-upload-memo"
+                (isnothing(up_memo) || up_memo == "") && return RET_NO
                 try
                     base64_data = split(up_memo, ",")[end]
                     json_str = String(base64decode(base64_data))
                     memo = JSON3.read(json_str)
-                    loaded_rows = DECK_MapImportRow_DDEF(FAST_SafeGet_DDEF(memo, "Inputs", []))
+                    raw_ingreds = FAST_SafeGet_DDEF(memo, "Ingredients", FAST_SafeGet_DDEF(memo, "Inputs", []))
+                    filtered_ingreds = filter(itm -> string(get(itm, "Role", get(itm, :Role, ""))) != "Filler", raw_ingreds)
+                    loaded_rows = DECK_MapImportRow_DDEF(filtered_ingreds)
                     lbl = html_div([html_i(className="fas fa-folder-open me-2"), "Memory Loaded"],
                                    className="badge p-2 w-100", style=Dict("color" => "var(--colour-val0-purwhi)", "backgroundColor" => "var(--colour-chr3-toncya)", "fontSize" =>"0.85rem"))
                     real_count = 0
@@ -1329,10 +1334,11 @@ function DECK_RegisterCallbacks_DDEF(app)
                     memo_outs = get(memo, "Outputs", [])
                     out_vals = vcat([i <= length(memo_outs) ? get(memo_outs[i], "Name", "") : "" for i in 1:3], [i <= length(memo_outs) ? get(memo_outs[i], "Unit", "-") : "-" for i in 1:3])
                     dir_vals = FAST_ExtractDirections_DDEF(g, loaded_rows)
-                    return assemble_return(Dict("rows" => loaded_rows[1:DECK_MaxRows_DDEC], "count" => nc), loaded_rows[1:DECK_MaxRows_DDEC], NO, vol_v, conc_v, proj_v, method_v, lbl, NO, NO, NO, loaded_stoch, out_vals, dir_vals)
+                    ph_opts = [Dict("label" => "Phase 1", "value" => "Phase1")]
+                    return assemble_return(Dict("rows" => loaded_rows[1:DECK_MaxRows_DDEC], "count" => nc), loaded_rows[1:DECK_MaxRows_DDEC], ph_opts, vol_v, conc_v, proj_v, method_v, lbl, NO, "No data source", "Phase1", loaded_stoch, out_vals, dir_vals; up_memo_c=nothing)
                 catch e
                     err_lbl = html_div("❌ Load Error: $e", className="badge w-100 p-2", style=Dict("color" => "var(--colour-val0-purwhi)", "backgroundColor" => "var(--colour-chr0-huered)"))
-                    return assemble_return(NO, NO, NO, NO, NO, NO, NO, err_lbl, NO, NO, NO, NO, fill(NO, 6))
+                    return assemble_return(NO, NO, NO, NO, NO, NO, NO, err_lbl, NO, NO, NO, NO, fill(NO, 6); up_memo_c=nothing)
                 end
 
             # Component template restoration from standardised DDE vault records.
@@ -1452,7 +1458,8 @@ function DECK_RegisterCallbacks_DDEF(app)
                     push!(new_rs, nr)
                 end
                 
-                n_st = Dict{String,Any}("rows" => new_rs, "count" => isnothing(store_data) ? length(new_rs) : FAST_SafeGet_DDEF(store_data, "count", length(new_rs)))
+                cur_vault = !isnothing(store_data) ? get(store_data, "vault", get(store_data, :vault, nothing)) : nothing
+                n_st = Dict{String,Any}("rows" => new_rs, "count" => isnothing(store_data) ? length(new_rs) : FAST_SafeGet_DDEF(store_data, "count", length(new_rs)), "vault" => cur_vault)
                 return assemble_return(n_st, NO, NO, new_stoch["Volume"], new_stoch["Conc"], NO, NO, NO, NO, NO, NO, new_stoch, fill(NO, 6))
 
             elseif trig == "deck-upload" && !isnothing(up_cont)
@@ -1511,11 +1518,11 @@ function DECK_RegisterCallbacks_DDEF(app)
                         )
                         dir_vals = FAST_ExtractDirections_DDEF(g, filtered_ingreds)
                         return assemble_return(Dict("rows" => mapped[1:DECK_MaxRows_DDEC], "count" => nc), mapped[1:DECK_MaxRows_DDEC], ph_opts,
-                            get(g, "Volume", 0.0), get(g, "Conc", 0.0), proj_v, method_val, NO, NO, stat_msg, "Phase1", loaded_stoch, out_vals, dir_vals)
+                            get(g, "Volume", 0.0), get(g, "Conc", 0.0), proj_v, method_val, NO, NO, stat_msg, "Phase1", loaded_stoch, out_vals, dir_vals; up_data_c=nothing)
                     else
                         tmp = FAST_GetTransientPath_DDEF(up_cont)
                         if !isfile(tmp)
-                             return assemble_return(NO, NO, NO, NO, NO, proj_v, NO, html_div("❌ Data session stale. Please re-upload.", className="badge w-100 p-2", style=Dict("color" => "var(--colour-val0-purwhi)", "backgroundColor" => "var(--colour-chr0-huered)")), NO, NO, NO, NO, fill(NO, 6))
+                             return assemble_return(NO, NO, NO, NO, NO, proj_v, NO, html_div("❌ Data session stale. Please re-upload.", className="badge w-100 p-2", style=Dict("color" => "var(--colour-val0-purwhi)", "backgroundColor" => "var(--colour-chr0-huered)")), NO, NO, NO, NO, fill(NO, 6); up_data_c=nothing)
                         end
 
                         cfg, df_data = try
@@ -1583,20 +1590,23 @@ function DECK_RegisterCallbacks_DDEF(app)
 
                             dir_vals = FAST_ExtractDirections_DDEF(g, filtered_ingreds, active_ph)
                             return assemble_return(Dict("rows" => mapped[1:DECK_MaxRows_DDEC], "count" => nc, "vault" => up_cont), mapped[1:DECK_MaxRows_DDEC], ph_opts,
-                                get(g, "Volume", 0.0), get(g, "Conc", 0.0), proj_v, method_val, NO, NO, stat_msg, active_ph, loaded_stoch, out_vals, dir_vals)
+                                get(g, "Volume", 0.0), get(g, "Conc", 0.0), proj_v, method_val, NO, NO, stat_msg, active_ph, loaded_stoch, out_vals, dir_vals; up_data_c=nothing)
                         end
                     end
                 catch e
                     @error "Import failed" exception = (e, catch_backtrace())
-                    return assemble_return(NO, NO, NO, NO, NO, NO, NO, html_div("❌ Import Failed: $e", className="badge w-100 p-2", style=Dict("color" => "var(--colour-val0-purwhi)", "backgroundColor" => "var(--colour-chr0-huered)")), NO, NO, NO, NO, fill(NO, 6))
+                    return assemble_return(NO, NO, NO, NO, NO, NO, NO, html_div("❌ Import Failed: $e", className="badge w-100 p-2", style=Dict("color" => "var(--colour-val0-purwhi)", "backgroundColor" => "var(--colour-chr0-huered)")), NO, NO, NO, NO, fill(NO, 6); up_data_c=nothing)
                 end
             end
 
-            if trig == "deck-upload" && (isnothing(up_cont) || up_cont == "")
-                return assemble_return(NO, NO, [Dict("label" => "Loading...", "value" => "NONE")], NO, NO, NO, NO, NO, NO, "No data source", "NONE", NO, fill(NO, 6))
+            if trig == "deck-upload"
+                isnothing(up_cont) && return RET_NO
+                if up_cont == ""
+                    return assemble_return(NO, NO, [Dict("label" => "Loading...", "value" => "NONE")], NO, NO, NO, NO, NO, NO, "No data source", "NONE", NO, fill(NO, 6))
+                end
             end
 
-            return (ntuple(_ -> Dash.no_update(), 21)...,)
+            return RET_NO
 
         catch e
             bt = sprint(showerror, e, catch_backtrace())
@@ -1609,7 +1619,7 @@ function DECK_RegisterCallbacks_DDEF(app)
                     html_span("Design Orchestrator Error: $(first(string(e), 60))", className="fw-bold")
  ], className="badge w-100 p-2 shadow-sm", style=Dict("color" => "var(--colour-val0-purwhi)", "backgroundColor" => "var(--colour-chr0-huered)", "fontSize" =>"0.75rem"))
 
-            return (ntuple(_ -> Dash.no_update(), 7)..., err_msg, ntuple(_ -> Dash.no_update(), 13)...)
+            return (ntuple(_ -> Dash.no_update(), 7)..., err_msg, ntuple(_ -> Dash.no_update(), 15)...)
         end
     end
 
@@ -1883,14 +1893,10 @@ function DECK_RegisterCallbacks_DDEF(app)
                 ))
             end
 
+            # Inherit an existing workbook only when explicitly loaded into Design Deck;
+            # fresh designs, templates, and JSON imports must not merge with prior session vaults.
             stored_vault = !isnothing(store_data) ? get(store_data, "vault", get(store_data, :vault, nothing)) : nothing
-            vault_source = if !isnothing(stored_vault) && !isempty(stored_vault)
-                stored_vault
-            elseif !isnothing(master_vault) && !isempty(master_vault)
-                master_vault
-            else
-                nothing
-            end
+            vault_source = (!isnothing(stored_vault) && !isempty(stored_vault)) ? stored_vault : nothing
 
             path = !isnothing(vault_source) ? FAST_GetTransientPath_DDEF(vault_source) : FAST_GetTransientPath_DDEF()
             target_phase_str = isnothing(sel_phase) ? nothing : string(sel_phase)

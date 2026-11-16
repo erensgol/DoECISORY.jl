@@ -1070,9 +1070,11 @@ function ARTS_Draw_DDEF(::ARTS_PlotSlice_DDES, Model::AbstractDict, X::AbstractM
     end
 
     layout = ARTS_BuildBaseLayout_DDEF("Interaction Slices: $OutName")
+    lbl_text = "$(Lbls[2]):"
+    lbl_size = clamp(floor(Int, ARTS_SizeLegendText_DDEC * 14 / max(length(lbl_text), 1)), 9, ARTS_SizeLegendText_DDEC)
     layout[:annotations] = [
         attr(
-            text="<b>$(Lbls[2]):</b>",
+            text="<b>$lbl_text</b>",
             xref="paper",
             yref="paper",
             x=0.31,
@@ -1081,7 +1083,7 @@ function ARTS_Draw_DDEF(::ARTS_PlotSlice_DDES, Model::AbstractDict, X::AbstractM
             yanchor="middle",
             showarrow=false,
             font=attr(
-                size=ARTS_SizeLegendText_DDEC,
+                size=lbl_size,
                 family=ARTS_Theme_DDEC.FONT,
                 color=ARTS_Theme_DDEC.PURBLA,
                 weight="bold"

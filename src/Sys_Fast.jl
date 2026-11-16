@@ -1100,6 +1100,7 @@ function FAST_InitialiseMaster_DDEF(File::AbstractString, InNames::Vector{String
         end
         df_final_data = select!(df_new, headers)
 
+        merged = false
         if isfile(File)
             try
                 df_old = FAST_ReadExcel_DDEF(File, C.SHEET_DATA)
@@ -1116,45 +1117,51 @@ function FAST_InitialiseMaster_DDEF(File::AbstractString, InNames::Vector{String
                         end
                     end
 
-                    all_headers = FAST_SortColumns_DDEF(unique(vcat(names(df_old), headers)))
-                    for h in setdiff(all_headers, names(df_old))
-                        if startswith(h, C.PRE_FILL)
-                            backfilled = false
-                            try
-                                f_ing = replace(h, C.PRE_FILL => "")
-                                m_u = match(r"^(.*)_[^_]+$", f_ing)
-                                base_ing = !isnothing(m_u) ? m_u.captures[1] : f_ing
-                                mass_col = C.PRE_MASS * base_ing * "_mg"
-                                g_cfg = get(Config, "Global", Dict{String,Any}())
-                                c_vol = FAST_SafeNum_DDEF(get(g_cfg, "Volume", 0.0))
-                                c_conc = FAST_SafeNum_DDEF(get(g_cfg, "Conc", 0.0))
-                                budget = (c_vol / 1000.0) * c_conc
-                                
-                                ings = get(Config, "Ingredients", [])
-                                f_match = findfirst(r -> string(get(r, "Name", "")) == base_ing || replace(string(get(r, "Name", "")), " " => "_") == base_ing, ings)
-                                f_mw = !isnothing(f_match) ? FAST_SafeNum_DDEF(get(ings[f_match], "MW", 0.0)) : 0.0
-                                
-                                if hasproperty(df_old, Symbol(mass_col)) && budget > 0.0 && f_mw > 0.0
-                                    m_vals = [FAST_SafeNum_DDEF(v) for v in df_old[!, Symbol(mass_col)]]
-                                    df_old[!, h] = [round((m / f_mw / budget) * 100.0, digits=3) for m in m_vals]
-                                    backfilled = true
+                    # Drop obsolete columns if no historical rows remain after pending-run replacement.
+                    if !isempty(df_old)
+                        all_headers = FAST_SortColumns_DDEF(unique(vcat(names(df_old), headers)))
+                        for h in setdiff(all_headers, names(df_old))
+                            if startswith(h, C.PRE_FILL)
+                                backfilled = false
+                                try
+                                    f_ing = replace(h, C.PRE_FILL => "")
+                                    m_u = match(r"^(.*)_[^_]+$", f_ing)
+                                    base_ing = !isnothing(m_u) ? m_u.captures[1] : f_ing
+                                    mass_col = C.PRE_MASS * base_ing * "_mg"
+                                    g_cfg = get(Config, "Global", Dict{String,Any}())
+                                    c_vol = FAST_SafeNum_DDEF(get(g_cfg, "Volume", 0.0))
+                                    c_conc = FAST_SafeNum_DDEF(get(g_cfg, "Conc", 0.0))
+                                    budget = (c_vol / 1000.0) * c_conc
+                                    
+                                    ings = get(Config, "Ingredients", [])
+                                    f_match = findfirst(r -> string(get(r, "Name", "")) == base_ing || replace(string(get(r, "Name", "")), " " => "_") == base_ing, ings)
+                                    f_mw = !isnothing(f_match) ? FAST_SafeNum_DDEF(get(ings[f_match], "MW", 0.0)) : 0.0
+                                    
+                                    if hasproperty(df_old, Symbol(mass_col)) && budget > 0.0 && f_mw > 0.0
+                                        m_vals = [FAST_SafeNum_DDEF(v) for v in df_old[!, Symbol(mass_col)]]
+                                        df_old[!, h] = [round((m / f_mw / budget) * 100.0, digits=3) for m in m_vals]
+                                        backfilled = true
+                                    end
+                                catch
                                 end
-                            catch
+                                !backfilled && (df_old[!, h] = fill(missing, nrow(df_old)))
+                            else
+                                df_old[!, h] = fill(missing, nrow(df_old))
                             end
-                            !backfilled && (df_old[!, h] = fill(missing, nrow(df_old)))
-                        else
-                            df_old[!, h] = fill(missing, nrow(df_old))
                         end
+                        for h in setdiff(all_headers, names(df_final_data))
+                            df_final_data[!, h] = fill(missing, nrow(df_final_data))
+                        end
+                        df_final_data = vcat(df_old[:, all_headers], df_final_data[:, all_headers])
+                        merged = true
                     end
-                    for h in setdiff(all_headers, names(df_final_data))
-                        df_final_data[!, h] = fill(missing, nrow(df_final_data))
-                    end
-                    df_final_data = vcat(df_old[:, all_headers], df_final_data[:, all_headers])
                 end
             catch e
                 FAST_Log_DDEF("FAST", "MERGE_WARN", "Structural merge failed: $e", "WARN")
             end
-        else
+        end
+
+        if !merged
             all_headers = FAST_SortColumns_DDEF(headers)
             df_final_data = df_final_data[:, all_headers]
         end

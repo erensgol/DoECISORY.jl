@@ -597,6 +597,7 @@ function LENS_BuildLayout_DDEF()
                 dcc_store(id="lens-store-graphs-blob",   data=""),
                 dcc_store(id="lens-store-batch-status",  data=Dict("next_pkg" => 0, "handle" => "", "expected" => 0)),
                 dcc_store(id="lens-store-toast",         data=Dict("msg" => "", "status" => "idle")),
+                dcc_store(id="lens-store-goals-state",   data=Dict("locked" => false, "auto" => Any[])),
                 dcc_interval(id="lens-interval-batch", interval=2000, n_intervals=0, disabled=true),
             ]; xs=12, md=9),
         ], className="g-3"),
@@ -839,7 +840,7 @@ function LENS_BuildLayout_DDEF()
                             dbc_row([
                                 dbc_col([
                                     html_label("Actual Alias", className="x-small text-muted mb-0 d-block"),
-                                    dbc_input(id="lens-radio-in-name-1", placeholder="e.g. Decayed Precursor", type="text", size="sm", className="form-control-sm")
+                                    dbc_input(id="lens-radio-in-name-1", placeholder="e.g. Eff. Precursor", type="text", size="sm", className="form-control-sm")
                                 ], width=8),
                                 dbc_col([
                                     html_label("Unit", className="x-small text-muted mb-0 d-block"),
@@ -1186,6 +1187,60 @@ function LENS_GetGraphMeta_DDEF(g::AbstractDict)::Tuple{String, Int, Int}
     return (string(get(g, "type", "")), Int(get(g, "out_idx", 0)), Int(get(g, "sub_idx", 0)))
 end
 
+"""
+    LENS_PreserveGoals_DDEF!(goals_name, goals_min, goals_target, goals_max, goals_type, goals_weight, ui_args, goals_state) -> Tuple{Bool, Any}
+Preserve user-entered or JSON-loaded goal criteria across dataset/phase reloads until Reset Goals is clicked.
+"""
+function LENS_PreserveGoals_DDEF!(
+    goals_name::Vector{String}, goals_min::Vector{Float64}, goals_target::Vector{Float64},
+    goals_max::Vector{Float64}, goals_type::Vector{String}, goals_weight::Vector{String},
+    ui_args::Union{AbstractVector, Tuple}, goals_state
+)
+    norm_s(s; base=false) = let t = replace(replace(strip(string(something(s, ""))), "_" => " "), r"\s+" => " ")
+        lowercase(base ? split(split(t, "(")[1], "[")[1] : t)
+    end
+    is_locked = (goals_state isa AbstractDict) && (get(goals_state, "locked", get(goals_state, :locked, false)) == true)
+    auto_snap = (goals_state isa AbstractDict) ? get(goals_state, "auto", get(goals_state, :auto, Any[])) : Any[]
+    has_snap  = (auto_snap isa AbstractVector) && length(auto_snap) >= 3
+    num_eq(a, b) = let na = FAST_SafeNum_DDEF(a), nb = FAST_SafeNum_DDEF(b)
+        (isnan(na) && isnan(nb)) || (!isnan(na) && !isnan(nb) && abs(na - nb) <= 1e-6) || (!has_snap && isnan(na) && !isnan(nb) && abs(nb) < 1e-12)
+    end
+
+    ui_names, ui_mins, ui_targets, ui_maxs, ui_types, ui_weights =
+        ui_args[1:3], ui_args[4:6], ui_args[7:9], ui_args[10:12], ui_args[13:15], ui_args[16:18]
+
+    edited = map(1:3) do j
+        ref = has_snap && auto_snap[j] isa AbstractVector && length(auto_snap[j]) >= 5 ?
+              auto_snap[j] : Any[0.0, 0.0, 0.0, "Nominal", 1.0]
+        tp  = isnothing(ui_types[j]) || ismissing(ui_types[j]) ? "Nominal" : string(ui_types[j])
+        wt_ok = num_eq(ui_weights[j], ref[5]) || (!has_snap && (isnothing(ui_weights[j]) || ismissing(ui_weights[j])))
+        !(num_eq(ui_mins[j], ref[1]) && num_eq(ui_targets[j], ref[2]) && num_eq(ui_maxs[j], ref[3]) &&
+          tp == string(ref[4]) && wt_ok)
+    end
+    !(is_locked || any(edited)) && return (false, auto_snap)
+
+    for i in 1:3
+        t = goals_name[i]
+        m = isempty(strip(t)) ? nothing : something(
+            findfirst(j -> !isnothing(ui_names[j]) && norm_s(ui_names[j]) == norm_s(t), 1:3),
+            findfirst(j -> !isnothing(ui_names[j]) && !isempty(strip(string(ui_names[j]))) && norm_s(ui_names[j]; base=true) == norm_s(t; base=true), 1:3),
+            Some(nothing)
+        )
+        j = isnothing(m) ? i : m
+        (!is_locked && !edited[j]) && continue
+
+        for (src, dst) in ((ui_mins[j], goals_min), (ui_targets[j], goals_target), (ui_maxs[j], goals_max))
+            v = FAST_SafeNum_DDEF(src)
+            !isnan(v) && (dst[i] = v)
+        end
+        tp = isnothing(ui_types[j]) || ismissing(ui_types[j]) ? "" : string(ui_types[j])
+        tp in ("Nominal", "Maximise", "Minimise") && (goals_type[i] = tp)
+        wt = FAST_SafeNum_DDEF(ui_weights[j])
+        !isnan(wt) && (goals_weight[i] = Printf.@sprintf("%.2f", wt))
+    end
+    return (true, auto_snap)
+end
+
 # ==============================================================================
 # PART B: CALLBACKS
 # ==============================================================================
@@ -1333,6 +1388,8 @@ function LENS_RegisterCallbacks_DDEF(app)
         Output("lens-memo-msg",             "children"),
         Output("lens-store-toast",          "data"),
         Output("lens-download-config-json", "data"),
+        Output("lens-upload-config-json",   "contents"),
+        Output("lens-store-goals-state",    "data"),
         Input("lens-dd-phase",              "value"),
         Input("lens-upload-config-json",    "contents"),
         Input("lens-btn-clear",             "n_clicks"),
@@ -1359,18 +1416,22 @@ function LENS_RegisterCallbacks_DDEF(app)
         State("lens-radio-reve-out-sel",    "value"),
         State("lens-radio-out-name-1",      "value"),
         State("lens-radio-out-unit-1",      "value"),
+        State("lens-store-goals-state",     "data"),
         prevent_initial_call=true
     ) do phase_val, json_contents, n_clear, n_export, active_data, current_proj, model_val, args...
         trig = BASE_GetTrigger_DDEF(callback_context())
+        goals_state = args[32]
+        existing_auto = (goals_state isa AbstractDict) ? get(goals_state, "auto", get(goals_state, :auto, Any[])) : Any[]
 
-        # Reset of optimisation criteria to dataset bounds.
+        # Reset of optimisation criteria to dataset bounds (the only action that clears user/JSON overrides).
         if trig == "lens-btn-clear"
             g_names   = Any[Dash.no_update() for _ in 1:3]
-            g_mins    = Any[Dash.no_update() for _ in 1:3]
-            g_targets = Any[Dash.no_update() for _ in 1:3]
-            g_maxs    = Any[Dash.no_update() for _ in 1:3]
+            g_mins    = Any[0.0, 0.0, 0.0]
+            g_targets = Any[0.0, 0.0, 0.0]
+            g_maxs    = Any[0.0, 0.0, 0.0]
             g_types   = Any["Nominal", "Nominal", "Nominal"]
             g_weights = Any["1.00", "1.00", "1.00"]
+            new_auto  = Any[]
 
             active_cont = FAST_ExtractDataID_DDEF(active_data)
             if !isempty(active_cont) && active_cont != "none"
@@ -1388,6 +1449,7 @@ function LENS_RegisterCallbacks_DDEF(app)
                             g_maxs[i]    = round(mx; digits=2)
                             g_targets[i] = round((mn + mx) / 2; digits=2)
                         end
+                        new_auto = [[g_mins[i], g_targets[i], g_maxs[i], g_types[i], g_weights[i]] for i in 1:3]
                     end
                 catch e
                     FAST_Log_DDEF("LENS", "CLEAR_RELOAD", "Dataset bound recovery notice: $e", "WARN")
@@ -1411,12 +1473,15 @@ function LENS_RegisterCallbacks_DDEF(app)
                 "Auto",
                 status_lbl,
                 toast_data,
-                Dash.no_update()
+                Dash.no_update(),
+                Dash.no_update(),
+                Dict{String,Any}("locked" => false, "auto" => new_auto)
             )
         end
 
         # Import of high-fidelity user profiles via JSON deserialisation with smart name matching.
-        if trig == "lens-upload-config-json" && !isnothing(json_contents) && json_contents != ""
+        if trig == "lens-upload-config-json"
+            (isnothing(json_contents) || json_contents == "") && return (ntuple(_ -> Dash.no_update(), 25)...,)
             try
                 b64_part = occursin(",", json_contents) ? split(json_contents, ",")[end] : json_contents
                 json_raw = String(base64decode(b64_part))
@@ -1513,7 +1578,8 @@ function LENS_RegisterCallbacks_DDEF(app)
                             g_types[i] = v_type
                         end
 
-                        v_wt = string(get(target_goal, "Weight", get(target_goal, :Weight, "1.00")))
+                        v_wt_num = FAST_SafeNum_DDEF(get(target_goal, "Weight", get(target_goal, :Weight, "1.00")))
+                        v_wt = isnan(v_wt_num) ? "" : Printf.@sprintf("%.2f", v_wt_num)
                         if v_wt in ("0.50", "0.75", "1.00", "1.50", "2.00")
                             g_weights[i] = v_wt
                         end
@@ -1538,7 +1604,9 @@ function LENS_RegisterCallbacks_DDEF(app)
                     model_out,
                     status_lbl,
                     toast_data,
-                    Dash.no_update()
+                    Dash.no_update(),
+                    nothing,
+                    Dict{String,Any}("locked" => true, "auto" => existing_auto)
                 )
             catch e
                 err_toast = Dict("status" => "error", "message" => "Load Error: $e", "ts" => time())
@@ -1550,6 +1618,8 @@ function LENS_RegisterCallbacks_DDEF(app)
                     Dash.no_update(), Dash.no_update(),
                     err_lbl,
                     err_toast,
+                    Dash.no_update(),
+                    nothing,
                     Dash.no_update()
                 )
             end
@@ -1570,12 +1640,13 @@ function LENS_RegisterCallbacks_DDEF(app)
                 g_weights = args[16:18]
                 r_states  = args[19:31]
 
+                safe_goal_num(v) = (isnothing(v) || ismissing(v)) ? nothing : (let n = FAST_SafeNum_DDEF(v); isnan(n) ? nothing : n end)
                 goals_list = [
                     Dict{String,Any}(
                         "Name"   => string(something(g_names[i], "")),
-                        "Min"    => (isnothing(g_mins[i]) || ismissing(g_mins[i])) ? nothing : FAST_SafeNum_DDEF(g_mins[i]),
-                        "Target" => (isnothing(g_targets[i]) || ismissing(g_targets[i])) ? nothing : FAST_SafeNum_DDEF(g_targets[i]),
-                        "Max"    => (isnothing(g_maxs[i]) || ismissing(g_maxs[i])) ? nothing : FAST_SafeNum_DDEF(g_maxs[i]),
+                        "Min"    => safe_goal_num(g_mins[i]),
+                        "Target" => safe_goal_num(g_targets[i]),
+                        "Max"    => safe_goal_num(g_maxs[i]),
                         "Type"   => string(something(g_types[i], "Nominal")),
                         "Weight" => string(something(g_weights[i], "1.00"))
                     ) for i in 1:3
@@ -1625,7 +1696,9 @@ function LENS_RegisterCallbacks_DDEF(app)
                     model_str,
                     status_lbl,
                     toast_data,
-                    dl
+                    dl,
+                    Dash.no_update(),
+                    Dash.no_update()
                 )
             catch e
                 err_lbl = html_div("❌ Save Error: $(first(string(e), 40))",
@@ -1637,6 +1710,8 @@ function LENS_RegisterCallbacks_DDEF(app)
                     Dash.no_update(), Dash.no_update(),
                     err_lbl,
                     err_toast,
+                    Dash.no_update(),
+                    Dash.no_update(),
                     Dash.no_update()
                 )
             end
@@ -1644,10 +1719,10 @@ function LENS_RegisterCallbacks_DDEF(app)
 
         # Dynamic Phase Selection and Statistical Model Synchronisation
         active_cont = FAST_ExtractDataID_DDEF(active_data)
-        (isempty(active_cont) || active_cont == "none") && return (ntuple(_ -> Dash.no_update(), 18)..., Dash.no_update(), Dash.no_update(), Dash.no_update(), Dash.no_update(), Dash.no_update())
+        (isempty(active_cont) || active_cont == "none") && return (ntuple(_ -> Dash.no_update(), 25)...,)
 
         cpath = FAST_GetTransientPath_DDEF(active_cont)
-        !isfile(cpath) && return (ntuple(_ -> Dash.no_update(), 18)..., Dash.no_update(), Dash.no_update(), Dash.no_update(), Dash.no_update(), Dash.no_update())
+        !isfile(cpath) && return (ntuple(_ -> Dash.no_update(), 25)...,)
 
         try
             df = FAST_ReadExcel_DDEF(cpath, C.SHEET_DATA)
@@ -1729,6 +1804,13 @@ function LENS_RegisterCallbacks_DDEF(app)
                 end
             end
 
+            preserved, snap_prev = LENS_PreserveGoals_DDEF!(
+                goals_name, goals_min, goals_target, goals_max, goals_type, goals_weight, args[1:18], goals_state
+            )
+            next_goals_state = preserved ?
+                Dict{String,Any}("locked" => true, "auto" => snap_prev) :
+                Dict{String,Any}("locked" => false, "auto" => [[goals_min[i], goals_target[i], goals_max[i], goals_type[i], goals_weight[i]] for i in 1:3])
+
             return (
                 goals_name...,
                 goals_min...,
@@ -1740,11 +1822,13 @@ function LENS_RegisterCallbacks_DDEF(app)
                 model_val_out,
                 Dash.no_update(),
                 Dash.no_update(),
-                Dash.no_update()
+                Dash.no_update(),
+                Dash.no_update(),
+                next_goals_state
             )
         catch e
             FAST_Log_DDEF("LENS", "PHASE_SYNC_WARN", "Error during phase sync: $e", "WARN")
-            return (ntuple(_ -> Dash.no_update(), 18)..., Dash.no_update(), Dash.no_update(), Dash.no_update(), Dash.no_update(), Dash.no_update())
+            return (ntuple(_ -> Dash.no_update(), 25)...,)
         finally
             rm(cpath; force=true)
         end
@@ -3584,7 +3668,7 @@ function LENS_RegisterCallbacks_DDEF(app)
         Input("lens-radio-dd-inputs", "value"),
         prevent_initial_call=true
     ) do sel_in
-        (!isnothing(sel_in) && sel_in != "" && sel_in != "None") ? "e.g. Decayed $sel_in" : "e.g. Decayed Precursor"
+        (!isnothing(sel_in) && sel_in != "" && sel_in != "None") ? "e.g. Eff. $sel_in" : "e.g. Eff. Precursor"
     end
 
     # 4. Contextual Placeholder for Reverse Decay Output
@@ -3599,6 +3683,7 @@ function LENS_RegisterCallbacks_DDEF(app)
     # 5. Apply Configuration & Master Vault Sync
     callback!(app,
         Output("sync-lens-content",        "data"),
+        Output("lens-upload-data",         "contents"),
         Input("lens-radio-btn-apply",     "n_clicks"),
         Input("lens-upload-data",         "contents"),
         Input("lens-signal-process",      "data"),
@@ -3626,28 +3711,28 @@ function LENS_RegisterCallbacks_DDEF(app)
         trig = BASE_GetTrigger_DDEF(callback_context())
 
         if trig == "lens-signal-process"
-            (isnothing(sig_proc) || !get(sig_proc, "success", false)) && return Dash.no_update()
-            haskey(sig_proc, "base64") || return Dash.no_update()
-            return sig_proc["base64"]
+            (isnothing(sig_proc) || !get(sig_proc, "success", false)) && return Dash.no_update(), Dash.no_update()
+            haskey(sig_proc, "base64") || return Dash.no_update(), Dash.no_update()
+            return sig_proc["base64"], Dash.no_update()
         end
         
         if trig == "lens-upload-data"
-            (isnothing(upload_cont) || upload_cont == "") && return Dash.no_update()
-            return Dict("content" => upload_cont, "filename" => upload_fname)
+            (isnothing(upload_cont) || upload_cont == "") && return Dash.no_update(), Dash.no_update()
+            return Dict("content" => upload_cont, "filename" => upload_fname), nothing
         end
 
         if trig == "lens-radio-btn-apply"
-            (isnothing(apply_clicks) || apply_clicks == 0) && return Dash.no_update()
-            (isnothing(active_cont) || active_cont == "") && return Dash.no_update()
+            (isnothing(apply_clicks) || apply_clicks == 0) && return Dash.no_update(), Dash.no_update()
+            (isnothing(active_cont) || active_cont == "") && return Dash.no_update(), Dash.no_update()
 
             handle = active_cont isa String ? active_cont : get(active_cont, "content", "")
-            (isnothing(handle) || handle == "") && return Dash.no_update()
+            (isnothing(handle) || handle == "") && return Dash.no_update(), Dash.no_update()
 
             # Forward Decay Dictionary
             forw_enabled = (forw_mode == "ON") && !isnothing(forw_target) && forw_target != "None" && forw_target != ""
             fwd_dict = Dict{String, Any}("Enabled" => forw_enabled)
             if forw_enabled
-                alias_name = (isnothing(forw_alias) || isempty(strip(forw_alias))) ? "Decayed $forw_target" : strip(forw_alias)
+                alias_name = (isnothing(forw_alias) || isempty(strip(forw_alias))) ? "Eff. $forw_target" : strip(forw_alias)
                 alias_unit = isnothing(forw_unit) ? "" : strip(forw_unit)
                 fwd_dict[forw_target] = Dict(
                     "Name"    => alias_name,
@@ -3695,10 +3780,10 @@ function LENS_RegisterCallbacks_DDEF(app)
                 "dataid"   => new_vault,
                 "type"     => "RADIO_CONFIG_PULSE",
                 "filename" => ""
-            )
+            ), Dash.no_update()
         end
 
-        return Dash.no_update()
+        return Dash.no_update(), Dash.no_update()
     end
 
     callback!(app,
