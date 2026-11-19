@@ -47,27 +47,38 @@ cleanup_cov_files()
 cleanup_compiled_cache()
 
 tablo1_lines = String[]
+suite_passed = Ref(false)
 println("[INFO] Executing DoECISORY automated test suite with coverage enabled...")
 try
     cd(COVERAGE_ROOT_DIR)
-    test_expr = "using Pkg; Pkg.test(\"DoECISORY\"; coverage=\"user\")"
-    cmd = `$(Base.julia_cmd()) --color=yes --depwarn=no --threads=auto --check-bounds=yes --project=$COVERAGE_ROOT_DIR -e $test_expr`
-    proc = open(cmd, "r")
+    has_manifest = isfile(joinpath(COVERAGE_ROOT_DIR, "Manifest.toml"))
+    # -O0 trims LLVM JIT overhead on single-run UI/plot coverage paths; skip reresolve when Manifest.toml is present.
+    test_expr = "using Pkg; Pkg.test(\"DoECISORY\"; coverage=\"user\", allow_reresolve=$(!has_manifest), julia_args=[\"--optimize=0\"])"
+    cmd = `$(Base.julia_cmd()) -O0 --color=yes --depwarn=no --threads=auto --check-bounds=yes --project=$COVERAGE_ROOT_DIR -e $test_expr`
+    # Pkg.test routes child output via Pkg's stderr stream in Julia 1.10+; merge both streams into one Pipe.
+    out_pipe = Pipe()
+    proc = run(pipeline(cmd; stdout=out_pipe, stderr=out_pipe); wait=false)
+    close(out_pipe.in)
     is_capturing = false
-    for line in eachline(proc)
-        println(line)
-        if occursin("DoECISORY TEST SUITE REPORT", line)
-            is_capturing = true
-        end
-        if is_capturing
-            push!(tablo1_lines, line)
-            if startswith(line, "==========================================================================================") && length(tablo1_lines) > 2
-                is_capturing = false
+    try
+        for line in eachline(out_pipe)
+            println(line)
+            clean_probe = replace(line, r"\e\[[0-9;]*m" => "")
+            if occursin("DoECISORY TEST SUITE REPORT", clean_probe)
+                is_capturing = true
+            end
+            if is_capturing
+                push!(tablo1_lines, clean_probe)
+                if startswith(clean_probe, "==========================================================================================") && length(tablo1_lines) > 2
+                    is_capturing = false
+                end
             end
         end
+    finally
+        wait(proc)
+        suite_passed[] = success(proc)
+        close(out_pipe)
     end
-    wait(proc)
-    close(proc)
 catch e
     println("\n[ERROR] Test suite execution failed: ", e)
 end
@@ -232,22 +243,27 @@ try
             println(io, "-"^90)
             println(io)
 
+            println(io, "[SECTION 1: TEST SUITE EXECUTION]")
+            println(io, "-"^90)
             if !isempty(tablo1_lines)
-                println(io, "[SECTION 1: TEST SUITE EXECUTION]")
-                println(io, "-"^90)
                 found_header = false
                 for l in tablo1_lines
                     if occursin("Domain Group", l)
                         found_header = true
                     end
                     if found_header && !startswith(l, "===")
-                        clean_l = replace(l, r"\e\[[0-9;]*m" => "")
-                        println(io, clean_l)
+                        println(io, l)
                     end
                 end
-                println(io, "-"^90)
-                println(io)
+                if !suite_passed[]
+                    println(io, "  PROCESS     : FAILED (non-zero exit status from Pkg.test)")
+                end
+            else
+                status_note = suite_passed[] ? "PASSED (summary table not captured)" : "FAILED (test suite aborted before summary)"
+                println(io, "  PROCESS     : ", status_note)
             end
+            println(io, "-"^90)
+            println(io)
 
             println(io, "[SECTION 2: CODE COVERAGE PER MODULE]")
             println(io, "-"^90)

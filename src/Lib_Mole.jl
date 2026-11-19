@@ -16,9 +16,9 @@ using ..Sys_Fast
 
 export MOLE_ParseTable_DDEF, MOLE_AuditQuick_DDEF, MOLE_CalcMass_DDEF,
        MOLE_ApproxEq_DDEF, MOLE_ValidatePhysicalUnit_DDEF, MOLE_AuditMatrix_DDEF,
-       MOLE_AuditBatch_DDEF, MOLE_ValidateFeasibility_DDEF,
-       MOLE_CalcRadioDecay_DDEF, MOLE_ProcessDesign_DDEF, MOLE_GetPercentageEquivalent_DDEF,
-       MOLE_IsTimeUnit_DDEF, MOLE_ConvertToMinutes_DDEF
+       MOLE_AuditBatch_DDEF, MOLE_ValidateFeasibility_DDEF, MOLE_CalcRadioDecay_DDEF,
+       MOLE_ProcessDesign_DDEF, MOLE_GetPercentageEquivalent_DDEF, MOLE_IsTimeUnit_DDEF,
+       MOLE_ConvertToMinutes_DDEF, MOLE_ValidateProtocolInputs_DDEF
 
 # ==============================================================================
 # PART A: CHEMICAL DATA STRUCTURES & MODELS
@@ -104,9 +104,11 @@ Provides dimensional time standardisation across kinetic calculations and decay 
 - `Float64`: Duration converted into decimal minutes.
 """
 function MOLE_ConvertToMinutes_DDEF(Value::Real, Unit::AbstractString)::Float64
+    !isfinite(Value) && throw(ArgumentError("Time value must be finite."))
     Value <= 0.0 && return 0.0
     u = uppercase(strip(Unit))
-    return Float64(Value * get(MOLE_TimeFactorMap_DDEC, u, 1.0))
+    !haskey(MOLE_TimeFactorMap_DDEC, u) && throw(ArgumentError("Unknown time unit: '$Unit'."))
+    return Float64(Value * MOLE_TimeFactorMap_DDEC[u])
 end
 
 """
@@ -148,6 +150,8 @@ Supports forward decay compensation and backward initial-activity reconstruction
 - `Float64`: Decay-corrected quantity.
 """
 function MOLE_CalcRadioDecay_DDEF(RawValue::Real, HalfLife::Real, HalfLifeUnit::AbstractString, DeltaTMinutes::Real; Reverse::Bool=false)::Float64
+    (!isfinite(RawValue) || !isfinite(HalfLife) || !isfinite(DeltaTMinutes)) && throw(ArgumentError("Decay inputs must be finite."))
+    DeltaTMinutes < 0.0 && throw(ArgumentError("Elapsed time DeltaTMinutes must be non-negative; use Reverse=true for backward decay."))
     hl_minutes = MOLE_ConvertToMinutes_DDEF(HalfLife, HalfLifeUnit)
     hl_minutes <= 0.0 && return Float64(RawValue)
 
@@ -247,16 +251,16 @@ function MOLE_GetUnitType_DDEF(UnitStr::AbstractString)::Tuple{MOLE_AbstractStoi
     !isnothing(static_lookup) && return static_lookup
 
     try
-        u_mod = u
-        u_mod = replace(u_mod, " " => "*", "_" => "*")
-        u_mod = replace(u_mod, r"(mcg|microgram)" => "μg")
-        u_mod = replace(u_mod, r"(mc|mic|u)" => "μ")
+        u_mod = replace(u, " " => "*", "_" => "*")
+        u_mod = replace(u_mod, r"(?:^|(?<=[*/\d]))(mcg|microgram|micrograms)" => "μg")
+        u_mod = replace(u_mod, r"(?:^|(?<=[*/\d]))(mc|mic|u)(?=[a-zA-Z])" => "μ")
         
         uq = uparse(u_mod)
         if dimension(uq) == dimension(u"g")
             return (MOLE_UnitMass_DDES(), Float64(ustrip(uconvert(u"mg", 1.0 * uq))))
         end
-    catch
+    catch e
+        FAST_HandleCatch_DDEF(FAST_TierSilent_DDES(), e)
     end
     
     return (MOLE_UnitOther_DDES(), 1.0)
@@ -289,7 +293,7 @@ function MOLE_GetPercentageEquivalent_DDEF(Value::Float64, UnitStr::AbstractStri
     return MOLE_CalcPercentage_DDEF(u_type, Value, u_scale, MW, Vol, budget, lowercase(strip(UnitStr)))
 end
 
-MOLE_CalcPercentage_DDEF(::MOLE_UnitMolar_DDES, v::Float64, s::Float64, mw::Float64, vol::Float64, b::Float64, u_str::AbstractString)::Float64 = (u_str == "%m" || u_str == "%" || u_str == "%mol") ? v : v
+MOLE_CalcPercentage_DDEF(::MOLE_UnitMolar_DDES, v::Float64, s::Float64, mw::Float64, vol::Float64, b::Float64, u_str::AbstractString)::Float64 = (u_str == "%m" || u_str == "%" || u_str == "%mol") ? v : 0.0
 MOLE_CalcPercentage_DDEF(::MOLE_UnitMass_DDES, v::Float64, s::Float64, mw::Float64, vol::Float64, b::Float64, u_str::AbstractString)::Float64 = ((v * s) / mw / b) * 100.0
 MOLE_CalcPercentage_DDEF(::MOLE_UnitConcentration_DDES, v::Float64, s::Float64, mw::Float64, vol::Float64, b::Float64, u_str::AbstractString)::Float64 = (((vol / 1000.0) * (v * s)) / b) * 100.0
 MOLE_CalcPercentage_DDEF(::MOLE_UnitOther_DDES, v::Float64, s::Float64, mw::Float64, vol::Float64, b::Float64, u_str::AbstractString)::Float64 = 0.0
@@ -310,7 +314,9 @@ function MOLE_ValidatePhysicalUnit_DDEF(ValueStr::AbstractString, ExpectedType::
     val_clean = strip(ValueStr)
     isempty(val_clean) && return (false, 0.0, "Input is empty.")
 
-    parse_str = replace(val_clean, " " => "*", "_" => "*", "mc" => "u")
+    parse_str = replace(val_clean, " " => "*", "_" => "*")
+    parse_str = replace(parse_str, r"(?:^|(?<=[*/\d]))(mcg|microgram|micrograms)"i => "μg")
+    parse_str = replace(parse_str, r"(?:^|(?<=[*/\d]))(mc|mic|u)(?=[a-zA-Z])"i => "μ")
 
     try
         exp_val = uparse(parse_str)
@@ -341,7 +347,10 @@ function MOLE_ValidatePhysicalUnit_DDEF(ValueStr::AbstractString, ExpectedType::
         end
 
         if dimension(exp_val) == dimension(u"1")
-             return (true, Float64(ustrip(exp_val)), "OK")
+            if ExpectedType == "Ratio" || ExpectedType == "Dimensionless"
+                return (true, Float64(ustrip(exp_val)), "OK")
+            end
+            return (false, 0.0, "Dimensional mismatch: Expected $expected_name, got dimensionless quantity.")
         end
 
         if dimension(exp_val) != dimension(tgt_unit)
@@ -351,6 +360,7 @@ function MOLE_ValidatePhysicalUnit_DDEF(ValueStr::AbstractString, ExpectedType::
         sys_val = uconvert(tgt_unit, 1.0 * exp_val)
         return (true, Float64(ustrip(sys_val)), "OK")
     catch e
+        FAST_HandleCatch_DDEF(FAST_TierLogged_DDES(), e, "MOLE", "UNIT_PARSE_WARN", "Unitful parsing failed for '$val_clean'"; MsgType="WARN")
         return (false, 0.0, "Unitful Parsing Error: Invalid format or unknown unit ('$val_clean') -> $e")
     end
 end
@@ -634,9 +644,13 @@ function MOLE_AuditMatrix_DDEF(Design::AbstractMatrix, Names::AbstractVector,
         return zeros(R) 
     end
 
+    names_s = Names isa AbstractVector{<:AbstractString} ? Names : String[string(x) for x in Names]
+    mws_f   = MWs isa AbstractVector{Float64} ? MWs : Float64[Float64(FAST_SafeNum_DDEF(x)) for x in MWs]
+    units_s = Units isa AbstractVector{<:AbstractString} ? Units : String[string(x) for x in Units]
+
     for i in 1:R
         ratios          = Design[i, :]
-        df              = MOLE_CalcMass_DDEF(Names, MWs, ratios, Vol, Conc, Units)
+        df              = MOLE_CalcMass_DDEF(names_s, mws_f, ratios, Vol, Conc, units_s)
         total_masses[i] = sum(df.TARGET_MASS_mg)
     end
     
@@ -671,7 +685,7 @@ function MOLE_AuditBatch_DDEF(TableData::AbstractVector, Design::AbstractMatrix,
 
     if K != length(idx_var)
         return Dict(
-            "IsFeasible" => true,
+            "IsFeasible" => false,
             "AvgMass_mg" => 0.0, 
             "MaxMass_mg" => 0.0, 
             "MinMass_mg" => 0.0, 
@@ -684,6 +698,8 @@ function MOLE_AuditBatch_DDEF(TableData::AbstractVector, Design::AbstractMatrix,
     idx_fill = D["Idx_Fill"]
 
     masses = Vector{Float64}(undef, R)
+    # Vector{Bool} avoids non-atomic BitVector word races under Threads.@threads.
+    infeasible_flags = fill(false, R)
     Threads.@threads for i in 1:R
         ratios_full = zeros(length(D["Names"]))
         for (j, v_idx) in enumerate(idx_var)
@@ -693,18 +709,24 @@ function MOLE_AuditBatch_DDEF(TableData::AbstractVector, Design::AbstractMatrix,
             ratios_full[f_idx] = D["Mids"][f_idx]
         end
 
-        if !isempty(idx_fill)
-            consumed_pct = 0.0
-            for k in eachindex(ratios_full)
-                (k == idx_fill[1] || D["MWs"][k] <= 0.0) && continue
-                
-                u_str = string(get(D["Rows"][k], "Unit", "-"))
-                mw    = D["MWs"][k]
-                val   = ratios_full[k]
-                
-                consumed_pct += MOLE_GetPercentageEquivalent_DDEF(val, u_str, mw, Vol, Conc)
+        consumed_pct = 0.0
+        for k in eachindex(ratios_full)
+            ((!isempty(idx_fill) && k == idx_fill[1]) || D["MWs"][k] <= 0.0) && continue
+            val = ratios_full[k]
+            if !isfinite(val) || val < 0.0
+                infeasible_flags[i] = true
+                continue
             end
-            
+            u_str = string(get(D["Rows"][k], "Unit", "-"))
+            mw    = D["MWs"][k]
+            consumed_pct += MOLE_GetPercentageEquivalent_DDEF(val, u_str, mw, Vol, Conc)
+        end
+
+        if consumed_pct > 100.0 + 1e-4
+            infeasible_flags[i] = true
+        end
+
+        if !isempty(idx_fill)
             ratios_full[idx_fill[1]] = max(0.0, 100.0 - consumed_pct)
         end
 
@@ -734,7 +756,7 @@ function MOLE_AuditBatch_DDEF(TableData::AbstractVector, Design::AbstractMatrix,
     min_mass = isempty(masses) ? 0.0 : minimum(masses)
     std_mass = length(masses) > 1 ? std(masses) : 0.0
 
-    is_feasible = isempty(idx_chem) || (min_mass >= -1e-6 && avg_mass >= 0.0)
+    is_feasible = isempty(idx_chem) || (!any(infeasible_flags) && min_mass >= -1e-6 && avg_mass >= 0.0)
 
     return Dict(
         "IsFeasible" => is_feasible,
@@ -784,33 +806,145 @@ function MOLE_ValidateFeasibility_DDEF(DesignMatrix::AbstractMatrix, InMeta::Abs
             ratios[idx] = FAST_SafeNum_DDEF(get(chems[idx], "L2", 0.0))
         end
 
-        # Execute stoichiometric budget verification for specific runs.
+        # Execute stoichiometric budget verification and non-negativity checks on chemical ingredients only.
         total_consumed_pct = 0.0
+        has_neg_chem = false
+        has_nonfinite = false
         for k in eachindex(chems)
             role = get(chems[k], "Role", "")
             mw   = FAST_SafeNum_DDEF(get(chems[k], "MW", 0.0))
-            (role == "Filler" || mw <= 0.0) && continue
-            
             val  = ratios[k]
+            if !isfinite(val)
+                has_nonfinite = true
+                continue
+            end
+            (role == "Filler" || mw <= 0.0) && continue
+            val < 0.0 && (has_neg_chem = true)
+
             unit = string(get(chems[k], "Unit", "-"))
-            
             total_consumed_pct += MOLE_GetPercentageEquivalent_DDEF(val, unit, mw, Vol, Conc)
         end
-        
+
+        has_nonfinite && push!(issues, "Run $i: Contains non-finite (NaN/Inf) coordinates.")
         if total_consumed_pct > 100.0 + 1e-4
             push!(issues, "Run $i: Stoichiometric budget overflow ($(round(total_consumed_pct; digits=2))%).")
         end
-
-        # Check for negative ratios
-        if any(<(0.0), ratios)
-            push!(issues, "Run $i: Contains negative chemical gradients.")
-        end
+        has_neg_chem && push!(issues, "Run $i: Contains negative chemical gradients.")
     end
 
     valid = isempty(issues)
     msg   = valid ? "Stoichiometric feasibility confirmed for all runs." : join(unique(issues), " | ")
 
     return (valid, msg)
+end
+
+"""
+    MOLE_ValidateProtocolInputs_DDEF(RawRows, StochSettings, Vol, Conc; CheckLevels=true, CheckBudget=true, EnforceBounds=false) -> Dict{String,Any}
+Normalise ingredient rows, inject configured filler, validate factor counts, unique names,
+physical units, monotonic factor levels, and upper-boundary molar budgets.
+"""
+function MOLE_ValidateProtocolInputs_DDEF(
+    RawRows::AbstractVector,
+    StochSettings::Union{AbstractDict,Nothing},
+    Vol::Union{Real,AbstractString,Nothing},
+    Conc::Union{Real,AbstractString,Nothing};
+    CheckLevels::Bool=true,
+    CheckBudget::Bool=true,
+    EnforceBounds::Bool=false
+)::Dict{String,Any}
+    fail_res(msg::String) = Dict{String,Any}("Ok" => false, "Message" => msg)
+
+    processed_rows = Dict{String,Any}[
+        Dict{String,Any}(string(k) => v for (k, v) in pairs(r))
+        for r in RawRows if string(FAST_SafeGet_DDEF(r, "Role", "")) != C.ROLE_FILL
+    ]
+
+    st_data = isnothing(StochSettings) ? Dict{String,Any}() : StochSettings
+    f_name  = strip(string(FAST_SafeGet_DDEF(st_data, "FillerName", "")))
+    f_mw    = FAST_SafeNum_DDEF(FAST_SafeGet_DDEF(st_data, "FillerMW", 0.0))
+    if !isempty(f_name) && !isnan(f_mw) && f_mw > 0.0
+        push!(processed_rows, Dict{String,Any}(
+            "Name" => f_name, "Role" => C.ROLE_FILL, "MW" => f_mw,
+            "L1" => 0.0, "L2" => 0.0, "L3" => 0.0, "Min" => 0.0, "Max" => 0.0,
+            "Unit" => "%M", "IsRadioactive" => false, "HalfLife" => 0.0, "HalfLifeUnit" => "Hours"
+        ))
+    end
+
+    D = MOLE_ParseTable_DDEF(processed_rows)
+    num_vars  = length(D["Idx_Var"])
+    num_fills = length(D["Idx_Fill"])
+    num_vars != 3 && return fail_res("Requires exactly 3 Variable ingredients (Found: $num_vars).")
+    num_fills > 1 && return fail_res("Maximum 1 Filler allowed (Found: $num_fills).")
+
+    seen = Set{String}()
+    for (i, r) in enumerate(D["Rows"])
+        n = strip(string(get(r, "Name", "")))
+        isempty(n) && return fail_res("Systematic Error: Ingredient name for row $(i) cannot be empty.")
+        n in seen && return fail_res("Systematic Error: Ingredient names must be unique. '$(n)' is repeated.")
+        push!(seen, n)
+
+        unit = string(get(r, "Unit", ""))
+        mw_v = FAST_SafeNum_DDEF(get(r, "MW", 0.0))
+        mw   = isnan(mw_v) ? 0.0 : mw_v
+        if mw > 0.0 && !isempty(unit) && unit != "-"
+            u_type, _ = MOLE_GetUnitType_DDEF(unit)
+            if u_type isa MOLE_UnitOther_DDES
+                ok_m, _, _ = MOLE_ValidatePhysicalUnit_DDEF(unit, "Mass")
+                ok_c, _, _ = MOLE_ValidatePhysicalUnit_DDEF(unit, "Concentration")
+                (!ok_m && !ok_c) && return fail_res("Unit Error: Ingredient '$n' has invalid chemical unit '$unit'.")
+            end
+        end
+
+        if CheckLevels && get(r, "Role", "") == C.ROLE_VAR
+            l1 = FAST_SafeNum_DDEF(get(r, "L1", 0.0))
+            l2 = FAST_SafeNum_DDEF(get(r, "L2", 0.0))
+            l3 = FAST_SafeNum_DDEF(get(r, "L3", 0.0))
+            if !(isfinite(l1) && isfinite(l2) && isfinite(l3))
+                return fail_res("Systematic Error: Levels for '$n' (Variable) must be finite numbers.")
+            end
+            if EnforceBounds
+                mn_v = FAST_SafeNum_DDEF(get(r, "Min", 0.0))
+                mx_v = FAST_SafeNum_DDEF(get(r, "Max", 0.0))
+                minv = isnan(mn_v) ? 0.0 : mn_v
+                maxv = isnan(mx_v) ? 0.0 : mx_v
+                if l1 < minv || l3 > maxv || l1 > l2 || l2 > l3
+                    return fail_res("Audit Failed: Variable '$n' must strictly obey Min <= Low <= Centre <= High <= Max boundary logic. (Got: $minv <= $l1 <= $l2 <= $l3 <= $maxv)")
+                end
+            elseif !(l1 < l2 && l2 < l3)
+                return fail_res("Systematic Error: Levels for '$n' (Variable) must show a strict increase (LOWER $l1 < CENTRE $l2 < UPPER $l3).")
+            end
+        end
+    end
+
+    sv_raw = FAST_SafeNum_DDEF(Vol)
+    sc_raw = FAST_SafeNum_DDEF(Conc)
+    sv = isnan(sv_raw) ? 0.0 : Float64(sv_raw)
+    sc = isnan(sc_raw) ? 0.0 : Float64(sc_raw)
+    has_stoic_env = sv > 0.0 && sc > 0.0
+
+    if CheckBudget && has_stoic_env && (!isempty(D["Idx_Chem"]) || !isempty(D["Idx_Fill"]))
+        sum_max_pct = 0.0
+        for r in D["Rows"]
+            mw   = FAST_SafeNum_DDEF(get(r, "MW", 0.0))
+            unit = string(get(r, "Unit", "-"))
+            role = get(r, "Role", "")
+            val  = (role == C.ROLE_VAR) ? FAST_SafeNum_DDEF(get(r, "L3", 0.0)) : FAST_SafeNum_DDEF(get(r, "L2", 0.0))
+            sum_max_pct += MOLE_GetPercentageEquivalent_DDEF(val, unit, mw, sv, sc)
+        end
+        if sum_max_pct > 100.0 + 1e-4
+            return fail_res("Stoichiometry Error: Total molar budget exceeded at upper boundaries (Sum: $(round(sum_max_pct; digits=2))%). Please adjust limits, volume, or concentration.")
+        end
+    end
+
+    return Dict{String,Any}(
+        "Ok"            => true,
+        "Message"       => "OK",
+        "ProcessedRows" => processed_rows,
+        "Parsed"        => D,
+        "Vol"           => sv,
+        "Conc"          => sc,
+        "HasStoicEnv"   => has_stoic_env
+    )
 end
 
 # ==============================================================================

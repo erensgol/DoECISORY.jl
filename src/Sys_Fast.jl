@@ -24,8 +24,8 @@ export FAST_Log_DDEF, FAST_ReadExcel_DDEF, FAST_Catalogue_DDES, FAST_SafeNum_DDE
        FAST_SanitiseInput_DDEF, FAST_AcquireLock_DDEF, FAST_ReleaseLock_DDEF, FAST_ForceReleaseAll_DDEF,
        FAST_ReadCache_DDEF, FAST_WriteCache_DDEF, FAST_ResetCache_DDEF, FAST_WriteVault_DDEF,
        FAST_ReadVault_DDEF, FAST_GetComputeThreads_DDEF, FAST_WriteExcel_DDEF, FAST_CleanTransient_DDEF, 
-       FAST_FormatDuration_DDEF, FAST_ValidateDataFrame_DDEF, FAST_GetSystemQuote_DDEF, 
-       FAST_RoundColumns_DDEF!, FAST_GetColumn_DDEF, FAST_SanitiseHeader_DDEF, FAST_FormatDisplayHeader_DDEF, 
+       FAST_FormatDuration_DDEF, FAST_ValidateDataFrame_DDEF, FAST_GetSystemQuote_DDEF, FAST_RoundColumns_DDEF!,
+       FAST_NormaliseDataTypes_DDEF!, FAST_GetColumn_DDEF, FAST_SanitiseHeader_DDEF, FAST_FormatDisplayHeader_DDEF, 
        FAST_InitialiseWorkforce_DDEF, FAST_CleanWorkforce_DDEF, FAST_Data_DDEC, FAST_SanitiseFilename_DDEF,
        FAST_ReadMemoFile_DDEF, FAST_ExtractDataID_DDEF, FAST_ValidateSheetStructure_DDEF, 
        FAST_FinaliseMasterWrite_DDEF, FAST_ActiveGroup_DDEC, FAST_ApplyExcelStyle_DDEF, 
@@ -33,8 +33,10 @@ export FAST_Log_DDEF, FAST_ReadExcel_DDEF, FAST_Catalogue_DDES, FAST_SafeNum_DDE
        FAST_ParseDirection_DDEF, FAST_FormatColumn_DDEF, FAST_ReadConfig_DDEF, FAST_SafeGet_DDEF,
        FAST_CacheLock_DDEC, FAST_CacheStore_DDEC, FAST_LockGuard_DDEC, FAST_OperationLocks_DDEC,
        FAST_ExtractDirections_DDEF, FAST_DecodeDirections_DDEF, FAST_TempRoot_DDEC, FAST_IsNumericInput_DDEF,
-       FAST_IsPopulatedInput_DDEF, FAST_WrapDetail_DDEF, FAST_AssembleSvgPlate_DDEF,
-       FAST_DetectPhaseMethod_DDEF, FAST_DetectActivePhase_DDEF, FAST_ResolveModelOptions_DDEF
+       FAST_IsPopulatedInput_DDEF, FAST_WrapDetail_DDEF, FAST_AssembleSvgPlate_DDEF, FAST_DetectPhaseMethod_DDEF,
+       FAST_DetectActivePhase_DDEF, FAST_ResolveModelOptions_DDEF, FAST_StageAsyncJob_DDEF, FAST_PollAsyncJob_DDEF,
+       FAST_AbstractErrorTier_DDET, FAST_TierSilent_DDES, FAST_TierLogged_DDES,
+       FAST_TierUI_DDES, FAST_HandleCatch_DDEF, FAST_IsFlagTrue_DDEF
 
 # ==============================================================================
 # PART A: TRANSIENT WORKFORCE
@@ -110,6 +112,10 @@ Base.@kwdef struct FAST_Catalogue_DDES
     EVAL_DESIR_MOD::Float64     = 0.50
     EVAL_DESIR_OPT::Float64     = 0.80
     EVAL_SENS_HIGH::Float64     = 0.50
+    PREC_SUMMARY::Int           = 2
+    PREC_DATA::Int              = 3
+    PREC_STAT::Int              = 4
+    PREC_FINE::Int              = 6
 end
 
 """
@@ -163,7 +169,7 @@ function FAST_InitialiseWorkforce_DDEF()
             FAST_Log_DDEF("FAST", "WORKFORCE", "Transient directory prepared.", "OK")
         end
     catch e
-        FAST_Log_DDEF("FAST", "WORKFORCE_FAIL", "Could not initialise temp directory: $e", "FAIL")
+        FAST_HandleCatch_DDEF(FAST_TierLogged_DDES(), e, "FAST", "WORKFORCE_FAIL", "Could not initialise temp directory")
     end
 end
 
@@ -181,7 +187,8 @@ function FAST_CleanWorkforce_DDEF(all::Bool=false)::Nothing
                 if all || startswith(f, "DOECISORY_TEMP_") || startswith(f, "DoECISORY_") || startswith(f, "DDE_")
                     try
                         rm(joinpath(root, f); force=true)
-                    catch
+                    catch e
+                        FAST_HandleCatch_DDEF(FAST_TierSilent_DDES(), e)
                     end
                 end
             end
@@ -190,14 +197,15 @@ function FAST_CleanWorkforce_DDEF(all::Bool=false)::Nothing
                     if root != FAST_TempRoot_DDEC || all
                          rm(joinpath(root, d); force=true, recursive=true)
                     end
-                catch
+                catch e
+                    FAST_HandleCatch_DDEF(FAST_TierSilent_DDES(), e)
                 end
             end
         end
 
         all && FAST_Log_DDEF("FAST", "CLEAN_DEEP", "Extended workforce sweep executed.", "INFO")
     catch e
-        FAST_Log_DDEF("FAST", "CLEAN_WARN", "Recursive cleaning encountered an error: $e", "WARN")
+        FAST_HandleCatch_DDEF(FAST_TierSilent_DDES(), e, "FAST", "CLEAN_WARN", "Recursive cleaning encountered an error")
     end
     
     return nothing
@@ -218,7 +226,8 @@ FAST_CleanTransient_DDEF(path::AbstractString) = begin
 
     try
         rm(path; force=true)
-    catch
+    catch e
+        FAST_HandleCatch_DDEF(FAST_TierSilent_DDES(), e)
     end
     return nothing
 end
@@ -319,6 +328,83 @@ Dispatches value types to render ANSI terminal escapes for real-time operation t
 """
 function FAST_Log_DDEF(Source::AbstractString, Event::AbstractString, Detail::Any="", MsgType::AbstractString="INFO")
     FAST_Log_DDEF(Val(Symbol(MsgType)), Source, Event, Detail)
+end
+
+"""
+    FAST_AbstractErrorTier_DDET
+Abstract trait hierarchy governing exception handling behaviour across architectural layers.
+"""
+abstract type FAST_AbstractErrorTier_DDET end
+
+"""
+    FAST_TierSilent_DDES
+Tier 1 (Silent Probe / Cleanup): Absorbs expected benign I/O cleanup or context-probing
+errors without interrupting execution; promotes `UndefVarError`/`MethodError` to `FAIL`
+and propagates `InterruptException`.
+"""
+struct FAST_TierSilent_DDES <: FAST_AbstractErrorTier_DDET end
+
+"""
+    FAST_TierLogged_DDES
+Tier 2 (Logged Operational): Logs contextual failures via `FAST_Log_DDEF` (or a custom
+`Logger`) and returns a structured fallback value; promotes code bugs to `FAIL`.
+"""
+struct FAST_TierLogged_DDES <: FAST_AbstractErrorTier_DDET end
+
+"""
+    FAST_TierUI_DDES
+Tier 3 (Interactive UI): Logs contextual exception diagnostics via `FAST_Log_DDEF` and
+returns a concise message for user-facing error badges and toasts.
+"""
+struct FAST_TierUI_DDES <: FAST_AbstractErrorTier_DDET end
+
+"""
+    FAST_SummariseError_DDEF(e, MaxLen::Int=160)::String
+Formats an exception concisely for diagnostics, stripping verbose `MethodError`
+candidate suggestions and bounding total length.
+"""
+function FAST_SummariseError_DDEF(e, MaxLen::Int=160)::String
+    msg = sprint(showerror, e)
+    head = first(split(msg, "\nClosest candidates"; limit=2))
+    return first(strip(replace(head, r"\s+" => " ")), MaxLen)
+end
+
+"""
+    FAST_HandleCatch_DDEF(tier::FAST_AbstractErrorTier_DDET, e, Source, Event, Context, [Fallback]; ...)
+Centralised three-tier exception dispatcher preserving contextual diagnostics,
+propagating interrupts, and escalating programmer errors (`UndefVarError`, `MethodError`).
+"""
+function FAST_HandleCatch_DDEF(::FAST_TierSilent_DDES, e, Source::AbstractString="", Event::AbstractString="", Context::AbstractString="")
+    e isa InterruptException && rethrow(e)
+    is_bug = (e isa UndefVarError || e isa MethodError)
+    err_txt = FAST_SummariseError_DDEF(e, 150)
+    (is_bug || !isempty(Event)) && FAST_Log_DDEF(isempty(Source) ? "FAST" : Source, isempty(Event) ? "BUG_IN_SILENT" : Event, isempty(Context) ? err_txt : "$Context: $err_txt", is_bug ? "FAIL" : "WARN")
+    return nothing
+end
+
+function FAST_HandleCatch_DDEF(
+    ::FAST_TierLogged_DDES, e, Source::AbstractString, Event::AbstractString,
+    Context::AbstractString="", Fallback=nothing;
+    MsgType::AbstractString="FAIL", FullTrace::Bool=false, Logger::Function=FAST_Log_DDEF
+)
+    e isa InterruptException && rethrow(e)
+    is_bug   = (e isa UndefVarError || e isa MethodError)
+    eff_type = is_bug ? "FAIL" : MsgType
+    raw_err  = FullTrace ? sprint(showerror, e) : FAST_SummariseError_DDEF(e, 180)
+    detail   = isempty(Context) ? raw_err : "$Context: $raw_err"
+    Logger(Source, Event, detail, eff_type)
+    return Fallback
+end
+
+function FAST_HandleCatch_DDEF(
+    ::FAST_TierUI_DDES, e, Source::AbstractString, Event::AbstractString,
+    Context::AbstractString=""; MaxLen::Int=120
+)::String
+    e isa InterruptException && rethrow(e)
+    raw_err = FAST_SummariseError_DDEF(e, 180)
+    detail  = isempty(Context) ? raw_err : "$Context: $raw_err"
+    FAST_Log_DDEF(Source, Event, detail, "FAIL")
+    return FAST_SummariseError_DDEF(e, MaxLen)
 end
 
 const FAST_FilenameMap_DDEC = Dict(
@@ -520,11 +606,13 @@ function FAST_ApplyExcelStyle_DDEF(File::AbstractString, ValidPairs::Vector{Pair
                             if !isempty(widths)
                                 col_widths[sn] = widths
                             end
-                        catch
+                        catch e
+                            FAST_HandleCatch_DDEF(FAST_TierSilent_DDES(), e)
                         end
                     end
                 end
-            catch
+            catch e
+                FAST_HandleCatch_DDEF(FAST_TierSilent_DDES(), e)
             end
         end
 
@@ -653,7 +741,7 @@ function FAST_ApplyExcelStyle_DDEF(File::AbstractString, ValidPairs::Vector{Pair
         mv(temp_file, File; force=true)
     catch e
         isfile(temp_file) && rm(temp_file; force=true)
-        FAST_Log_DDEF("FAST", "STYLE_WARN", "Excel auto-fit non-critical warning: $(e)", "WARN")
+        FAST_HandleCatch_DDEF(FAST_TierSilent_DDES(), e, "FAST", "STYLE_WARN", "Excel auto-fit non-critical warning")
     end
     return nothing
 end
@@ -678,6 +766,8 @@ Merges existing sheets, sanitises IEEE 754 numeric tokens, and auto-fits column 
 """
 function FAST_WriteExcel_DDEF(File::AbstractString, Updates::Dict{<:AbstractString,DataFrame})::Nothing
     isempty(File) && return nothing
+    # Guard against overwriting an existing directory via mv(...; force=true) on Windows.
+    isdir(File) && throw(ArgumentError("Target path is an existing directory, not an Excel file: $File"))
     
     all_data    = Dict{String,DataFrame}()
     sheet_order = String[]
@@ -689,6 +779,8 @@ function FAST_WriteExcel_DDEF(File::AbstractString, Updates::Dict{<:AbstractStri
     # 1. Read existing data with retry logic
     if isfile(File) && filesize(File) > 0
         for attempt in 1:max_retries
+            empty!(sheet_order)
+            empty!(all_data)
             try
                 XLSX.openxlsx(File) do xf
                     for sn in XLSX.sheetnames(xf)
@@ -696,11 +788,7 @@ function FAST_WriteExcel_DDEF(File::AbstractString, Updates::Dict{<:AbstractStri
                         if haskey(Updates, sn)
                             all_data[sn] = Updates[sn]
                         else
-                            all_data[sn] = try 
-                                DataFrame(XLSX.gettable(xf[sn])) 
-                            catch 
-                                DataFrame() 
-                            end
+                            all_data[sn] = DataFrame(XLSX.gettable(xf[sn]))
                         end
                     end
                 end
@@ -732,29 +820,33 @@ function FAST_WriteExcel_DDEF(File::AbstractString, Updates::Dict{<:AbstractStri
         haskey(all_data, sn) || continue
         df = all_data[sn]
         if ncol(df) > 0 && (nrow(df) > 0 || sn == "CONFIG")
+            if sn == C.SHEET_DATA || startswith(sn, C.PREFIX_LEADERS)
+                df = copy(df)
+                FAST_NormaliseDataTypes_DDEF!(df)
+                FAST_RoundColumns_DDEF!(df)
+            end
             push!(valid_pairs, sn => df)
         end
     end
 
-    # 4. Atomic Write & Style Protocol
+    # 4. Atomic Write & Style Protocol via staging file
     if !isempty(valid_pairs)
         dir_target = dirname(File)
         !isdir(dir_target) && mkpath(dir_target)
         for attempt in 1:max_retries
+            tmp_file = joinpath(dir_target, ".staging_" * string(getpid()) * "_" * string(time_ns()) * "_" * basename(File))
+            !endswith(lowercase(tmp_file), ".xlsx") && (tmp_file *= ".xlsx")
             try
-                # Windows-Specific: Initial delay to ensure previous handles are released.
-                sleep(0.3) 
-                
-                # Standard multi-sheet write via one-shot API
-                XLSX.writetable(File, valid_pairs...; overwrite=true)
-                
-                # Auto-Fit: Enforce optimal column dimensions
+                # Staging file uses PID + nanosecond timestamp; any Windows lock on target triggers catch retry.
+                XLSX.writetable(tmp_file, valid_pairs...; overwrite=true)
+
                 try
-                    FAST_ApplyExcelStyle_DDEF(File, valid_pairs)
+                    FAST_ApplyExcelStyle_DDEF(tmp_file, valid_pairs)
                 catch e_style
-                    FAST_Log_DDEF("FAST", "STYLE_WARN", "Excel auto-fit non-critical warning: $(e_style)", "WARN")
+                    FAST_HandleCatch_DDEF(FAST_TierSilent_DDES(), e_style, "FAST", "STYLE_WARN", "Excel auto-fit non-critical warning")
                 end
-                
+
+                mv(tmp_file, File; force=true)
                 FAST_Log_DDEF("FAST", "IO_WRITE", "Updates synchronised: $(File)", "OK")
                 
                 # Invalidate RAM cache to ensure next read hits the physical disk.
@@ -766,6 +858,7 @@ function FAST_WriteExcel_DDEF(File::AbstractString, Updates::Dict{<:AbstractStri
                 
                 return nothing
             catch e
+                isfile(tmp_file) && rm(tmp_file; force=true)
                 GC.gc(false)
                 if attempt < max_retries
                     FAST_Log_DDEF("FAST", "IO_RETRY", "Save blocked ($attempt/$max_retries). Retrying...", "WARN")
@@ -788,7 +881,7 @@ FAST_WriteExcel_DDEF(::Nothing, ::AbstractString, ::DataFrame) = nothing
 
 """
     FAST_RoundColumns_DDEF!(df::DataFrame)::DataFrame
-Rounds float columns to academic standard (3 decimal places).
+Rounds float columns to academic standard (`C.PREC_DATA` decimal places).
 Mutates input for memory efficiency.
 """
 function FAST_RoundColumns_DDEF!(df::DataFrame)::DataFrame
@@ -796,8 +889,42 @@ function FAST_RoundColumns_DDEF!(df::DataFrame)::DataFrame
     return df
 end
 
-FAST_RoundColumn_DDEF(col::AbstractVector{<:Union{Missing,AbstractFloat}}) = passmissing(x -> round(x; digits=3)).(col)
-FAST_RoundColumn_DDEF(col::AbstractVector)                                 = col
+FAST_RoundColumn_DDEF(col::AbstractVector{<:Union{Missing,AbstractFloat}}) = passmissing(x -> round(x; digits=C.PREC_DATA)).(col)
+function FAST_RoundColumn_DDEF(col::AbstractVector)
+    any(x -> x isa AbstractFloat, col) || return col
+    return Any[x isa AbstractFloat ? round(x; digits=C.PREC_DATA) : x for x in col]
+end
+
+FAST_IsBlankCell_DDEF(v) = ismissing(v) || isnothing(v) || (v isa AbstractString && (isempty(strip(v)) || strip(v) == "-"))
+
+function FAST_CanCoerceFloat_DDEF(col::AbstractVector)::Bool
+    return all(v -> FAST_IsBlankCell_DDEF(v) || v isa Real || (v isa AbstractString && isfinite(FAST_SafeNum_DDEF(v))), col)
+end
+
+function FAST_CoerceFloatCol_DDEF(col::AbstractVector)::Vector{Union{Missing, Float64}}
+    return Union{Missing, Float64}[
+        let n = FAST_SafeNum_DDEF(v)
+            (FAST_IsBlankCell_DDEF(v) || !isfinite(n)) ? missing : n
+        end for v in col
+    ]
+end
+
+"""
+    FAST_NormaliseDataTypes_DDEF!(df::DataFrame)::DataFrame
+Normalise non-metadata columns stored as String or Any back into Float64 when all populated entries are numeric.
+"""
+function FAST_NormaliseDataTypes_DDEF!(df::DataFrame)::DataFrame
+    meta_cols = (C.COL_EXP_ID, C.COL_ID, C.COL_PHASE, C.COL_STATUS, C.COL_NOTES)
+    for col_name in names(df)
+        uppercase(strip(string(col_name))) in meta_cols && continue
+        col = df[!, col_name]
+        nonmissingtype(eltype(col)) <: Real && continue
+        if any(v -> !FAST_IsBlankCell_DDEF(v), col) && FAST_CanCoerceFloat_DDEF(col)
+            df[!, col_name] = FAST_CoerceFloatCol_DDEF(col)
+        end
+    end
+    return df
+end
 
 # ------------------------------------------------------------------------------
 # SECTION 7: DOWNLOAD PREPARATION & BINARY EXTRACTION
@@ -812,8 +939,8 @@ function FAST_PrepareDownload_DDEF(FilePath::AbstractString)
     try
         (isempty(FilePath) || !isfile(FilePath)) && return (false, UInt8[])
         return (true, read(FilePath))
-    catch
-        return (false, UInt8[])
+    catch e
+        return FAST_HandleCatch_DDEF(FAST_TierLogged_DDES(), e, "FAST", "DL_READ_FAIL", "Failed to read download payload ($FilePath)", (false, UInt8[]); MsgType="WARN")
     end
 end
 
@@ -1139,10 +1266,11 @@ function FAST_InitialiseMaster_DDEF(File::AbstractString, InNames::Vector{String
                                     
                                     if hasproperty(df_old, Symbol(mass_col)) && budget > 0.0 && f_mw > 0.0
                                         m_vals = [FAST_SafeNum_DDEF(v) for v in df_old[!, Symbol(mass_col)]]
-                                        df_old[!, h] = [round((m / f_mw / budget) * 100.0, digits=3) for m in m_vals]
+                                        df_old[!, h] = [round((m / f_mw / budget) * 100.0; digits=C.PREC_DATA) for m in m_vals]
                                         backfilled = true
                                     end
-                                catch
+                                catch e
+                                    FAST_HandleCatch_DDEF(FAST_TierLogged_DDES(), e, "FAST", "BACKFILL_WARN", "Historical mass-to-percentage backfill skipped ($h)"; MsgType="WARN")
                                 end
                                 !backfilled && (df_old[!, h] = fill(missing, nrow(df_old)))
                             else
@@ -1152,12 +1280,33 @@ function FAST_InitialiseMaster_DDEF(File::AbstractString, InNames::Vector{String
                         for h in setdiff(all_headers, names(df_final_data))
                             df_final_data[!, h] = fill(missing, nrow(df_final_data))
                         end
+                        meta_cols = (C.COL_EXP_ID, C.COL_ID, C.COL_PHASE, C.COL_STATUS, C.COL_NOTES)
+                        for h in all_headers
+                            t1, t2 = eltype(df_old[!, h]), eltype(df_final_data[!, h])
+                            if t1 != t2
+                                pt = promote_type(nonmissingtype(t1), nonmissingtype(t2))
+                                if pt === Any || pt === String
+                                    is_meta = uppercase(strip(string(h))) in meta_cols
+                                    if !is_meta && FAST_CanCoerceFloat_DDEF(df_old[!, h]) && FAST_CanCoerceFloat_DDEF(df_final_data[!, h])
+                                        df_old[!, h]        = FAST_CoerceFloatCol_DDEF(df_old[!, h])
+                                        df_final_data[!, h] = FAST_CoerceFloatCol_DDEF(df_final_data[!, h])
+                                    else
+                                        df_old[!, h]        = Union{Missing, String}[ismissing(v) ? missing : string(v) for v in df_old[!, h]]
+                                        df_final_data[!, h] = Union{Missing, String}[ismissing(v) ? missing : string(v) for v in df_final_data[!, h]]
+                                    end
+                                else
+                                    ut = Union{Missing, pt}
+                                    df_old[!, h] = convert(Vector{ut}, df_old[!, h])
+                                    df_final_data[!, h] = convert(Vector{ut}, df_final_data[!, h])
+                                end
+                            end
+                        end
                         df_final_data = vcat(df_old[:, all_headers], df_final_data[:, all_headers])
                         merged = true
                     end
                 end
             catch e
-                FAST_Log_DDEF("FAST", "MERGE_WARN", "Structural merge failed: $e", "WARN")
+                return FAST_HandleCatch_DDEF(FAST_TierLogged_DDES(), e, "FAST", "MERGE_FAIL", "Structural merge aborted to preserve historical phases", false)
             end
         end
 
@@ -1169,8 +1318,7 @@ function FAST_InitialiseMaster_DDEF(File::AbstractString, InNames::Vector{String
         FAST_FinaliseMasterWrite_DDEF(File, df_final_data, Config)
         return true
     catch e
-        FAST_Log_DDEF("FAST", "INIT_MASTER_FAIL", sprint(showerror, e, catch_backtrace()), "FAIL")
-        return false
+        return FAST_HandleCatch_DDEF(FAST_TierLogged_DDES(), e, "FAST", "INIT_MASTER_FAIL", "Master workbook initialisation failed ($File)", false; FullTrace=true)
     end
 end
 
@@ -1217,8 +1365,7 @@ function FAST_InitialiseMaster_DDEF(File::AbstractString, InNames::Vector{String
         FAST_FinaliseMasterWrite_DDEF(File, df_final_data, Config)
         return true
     catch e
-        FAST_Log_DDEF("FAST", "INIT_MASTER_FAIL", sprint(showerror, e, catch_backtrace()), "FAIL")
-        return false
+        return FAST_HandleCatch_DDEF(FAST_TierLogged_DDES(), e, "FAST", "INIT_MASTER_FAIL", "Baseline master workbook initialisation failed ($File)", false; FullTrace=true)
     end
 end
 
@@ -1332,7 +1479,8 @@ function FAST_GetTransientPath_DDEF(DataHandle::AbstractString)::String
                 write(tmp_path, decoded)
                 return tmp_path
             end
-        catch
+        catch e
+            FAST_HandleCatch_DDEF(FAST_TierSilent_DDES(), e)
         end
     end
     
@@ -1354,8 +1502,8 @@ function FAST_ReadToStore_DDEF(Path::AbstractString)::String
         h_val = string(hash(binary))
         FAST_WriteVault_DDEF(h_val, binary)
         return h_val
-    catch
-        return ""
+    catch e
+        return FAST_HandleCatch_DDEF(FAST_TierLogged_DDES(), e, "FAST", "VAULT_STORE_FAIL", "Vault persistence failed ($Path)", "")
     end
 end
 
@@ -1413,12 +1561,13 @@ function FAST_ReadConfig_DDEF(File::AbstractString)::Dict{String,Any}
         
         config = JSON3.read(js_val, Dict{String,Any})
         lock(FAST_ConfigCacheLock_DDEC) do
+            filter!(p -> (p.second isa Tuple && (now_ts - p.second[1]) < 120.0), FAST_ConfigCache_DDEC)
+            length(FAST_ConfigCache_DDEC) >= 64 && empty!(FAST_ConfigCache_DDEC)
             FAST_ConfigCache_DDEC[File] = (now_ts, config)
         end
         return deepcopy(config)
     catch e
-        FAST_Log_DDEF("FAST", "READ_CONFIG_FAIL", "Error reading config from $File: $e", "WARN")
-        return Dict{String,Any}()
+        return FAST_HandleCatch_DDEF(FAST_TierLogged_DDES(), e, "FAST", "READ_CONFIG_FAIL", "Error reading config from $File", Dict{String,Any}(); MsgType="WARN")
     end
 end
 
@@ -1447,11 +1596,13 @@ function FAST_UpdateConfig_DDEF(File::AbstractString, Updates::Dict)::Bool
         )
 
         FAST_WriteExcel_DDEF(File, C.SHEET_CONFIG, config_df)
+        lock(FAST_ConfigCacheLock_DDEC) do
+            delete!(FAST_ConfigCache_DDEC, File)
+        end
         FAST_Log_DDEF("FAST", "CONFIG_UPDATED", "Updated $(length(Updates)) keys in MasterConfig", "OK")
         return true
     catch e
-        FAST_Log_DDEF("FAST", "UPDATE_CFG_FAIL", sprint(showerror, e, catch_backtrace()), "FAIL")
-        return false
+        return FAST_HandleCatch_DDEF(FAST_TierLogged_DDES(), e, "FAST", "UPDATE_CFG_FAIL", "MasterConfig update failed ($File)", false; FullTrace=true)
     end
 end
 
@@ -1490,10 +1641,17 @@ function FAST_SafeGet_DDEF(o::Any, k, default=nothing)
     try
         sy = Symbol(k)
         hasproperty(o, sy) && return getproperty(o, sy)
-    catch
+    catch e
+        FAST_HandleCatch_DDEF(FAST_TierSilent_DDES(), e)
     end
     return default
 end
+
+"""
+    FAST_IsFlagTrue_DDEF(v) -> Bool
+Evaluates boolean, numeric, and string toggle flags safely without propagating `missing`.
+"""
+FAST_IsFlagTrue_DDEF(v)::Bool = any(t -> isequal(v, t), (true, 1, "ON", "true", "TRUE"))
 
 """
     FAST_ParseDirection_DDEF(v) -> Int
@@ -1749,8 +1907,7 @@ function FAST_ReadMemoFile_DDEF(FilePath::AbstractString)::Dict{String,Any}
         json_str = read(FilePath, String)
         return JSON3.read(json_str, Dict{String,Any})
     catch e
-        FAST_Log_DDEF("FAST", "MEMO_LOAD_FAIL", "Corruption in $FilePath: $e", "FAIL")
-        return Dict{String,Any}()
+        return FAST_HandleCatch_DDEF(FAST_TierLogged_DDES(), e, "FAST", "MEMO_LOAD_FAIL", "Corruption in $FilePath", Dict{String,Any}())
     end
 end
 
@@ -1759,7 +1916,7 @@ end
 # ------------------------------------------------------------------------------
 
 # Global atomic lock pool — keyed by operation name
-const FAST_OperationLocks_DDEC = Dict{String,ReentrantLock}()
+const FAST_OperationLocks_DDEC = Dict{String,Int}()
 const FAST_OperationLockTimes_DDEC = Dict{String,Float64}()
 const FAST_LockGuard_DDEC = ReentrantLock()
 
@@ -1772,43 +1929,28 @@ FAST_AcquireLock_DDEF(::Nothing, ::AbstractString="Unspecified") = false
 function FAST_AcquireLock_DDEF(op_name::AbstractString, Reason::AbstractString="Unspecified")::Bool
     isempty(op_name) && return false
     now_time = time()
-    
-    lock(FAST_LockGuard_DDEC) do
-        haskey(FAST_OperationLocks_DDEC, op_name) || (FAST_OperationLocks_DDEC[op_name] = ReentrantLock())
-        
-        # Check lock timeout (10 seconds)
-        lk = FAST_OperationLocks_DDEC[op_name]
-        if islocked(lk) && haskey(FAST_OperationLockTimes_DDEC, op_name)
-            held_duration = now_time - FAST_OperationLockTimes_DDEC[op_name]
+    key = String(op_name)
+
+    # Track lock ownership purely via guard-protected state rather than cross-task ReentrantLock unlocking.
+    return lock(FAST_LockGuard_DDEC) do
+        if haskey(FAST_OperationLocks_DDEC, key) || haskey(FAST_OperationLockTimes_DDEC, key)
+            t_prev = get(FAST_OperationLockTimes_DDEC, key, now_time)
+            held_duration = now_time - t_prev
             if held_duration > 10.0
-                FAST_Log_DDEF("SYS", "LOCK_TIMEOUT", "Lock: $op_name has been held for $(round(held_duration; digits=1))s. Force unlocking.", "WARN")
-                try
-                    while islocked(lk)
-                        unlock(lk)
-                    end
-                catch e
-                    FAST_Log_DDEF("SYS", "LOCK_TIMEOUT_ERR", "Failed to force unlock: $e", "FAIL")
-                end
-                delete!(FAST_OperationLockTimes_DDEC, op_name)
+                FAST_Log_DDEF("SYS", "LOCK_TIMEOUT", "Lock: $key has been held for $(round(held_duration; digits=1))s. Force unlocking.", "WARN")
+                FAST_OperationLocks_DDEC[key] = 1
+                FAST_OperationLockTimes_DDEC[key] = now_time
+                FAST_Log_DDEF("SYS", "LOCK_ACQUIRE", "Lock: $key | Reason: $Reason", "OK")
+                return true
             end
+            FAST_Log_DDEF("SYS", "LOCK_REJECT", "Lock: $key | Active Process Detected", "WARN")
+            return false
         end
+        FAST_OperationLocks_DDEC[key] = 1
+        FAST_OperationLockTimes_DDEC[key] = now_time
+        FAST_Log_DDEF("SYS", "LOCK_ACQUIRE", "Lock: $key | Reason: $Reason", "OK")
+        return true
     end
-    
-    lk = FAST_OperationLocks_DDEC[op_name]
-    if islocked(lk)
-        FAST_Log_DDEF("SYS", "LOCK_REJECT", "Lock: $op_name | Active Process Detected", "WARN")
-        return false
-    end
-    success = trylock(lk)
-    if success
-        lock(FAST_LockGuard_DDEC) do
-            FAST_OperationLockTimes_DDEC[op_name] = now_time
-        end
-        FAST_Log_DDEF("SYS", "LOCK_ACQUIRE", "Lock: $op_name | Reason: $Reason", "OK")
-    else
-        FAST_Log_DDEF("SYS", "LOCK_REJECT", "Lock: $op_name | Active Process Detected", "WARN")
-    end
-    return success
 end
 
 """
@@ -1819,25 +1961,15 @@ FAST_ReleaseLock_DDEF(::Nothing) = nothing
 
 function FAST_ReleaseLock_DDEF(op_name::AbstractString)
     isempty(op_name) && return nothing
-    haskey(FAST_OperationLocks_DDEC, op_name) || return nothing
-    lk = FAST_OperationLocks_DDEC[op_name]
-    if islocked(lk)
-        try
-            unlock(lk)
-            still_locked = islocked(lk)
-            if still_locked
-                FAST_Log_DDEF("SYS", "LOCK_REL_PARTIAL", "Lock: $op_name (Reentrancy Level Decreased)", "INFO")
-            else
-                lock(FAST_LockGuard_DDEC) do
-                    delete!(FAST_OperationLockTimes_DDEC, op_name)
-                end
-                FAST_Log_DDEF("SYS", "LOCK_RELEASE", "Lock: $op_name (Active Lock: OFF)", "INFO")
-            end
-        catch e
-            FAST_Log_DDEF("SYS", "LOCK_REL_FAIL", "Lock: $op_name | Error: $(string(e))", "FAIL")
+    key = String(op_name)
+    lock(FAST_LockGuard_DDEC) do
+        if haskey(FAST_OperationLocks_DDEC, key) || haskey(FAST_OperationLockTimes_DDEC, key)
+            delete!(FAST_OperationLocks_DDEC, key)
+            delete!(FAST_OperationLockTimes_DDEC, key)
+            FAST_Log_DDEF("SYS", "LOCK_RELEASE", "Lock: $key (Active Lock: OFF)", "INFO")
+        else
+            FAST_Log_DDEF("SYS", "LOCK_REL_IDLE", "Lock: $key already free.", "LIST")
         end
-    else
-        FAST_Log_DDEF("SYS", "LOCK_REL_IDLE", "Lock: $op_name already free.", "LIST")
     end
     return nothing
 end
@@ -1850,6 +1982,7 @@ function FAST_ForceReleaseAll_DDEF()
     lock(FAST_LockGuard_DDEC) do
         empty!(FAST_OperationLocks_DDEC)
         empty!(FAST_OperationLockTimes_DDEC)
+        empty!(FAST_AsyncJobs_DDEC)
     end
     FAST_Log_DDEF("SYS", "LOCK_FLUSH", "All operation locks successfully cleared during system recovery.", "WARN")
     return nothing
@@ -1884,6 +2017,7 @@ FAST_WriteCache_DDEF(::Nothing, ::DataFrame) = nothing
 function FAST_WriteCache_DDEF(key::AbstractString, df::DataFrame)::Nothing
     isempty(key) && return nothing
     lock(FAST_CacheLock_DDEC) do
+        length(FAST_CacheStore_DDEC) >= 64 && !haskey(FAST_CacheStore_DDEC, key) && empty!(FAST_CacheStore_DDEC)
         FAST_CacheStore_DDEC[key] = copy(df)
     end
     FAST_Log_DDEF("CACHE", "WRITE", "Cached '$(key)' ($(nrow(df)) rows)", "OK")
@@ -1910,11 +2044,14 @@ const FAST_VaultLock_DDEC   = ReentrantLock()
     FAST_WriteVault_DDEF(key, binary)
 Thread-safe write to binary vault.
 """
-function FAST_WriteVault_DDEF(key::AbstractString, binary::Vector{UInt8})::Nothing
+function FAST_WriteVault_DDEF(key::AbstractString, binary::Vector{UInt8}; SuppressLog::Bool=false)::Nothing
     lock(FAST_VaultLock_DDEC) do
+        if length(FAST_VaultStore_DDEC) >= 64 && !haskey(FAST_VaultStore_DDEC, key)
+            delete!(FAST_VaultStore_DDEC, first(keys(FAST_VaultStore_DDEC)))
+        end
         FAST_VaultStore_DDEC[key] = binary
     end
-    FAST_Log_DDEF("VAULT", "STORE", "Binary persisted ($key) | Size: $(length(binary) ÷ 1024) KB", "OK")
+    !SuppressLog && FAST_Log_DDEF("VAULT", "STORE", "Binary persisted ($key) | Size: $(length(binary) ÷ 1024) KB", "OK")
     return nothing
 end
 
@@ -1927,6 +2064,85 @@ FAST_ReadVault_DDEF(::Nothing) = nothing
 function FAST_ReadVault_DDEF(key::AbstractString)::Union{Vector{UInt8}, Nothing}
     lock(FAST_VaultLock_DDEC) do
         return haskey(FAST_VaultStore_DDEC, key) ? FAST_VaultStore_DDEC[key] : nothing
+    end
+end
+
+const FAST_AsyncJobs_DDEC = Dict{String,Dict{String,Any}}()
+
+"""
+    FAST_StageAsyncJob_DDEF(JobID::AbstractString, Payload::Union{AbstractDict,Nothing}=nothing; Status::Symbol=:Running) -> String
+Register or update a transient background job record with automatic TTL pruning.
+"""
+function FAST_StageAsyncJob_DDEF(JobID::AbstractString, Payload::Union{AbstractDict,Nothing}=nothing; Status::Symbol=:Running)::String
+    key = isempty(strip(JobID)) ? "JOB_" * string(hash((time(), rand()))) : String(strip(JobID))
+    now_ts = time()
+    lock(FAST_LockGuard_DDEC) do
+        filter!(p -> (now_ts - Float64(get(p.second, "UpdatedAt", now_ts))) < 120.0, FAST_AsyncJobs_DDEC)
+        entry = get!(FAST_AsyncJobs_DDEC, key) do
+            Dict{String,Any}("Status" => Status, "CreatedAt" => now_ts, "UpdatedAt" => now_ts, "DeliveredAt" => 0.0, "Payload" => nothing)
+        end
+        entry["Status"] = Status
+        entry["UpdatedAt"] = now_ts
+        if !isnothing(Payload)
+            entry["Payload"] = Payload
+        end
+    end
+    return key
+end
+
+"""
+    FAST_PollAsyncJob_DDEF(JobID::Union{AbstractString,Nothing}; Action::Symbol=:Poll, Timeout::Float64=60.0) -> Any
+Query, clear, or inspect activity status of a staged background job.
+"""
+FAST_PollAsyncJob_DDEF(::Nothing; Action::Symbol=:Poll, Timeout::Float64=60.0) = (Action == :IsActive ? false : nothing)
+
+function FAST_PollAsyncJob_DDEF(JobID::AbstractString; Action::Symbol=:Poll, Timeout::Float64=60.0)
+    now_ts = time()
+    key = String(strip(JobID))
+    return lock(FAST_LockGuard_DDEC) do
+        if Action == :Clear
+            isempty(key) ? empty!(FAST_AsyncJobs_DDEC) : delete!(FAST_AsyncJobs_DDEC, key)
+            return nothing
+        elseif Action == :IsActive
+            if isempty(key)
+                return any(v -> begin
+                    st = get(v, "Status", :Idle)
+                    del_t = Float64(get(v, "DeliveredAt", 0.0))
+                    upd_t = Float64(get(v, "UpdatedAt", 0.0))
+                    (st === :Running && (now_ts - upd_t) < Timeout) || (st === :Ready && (del_t == 0.0 || (now_ts - del_t) < Timeout))
+                end, values(FAST_AsyncJobs_DDEC))
+            end
+            haskey(FAST_AsyncJobs_DDEC, key) || return false
+            entry = FAST_AsyncJobs_DDEC[key]
+            st = get(entry, "Status", :Idle)
+            del_t = Float64(get(entry, "DeliveredAt", 0.0))
+            upd_t = Float64(get(entry, "UpdatedAt", 0.0))
+            return (st === :Running && (now_ts - upd_t) < Timeout) || (st === :Ready && (del_t == 0.0 || (now_ts - del_t) < Timeout))
+        end
+
+        entry = if !isempty(key) && haskey(FAST_AsyncJobs_DDEC, key)
+            FAST_AsyncJobs_DDEC[key]
+        elseif isempty(key) && !isempty(FAST_AsyncJobs_DDEC)
+            first(values(FAST_AsyncJobs_DDEC))
+        else
+            nothing
+        end
+        isnothing(entry) && return nothing
+
+        del_t = Float64(get(entry, "DeliveredAt", 0.0))
+        if del_t > 0.0 && (now_ts - del_t) >= Timeout
+            !isempty(key) ? delete!(FAST_AsyncJobs_DDEC, key) : empty!(FAST_AsyncJobs_DDEC)
+            return Dict{String,Any}("_Expired" => true)
+        end
+
+        if get(entry, "Status", :Running) == :Ready && !isnothing(get(entry, "Payload", nothing))
+            if del_t == 0.0
+                entry["DeliveredAt"] = now_ts
+                entry["UpdatedAt"] = now_ts
+            end
+            return entry["Payload"]
+        end
+        return nothing
     end
 end
 

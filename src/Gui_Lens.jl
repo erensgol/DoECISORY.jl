@@ -13,6 +13,7 @@ using DashBootstrapComponents
 using Dates
 using ..Sys_Fast
 using ..Sys_Flow
+using ..Lib_Core
 using ..Lib_Vise
 using ..Lib_Arts
 using ..Lib_Mole
@@ -40,10 +41,13 @@ export LENS_BuildLayout_DDEF, LENS_RegisterCallbacks_DDEF, LENS_GetGraphMeta_DDE
 
 const C = FAST_Data_DDEC
 
-# Thread-safe in-memory payload bridges for deferred batch rendering.
-# Single-writer (background thread) / single-reader (callback) guarantees safety.
-const LENS_BatchPayload_DDEC     = Ref{Any}(nothing)
-const LENS_LastPayloadTime_DDEC  = Ref{Float64}(0.0)
+const LENS_BoundaryBadgeMap_DDEC = Dict{DataType,String}(
+    FLOW_ModeSeekLower_DDES      => " Seek-Min",
+    FLOW_ModeSeekUpper_DDES      => " Seek-Max",
+    FLOW_ModeTranslateUpper_DDES => " Trans-Upper",
+    FLOW_ModeTranslateLower_DDES => " Trans-Lower",
+    FLOW_ModeContract_DDES       => " Contract"
+)
 
 const LENS_PositiveCells_DDEC = Set{String}([
     "***", "**", "*",
@@ -225,7 +229,8 @@ function LENS_ExtractSlots_DDEF(slot_cfg)::Vector{Dict{String,Any}}
             for (k, v) in pairs(s)
                 d[string(k)] = v
             end
-        catch
+        catch e
+            FAST_HandleCatch_DDEF(FAST_TierLogged_DDES(), e, "LENS", "SLOT_PARSE_WARN", "Transition slot extraction failed"; MsgType="WARN")
         end
         !isempty(d) && push!(slots, d)
     end
@@ -239,88 +244,7 @@ Deduplicates transition configuration across wizard preview and evolution execut
 Integrates ASTM linear scaling (Alpha, Beta) with ACTA domain contraction.
 """
 function LENS_ApplySlotCustomisation_DDEF!(conf::AbstractVector, slots::AbstractVector, leader_vals::AbstractVector, Contraction::Real=1.0, old_conf::AbstractVector=conf)
-    vi = 0
-    for c in conf
-        get(c, "Role", "") != C.ROLE_VAR && continue
-        vi += 1
-        vi > length(slots) && continue
-        sl = slots[vi]
-        mode = uppercase(strip(string(get(sl, "Mode", "KEEP"))))
-
-        if mode == "REPLACE"
-            c["IsReplaced"] = true
-            new_name = strip(string(get(sl, "NewName", "")))
-
-            if !isempty(new_name)
-                c["Name"] = new_name
-                new_u = string(get(sl, "NewUnit", ""))
-                c["Unit"] = (isempty(new_u) || new_u == "-") ? "" : new_u
-                c["IsRadioactive"] = false
-                c["HalfLife"] = 0.0
-                c["HalfLifeUnit"] = "Hours"
-            end
-
-            nl1 = FAST_SafeNum_DDEF(get(sl, "NewL1", NaN))
-            nl2 = FAST_SafeNum_DDEF(get(sl, "NewL2", NaN))
-            nl3 = FAST_SafeNum_DDEF(get(sl, "NewL3", NaN))
-            if !isnan(nl1) && !isnan(nl2) && !isnan(nl3)
-                c["Levels"] = [nl1, nl2, nl3]
-            end
-            haskey(sl, "NewMin") && (c["Min"] = Float64(FAST_SafeNum_DDEF(sl["NewMin"])))
-            haskey(sl, "NewMax") && (c["Max"] = Float64(FAST_SafeNum_DDEF(sl["NewMax"])))
-
-        elseif mode == "SCALE"
-            new_s_name = strip(string(get(sl, "NewName", "")))
-            !isempty(new_s_name) && (c["Name"] = new_s_name)
-            new_u = string(get(sl, "NewUnit", ""))
-            !isempty(new_u) && (c["Unit"] = new_u)
-
-            alpha_val = Float64(FAST_SafeNum_DDEF(get(sl, "Alpha", 1.0)))
-            beta_val  = Float64(FAST_SafeNum_DDEF(get(sl, "Beta",  0.0)))
-            lead_val  = vi <= length(leader_vals) ? Float64(leader_vals[vi]) : Float64(get(c, "L2", 0.0))
-            tv        = FLOW_ApplyASTM_DDEF(lead_val, alpha_val, beta_val)
-            min_lim   = haskey(sl, "NewMin") ? Float64(FAST_SafeNum_DDEF(sl["NewMin"])) : (haskey(c, "Min") ? Float64(FAST_SafeNum_DDEF(c["Min"])) : 0.0)
-            max_lim   = haskey(sl, "NewMax") ? Float64(FAST_SafeNum_DDEF(sl["NewMax"])) : (haskey(c, "Max") ? Float64(FAST_SafeNum_DDEF(c["Max"])) : Inf)
-            min_bound = isfinite(min_lim) ? min_lim : -Inf
-            max_bound = isfinite(max_lim) ? max_lim : Inf
-            tv        = clamp(tv, min_bound, max_bound)
-            ok_astm, tv, astm_msg = FLOW_ValidateASTM_DDEF(tv, min_lim, max_lim)
-            !ok_astm && !isempty(astm_msg) && (c["ASTMWarning"] = astm_msg)
-            old_vars  = [o for o in old_conf if get(o, "Role", "") == C.ROLE_VAR]
-            lvls = if vi <= length(old_vars) && haskey(old_vars[vi], "Levels")
-                Float64.(old_vars[vi]["Levels"])
-            elseif haskey(c, "OldLevels")
-                Float64.(c["OldLevels"])
-            else
-                Float64.(get(c, "Levels", [0.0, 0.0, 0.0]))
-            end
-
-            c["OldLevels"] = copy(lvls)
-            c["Levels"]    = FLOW_CalcACTA_DDEF(tv, lvls, Contraction, min_lim, max_lim; Alpha=alpha_val)
-            c["Min"]       = min_lim
-            c["Max"]       = max_lim
-            c["Alpha"]     = 1.0
-            c["Beta"]      = 0.0
-            c["IsScaled"]  = true
-            c["EffectiveLeader"] = tv
-            if vi <= length(leader_vals)
-                leader_vals[vi] = tv
-            end
-        end
-
-        if haskey(c, "Levels") && c["Levels"] isa AbstractVector && length(c["Levels"]) >= 3
-            c["L1"] = Float64(c["Levels"][1])
-            c["L2"] = Float64(c["Levels"][2])
-            c["L3"] = Float64(c["Levels"][3])
-        end
-
-        haskey(sl, "NewMin") && (c["Min"] = Float64(sl["NewMin"]))
-        haskey(sl, "NewMax") && (c["Max"] = Float64(sl["NewMax"]))
-    end
-
-    # If a component was promoted to a variable via REPLACE, remove duplicate fixed component
-    active_var_names = Set(string(get(c, "Name", "")) for c in conf if get(c, "Role", "") == C.ROLE_VAR && !isempty(strip(string(get(c, "Name", "")))))
-    filter!(c -> !(lowercase(strip(string(get(c, "Role", "")))) in ("fixed", "fix") && string(get(c, "Name", "")) in active_var_names), conf)
+    return FLOW_ApplySlotCustomisation_DDEF!(conf, slots, leader_vals, Contraction, old_conf)
 end
 
 # ------------------------------------------------------------------------------
@@ -428,7 +352,7 @@ function LENS_DetectAbsoluteActivity_DDEF(outputs)
         end
     end
     for o in outputs
-        if get(o, "IsRadioactive", false) in (true, 1, "true", "TRUE")
+        if FAST_IsFlagTrue_DDEF(get(o, "IsRadioactive", false))
             return string(get(o, "Name", ""))
         end
     end
@@ -1199,7 +1123,7 @@ function LENS_PreserveGoals_DDEF!(
     norm_s(s; base=false) = let t = replace(replace(strip(string(something(s, ""))), "_" => " "), r"\s+" => " ")
         lowercase(base ? split(split(t, "(")[1], "[")[1] : t)
     end
-    is_locked = (goals_state isa AbstractDict) && (get(goals_state, "locked", get(goals_state, :locked, false)) == true)
+    is_locked = (goals_state isa AbstractDict) && (get(goals_state, "locked", get(goals_state, :locked, false)) === true)
     auto_snap = (goals_state isa AbstractDict) ? get(goals_state, "auto", get(goals_state, :auto, Any[])) : Any[]
     has_snap  = (auto_snap isa AbstractVector) && length(auto_snap) >= 3
     num_eq(a, b) = let na = FAST_SafeNum_DDEF(a), nb = FAST_SafeNum_DDEF(b)
@@ -1317,10 +1241,10 @@ function LENS_RegisterCallbacks_DDEF(app)
             afname = (active_data isa AbstractDict && haskey(active_data, "filename")) ? string(active_data["filename"]) : ""
             extracted_proj = FAST_ExtractProjectName_DDEF(afname)
             (extracted_proj != "") && (proj_v = extracted_proj)
-            (proj_v == "") && (proj_v = "DoECISORY")
 
-            ext = lowercase(splitext(path)[2])
+            ext = isempty(afname) ? lowercase(splitext(path)[2]) : lowercase(splitext(afname)[2])
             if ext != ".xlsx"
+                isempty(proj_v) && (proj_v = "DoECISORY")
                 return [], html_span([html_i(className="fas fa-times-circle me-2"), "This is not a valid Excel file! (Please upload .xlsx)"], className="small colourtx-c0hr"), "w-100 mb-2 fw-bold pulse-green", nothing, Dict("status" => 2, "dataid" => ""), "d-none", proj_v
             end
 
@@ -1328,6 +1252,7 @@ function LENS_RegisterCallbacks_DDEF(app)
             isempty(df) && (df = FAST_ReadExcel_DDEF(path, "DATA_RECORDS"))
 
             if isempty(df)
+                isempty(proj_v) && (proj_v = "DoECISORY")
                 return [], html_span([html_i(className="fas fa-times-circle me-2"), "No Valid Data Sheet found in spreadsheet."], className="small colourtx-c0hr"), "w-100 mb-2 fw-bold pulse-green", nothing, Dict("status" => 2, "dataid" => ""), "d-none", proj_v
             end
 
@@ -1345,13 +1270,20 @@ function LENS_RegisterCallbacks_DDEF(app)
             default_phase = FAST_DetectActivePhase_DDEF(df, phase_list)
 
             config = FAST_ReadConfig_DDEF(path)
+            # Prefer exact ProjectName from workbook CONFIG over filename-sanitised fallback so spaces/casing stay consistent with Design.
+            g_cfg    = FAST_SafeGet_DDEF(config, "Global", Dict{String,Any}())
+            cfg_proj = strip(string(FAST_SafeGet_DDEF(g_cfg, "ProjectName", "")))
+            if !isempty(cfg_proj) && (lowercase(cfg_proj) != "doecisory" || isempty(proj_v))
+                proj_v = cfg_proj
+            end
+            isempty(proj_v) && (proj_v = "DoECISORY")
             has_radio_headers = any(c -> occursin(C.PRE_TIME_FORW, string(c)) || occursin(C.PRE_TIME_REVE, string(c)) || occursin(C.PRE_TIME_DCYP, string(c)), names(df))
             has_radio_config = false
             if haskey(config, "Ingredients")
-                has_radio_config = has_radio_config || any(get(f, "IsRadioactive", false) == true for f in config["Ingredients"])
+                has_radio_config = has_radio_config || any(get(f, "IsRadioactive", false) === true for f in config["Ingredients"])
             end
             if haskey(config, "Outputs")
-                has_radio_config = has_radio_config || any(get(o, "IsRadioactive", false) == true for o in config["Outputs"])
+                has_radio_config = has_radio_config || any(get(o, "IsRadioactive", false) === true for o in config["Outputs"])
             end
             has_radio = has_radio_headers || has_radio_config
             panel_class = has_radio ? "d-block mt-3" : "d-none"
@@ -1366,12 +1298,11 @@ function LENS_RegisterCallbacks_DDEF(app)
                 proj_v
             )
         catch e
-            bt = sprint(showerror, e, catch_backtrace())
-            FAST_Log_DDEF("LENS", "SYNC_FAIL", bt, "FAIL")
-            return [], html_span([html_i(className="fas fa-times-circle me-2"), "Sync Error: $(first(string(e), 120))"], className="small colourtx-c0hr"), "w-100 mb-2 fw-bold pulse-green",
+            msg = FAST_HandleCatch_DDEF(FAST_TierUI_DDES(), e, "LENS", "SYNC_FAIL", "Master vault sync failed")
+            return [], html_span([html_i(className="fas fa-times-circle me-2"), "Sync Error: $msg"], className="small colourtx-c0hr"), "w-100 mb-2 fw-bold pulse-green",
                    nothing, Dict("status" => 2, "dataid" => ""), "d-none", proj_v
         finally
-            !isempty(path) && try rm(path; force=true) catch end
+            FAST_CleanTransient_DDEF(path)
         end
     end
 
@@ -1445,16 +1376,16 @@ function LENS_RegisterCallbacks_DDEF(app)
                         for i in 1:min(length(out_cols), 3)
                             vals = Float64[Float64(v) for v in skipmissing(df[!, out_cols[i]]) if v isa Number && !isnan(v)]
                             mn, mx = isempty(vals) ? (0.0, 0.0) : extrema(vals)
-                            g_mins[i]    = round(mn; digits=2)
-                            g_maxs[i]    = round(mx; digits=2)
-                            g_targets[i] = round((mn + mx) / 2; digits=2)
+                            g_mins[i]    = round(mn; digits=C.PREC_DATA)
+                            g_maxs[i]    = round(mx; digits=C.PREC_DATA)
+                            g_targets[i] = round((mn + mx) / 2; digits=C.PREC_DATA)
                         end
                         new_auto = [[g_mins[i], g_targets[i], g_maxs[i], g_types[i], g_weights[i]] for i in 1:3]
                     end
                 catch e
-                    FAST_Log_DDEF("LENS", "CLEAR_RELOAD", "Dataset bound recovery notice: $e", "WARN")
+                    FAST_HandleCatch_DDEF(FAST_TierLogged_DDES(), e, "LENS", "CLEAR_RELOAD", "Dataset bound recovery notice"; MsgType="WARN")
                 finally
-                    !isempty(cpath) && isfile(cpath) && try rm(cpath; force=true) catch end
+                    FAST_CleanTransient_DDEF(cpath)
                 end
             end
 
@@ -1504,7 +1435,7 @@ function LENS_RegisterCallbacks_DDEF(app)
                             df_t     = FAST_ReadExcel_DDEF(cpath, C.SHEET_DATA)
                             phase_meth = FAST_DetectPhaseMethod_DDEF(config_t, df_t, string(something(phase_val, "Phase1")))
                         finally
-                            rm(cpath; force=true)
+                            FAST_CleanTransient_DDEF(cpath)
                         end
                     end
                 end
@@ -1610,9 +1541,7 @@ function LENS_RegisterCallbacks_DDEF(app)
                 )
             catch e
                 err_toast = Dict("status" => "error", "message" => "Load Error: $e", "ts" => time())
-                err_lbl = html_div("❌ Load Error: $(first(string(e), 40))",
-                                   className="badge w-100 p-2",
-                                   style=Dict("color" => "var(--colour-val0-purwhi)", "backgroundColor" => "var(--colour-chr0-huered)", "fontSize" => "0.75rem"))
+                err_lbl = BASE_CatchBadge_DDEF("LENS", "CONFIG_LOAD_FAIL", e, "❌ Load Error"; MaxLen=40)
                 return (
                     ntuple(_ -> Dash.no_update(), 18)...,
                     Dash.no_update(), Dash.no_update(),
@@ -1701,9 +1630,7 @@ function LENS_RegisterCallbacks_DDEF(app)
                     Dash.no_update()
                 )
             catch e
-                err_lbl = html_div("❌ Save Error: $(first(string(e), 40))",
-                                   className="badge w-100 p-2",
-                                   style=Dict("color" => "var(--colour-val0-purwhi)", "backgroundColor" => "var(--colour-chr0-huered)", "fontSize" => "0.75rem"))
+                err_lbl = BASE_CatchBadge_DDEF("LENS", "CONFIG_SAVE_FAIL", e, "❌ Save Error"; MaxLen=40)
                 err_toast = Dict("status" => "error", "message" => "Save Error: $e", "ts" => time())
                 return (
                     ntuple(_ -> Dash.no_update(), 18)...,
@@ -1725,84 +1652,19 @@ function LENS_RegisterCallbacks_DDEF(app)
         !isfile(cpath) && return (ntuple(_ -> Dash.no_update(), 25)...,)
 
         try
-            df = FAST_ReadExcel_DDEF(cpath, C.SHEET_DATA)
-            isempty(df) && (df = FAST_ReadExcel_DDEF(cpath, "DATA_RECORDS"))
-            config = FAST_ReadConfig_DDEF(cpath)
+            phase_str = string(something(phase_val, "Phase1"))
+            model_str = string(something(model_val, "Auto"))
+            sync_res  = FLOW_SyncPhaseGoals_DDEF(cpath, phase_str, model_str; NameResolver=VISE_ResolveName_DDEF)
+            sync_res["Status"] != "OK" && return (ntuple(_ -> Dash.no_update(), 25)...,)
 
-            phase_str  = string(something(phase_val, "Phase1"))
-            phase_meth = FAST_DetectPhaseMethod_DDEF(config, df, phase_str)
-            model_opts, model_val_out = FAST_ResolveModelOptions_DDEF(phase_meth, string(something(model_val, "Auto")))
-
-            col_phase = Symbol(C.COL_PHASE)
-            sub_df = (hasproperty(df, col_phase) && !isempty(phase_str)) ?
-                     filter(r -> !ismissing(r[col_phase]) && string(r[col_phase]) == phase_str, df) : df
-            isempty(sub_df) && (sub_df = df)
-
-            out_cols = filter(c -> startswith(c, C.PRE_RESULT), names(df))
-            goals_name   = fill("", 3)
-            goals_min    = fill(0.0, 3)
-            goals_target = fill(0.0, 3)
-            goals_max    = fill(0.0, 3)
-            goals_type   = fill("Nominal", 3)
-            goals_weight = fill("1.00", 3)
-
-            outputs_cfg = get(config, "Outputs", [])
-
-            for (i, c) in enumerate(out_cols[1:min(length(out_cols), 3)])
-                raw_vals = hasproperty(sub_df, Symbol(c)) ? skipmissing(sub_df[!, Symbol(c)]) : skipmissing(df[!, Symbol(c)])
-                vals = Float64[Float64(v) for v in raw_vals if v isa Number && !isnan(v)]
-                if isempty(vals)
-                    vals = Float64[Float64(v) for v in skipmissing(df[!, Symbol(c)]) if v isa Number && !isnan(v)]
-                end
-                mn, mx = isempty(vals) ? (0.0, 0.0) : extrema(vals)
-                goals_name[i]   = FAST_FormatDisplayHeader_DDEF(VISE_ResolveName_DDEF(c, C.PRE_RESULT, outputs_cfg))
-                goals_type[i]   = "Nominal"
-                goals_min[i]    = round(mn; digits=2)
-                goals_max[i]    = round(mx; digits=2)
-                goals_target[i] = round((mn + mx) / 2; digits=2)
-            end
-
-            orig_goals_name = copy(goals_name)
-            radio_opts = get(config, "RadioOpts", Dict{String,Any}())
-            apply_flag = get(radio_opts, "Apply", false)
-            rev_dict   = get(radio_opts, "REVE", Dict{String,Any}())
-            reve_active = apply_flag && (get(rev_dict, "Enabled", false) in (true, 1, "ON", "true", "TRUE"))
-            if reve_active
-                for (i, name) in enumerate(orig_goals_name)
-                    if haskey(rev_dict, name) && (rev_dict[name] isa AbstractDict)
-                        mapping = rev_dict[name]
-                        alias = get(mapping, "Name", "")
-                        unit = get(mapping, "Unit", "")
-                        if !isempty(alias)
-                            goals_name[i] = alias * (isempty(unit) ? "" : " ($unit)")
-                        end
-                    end
-                end
-            end
-
-            saved_goals = get(config, "LensGoals", [])
-            norm_g(s) = uppercase(replace(replace(strip(string(s)), "_" => " "), r"\s+" => " "))
-            for (i, name) in enumerate(goals_name)
-                g_idx = findfirst(g -> norm_g(FAST_SafeGet_DDEF(g, "Name", "")) == norm_g(name), saved_goals)
-                if isnothing(g_idx)
-                    g_idx = findfirst(g -> norm_g(FAST_SafeGet_DDEF(g, "Name", "")) == norm_g(orig_goals_name[i]), saved_goals)
-                end
-                if isnothing(g_idx) && i <= length(out_cols)
-                    g_idx = findfirst(g -> norm_g(FAST_SafeGet_DDEF(g, "Name", "")) == norm_g(replace(out_cols[i], C.PRE_RESULT => "")), saved_goals)
-                end
-                if isnothing(g_idx) && i <= length(saved_goals)
-                    g_idx = i
-                end
-
-                if !isnothing(g_idx)
-                    saved_g = saved_goals[g_idx]
-                    goals_type[i]   = string(get(saved_g, "Type", "Nominal"))
-                    goals_weight[i] = Printf.@sprintf("%.2f", FAST_SafeNum_DDEF(get(saved_g, "Weight", 1.0)))
-                    goals_target[i] = let v = FAST_SafeNum_DDEF(get(saved_g, "Target", goals_target[i])); isnan(v) ? goals_target[i] : v end
-                    goals_min[i]    = let v = FAST_SafeNum_DDEF(get(saved_g, "Min",    goals_min[i])); isnan(v) ? goals_min[i] : v end
-                    goals_max[i]    = let v = FAST_SafeNum_DDEF(get(saved_g, "Max",    goals_max[i])); isnan(v) ? goals_max[i] : v end
-                end
-            end
+            goals_name    = sync_res["GoalsName"]
+            goals_min     = sync_res["GoalsMin"]
+            goals_target  = sync_res["GoalsTarget"]
+            goals_max     = sync_res["GoalsMax"]
+            goals_type    = sync_res["GoalsType"]
+            goals_weight  = sync_res["GoalsWeight"]
+            model_opts    = sync_res["ModelOptions"]
+            model_val_out = sync_res["ModelValue"]
 
             preserved, snap_prev = LENS_PreserveGoals_DDEF!(
                 goals_name, goals_min, goals_target, goals_max, goals_type, goals_weight, args[1:18], goals_state
@@ -1827,10 +1689,11 @@ function LENS_RegisterCallbacks_DDEF(app)
                 next_goals_state
             )
         catch e
-            FAST_Log_DDEF("LENS", "PHASE_SYNC_WARN", "Error during phase sync: $e", "WARN")
-            return (ntuple(_ -> Dash.no_update(), 25)...,)
+            err_lbl = BASE_CatchBadge_DDEF("LENS", "PHASE_SYNC_FAIL", e, "⚠ Phase Sync Error"; MaxLen=60)
+            err_toast = Dict("status" => "error", "message" => "Phase Sync Error: $e", "ts" => time())
+            return (ntuple(_ -> Dash.no_update(), 20)..., err_lbl, err_toast, ntuple(_ -> Dash.no_update(), 3)...)
         finally
-            rm(cpath; force=true)
+            FAST_CleanTransient_DDEF(cpath)
         end
     end
 
@@ -1870,63 +1733,66 @@ function LENS_RegisterCallbacks_DDEF(app)
         nu   = Dash.no_update()
         if trig == "lens-interval-batch"
             status  = args[26]
-            st_next = get(status, "next_pkg", get(status, :next_pkg, 0))
-            lpt     = LENS_LastPayloadTime_DDEC[]
-            
+            st_next = isnothing(status) ? 0 : get(status, "next_pkg", get(status, :next_pkg, 0))
+            job_id  = isnothing(status) ? "" : string(get(status, "handle", get(status, :handle, "")))
+
             # Scenario A: Delivery confirmed by UI (Terminal State).
-            if st_next == 0 && lpt > 0.0
+            if st_next == 0 && !isempty(job_id)
                 FAST_Log_DDEF("LENS", "BATCH_FLOW", "Termination confirmed by UI. Pipeline reset.", "OK")
-                LENS_BatchPayload_DDEC[] = nothing
-                LENS_LastPayloadTime_DDEC[] = 0.0
+                FAST_PollAsyncJob_DDEF(job_id; Action=:Clear)
                 return (ntuple(_ -> nu, 9)..., true, nu)
             end
-            
+
             # Return: If we are already finished, force-disable the interval to prevent zombies.
             (isnothing(status) || st_next == 0) && return (ntuple(_ -> nu, 9)..., true, nu)
-            
-            payload = LENS_BatchPayload_DDEC[]
-            
+
+            payload = FAST_PollAsyncJob_DDEF(job_id; Action=:Poll, Timeout=60.0)
+
+            # Scenario C: 60s Grace Period expired.
+            if !isnothing(payload) && get(payload, "_Expired", false) == true
+                FAST_Log_DDEF("LENS", "SECURITY_CLEAR", "60s Grace Period expired. Emptying payload RAM.", "INFO")
+                return (ntuple(_ -> nu, 8)..., Dict("next_pkg" => 0, "handle" => "", "working" => false), true, nu)
+            end
+
+            # Halt interval polling immediately if the background worker staged a terminal error.
+            if !isnothing(payload) && get(payload, "_Failed", false) == true
+                err_txt = string(get(payload, "error", "Background task crashed."))
+                FAST_Log_DDEF("LENS", "BATCH_FAIL", "Halting polling after background failure: $err_txt", "FAIL")
+                FAST_PollAsyncJob_DDEF(job_id; Action=:Clear)
+                err_status = html_span("⚠ Background Optimisation Failed: $err_txt", className="fw-bold small colourtx-c0hr")
+                return (ntuple(_ -> nu, 2)..., err_status, ntuple(_ -> nu, 5)..., Dict("next_pkg" => 0, "handle" => "", "working" => false), true, nu)
+            end
+
             # Scenario B: Payload exists - Delivery/Redelivery phase.
             if !isnothing(payload)
-                # First Delivery Catch: Record the timestamp.
-                if LENS_LastPayloadTime_DDEC[] < 1.0
-                    LENS_LastPayloadTime_DDEC[] = time()
-                    FAST_Log_DDEF("LENS", "BATCH_POLL", "Staging Pulse #$(st_next) - Initiating Delivery...", "WAIT")
-                else
-                    FAST_Log_DDEF("LENS", "BATCH_POLL", "Staging Pulse #$(st_next) - Redelivering (Window: $(round(time() - LENS_LastPayloadTime_DDEC[]; digits=1))s)...", "WAIT")
-                end
-                
+                FAST_Log_DDEF("LENS", "BATCH_POLL", "Staging Pulse #$(st_next) - Initiating Delivery...", "WAIT")
+
                 opt_data    = get(payload, "opt_results", nothing)
                 res_report  = isnothing(opt_data) ? nu : get(opt_data, "Report",  nu)
                 res_bundle  = isnothing(opt_data) ? nu : get(opt_data, "Bundle",  nu)
                 res_leaders = isnothing(opt_data) ? nu : get(opt_data, "Leaders", nu)
                 res_badge   = isnothing(opt_data) ? nu : get(opt_data, "Badge",   nu)
-                
+
                 vault_b64     = get(payload, "vault_b64", nu)
                 vault_payload = get(payload, "vault_payload", (!isnothing(vault_b64) && vault_b64 != nu) ? Dict{String,Any}("content" => vault_b64, "dataid" => vault_b64, "type" => "SCIENCE_PULSE", "filename" => "") : nu)
                 g_count       = get(payload, "graph_count", 0)
                 graph_meta    = g_count > 0 ? Dict("count" => g_count, "ts" => time()) : nu
                 graph_blob    = get(payload, "graph_blob", nu)
-                
+
                 t_dur = get(payload, "t_total", nothing)
                 dur_badge = isnothing(t_dur) ? "" : html_span(" ($(t_dur)s)", className="colourtx-v3dl")
                 final_status = html_span(["✅ Analysis Complete", dur_badge], className="fw-bold small colourtx-c4tg")
-                
-                # Deliver: We keep the interval enabled to allow retries until st_next == 0 is received.
-                return (graph_meta, nu, final_status, res_report, res_bundle, vault_payload, res_leaders, res_badge, Dict("next_pkg" => 0, "handle" => "", "working" => false), false, graph_blob)
+
+                # Retain job_id so the next interval tick confirms termination and clears the staged job.
+                return (graph_meta, nu, final_status, res_report, res_bundle, vault_payload, res_leaders, res_badge, Dict("next_pkg" => 0, "handle" => job_id, "working" => false), false, graph_blob)
             end
-            
-            # Scenario C: No Payload - Polling or Timeout phase.
-            if LENS_LastPayloadTime_DDEC[] > 1.0
-                elapsed = time() - LENS_LastPayloadTime_DDEC[]
-                if elapsed >= 60.0
-                    FAST_Log_DDEF("LENS", "SECURITY_CLEAR", "60s Grace Period expired. Emptying payload RAM.", "INFO")
-                    LENS_BatchPayload_DDEC[] = nothing
-                    LENS_LastPayloadTime_DDEC[] = 0.0
-                    return (ntuple(_ -> nu, 8)..., Dict("next_pkg" => 0, "handle" => "", "working" => false), true, nu)
-                end
+
+            # Prevent zombie polling if the async job vanished without delivering a terminal payload.
+            if !FAST_PollAsyncJob_DDEF(job_id; Action=:IsActive)
+                FAST_Log_DDEF("LENS", "BATCH_ZOMBIE", "No active background job for handle '$job_id'. Halting interval.", "WARN")
+                return (ntuple(_ -> nu, 8)..., Dict("next_pkg" => 0, "handle" => "", "working" => false), true, nu)
             end
-            
+
             # Scenario D: True Waiting.
             (st_next > 0) && FAST_Log_DDEF("LENS", "BATCH_POLL", "Staging Pulse #$(st_next)...", "WAIT")
             return ntuple(_ -> nu, 11)
@@ -1991,28 +1857,27 @@ function LENS_RegisterCallbacks_DDEF(app)
             return nu, nu, html_span("⚠ Analysis in progress. Please wait.", className="fw-bold colourtx-c1sm"), nu, nu, nu, nu, nu, nu, true, nu
         end
 
-        path = ""
+        path    = ""
+        job_id  = ""
+        spawned = false
         try
             path = FAST_GetTransientPath_DDEF(active_cont)
             if !isfile(path)
                 return nu, nu, html_span("❌ Session Stale. Re-upload dataset.", className="fw-bold colourtx-c0hr"), nu, nu, nu, nu, nu, nu, true, nu
             end
-            
-            # Start of Scientific Cycle: Reset Timers and Lock Pipeline.
-            LENS_LastPayloadTime_DDEC[] = 0.1
-            
+
             FAST_Log_DDEF("LENS", "Process", "Starting OLS Analysis (Phase: $phase)...", "WAIT")
 
             config_full      = FAST_ReadConfig_DDEF(path)
             full_radio_opts  = get(config_full, "RadioOpts", Dict("Apply" => false))
             full_radio_opts["Apply"] = is_rad_apply
             opts = Dict{String,Any}("RadioOpts" => full_radio_opts)
-            
+
             phase_str   = isnothing(phase) ? "Phase1" : string(phase)
             model_str   = isnothing(model) ? "Auto" : string(model)
             cfg_updates = Dict{String,Any}("LensGoals" => goals, "RadioOpts" => opts["RadioOpts"])
 
-            res = VISE_Execute_DDEF(path, phase_str, goals, model_str; 
+            res = VISE_Execute_DDEF(path, phase_str, goals, model_str;
                 Opts=opts, ConfigUpdates=cfg_updates, t_start=t_start, RenderMode=:Priority, Optim=false)
 
             if res["Status"] != "OK"
@@ -2020,7 +1885,7 @@ function LENS_RegisterCallbacks_DDEF(app)
             end
 
             sci_report = VISE_GenSciReport_DDEF(res)
-            
+
             pkg1_graphs = [
                 Dict{String,Any}(
                     "figure"  => Dict{String,Any}("data" => g["Plot"].data, "layout" => g["Plot"].layout, "config" => g["Plot"].config),
@@ -2028,105 +1893,108 @@ function LENS_RegisterCallbacks_DDEF(app)
                     "type"    => string(get(g, "Type", "")),
                     "out_idx" => get(g, "OutputIdx", 0),
                     "sub_idx" => get(g, "SubIdx", 0)
-                ) for g in res["Graphs"] 
+                ) for g in res["Graphs"]
             ]
 
-            # Priority payload: Send the first 6 graphs as a JSON package to the browser immediately.
             pkg1_blob = JSON3.write(pkg1_graphs)
-            LENS_BatchPayload_DDEC[] = nothing
-            LENS_LastPayloadTime_DDEC[] = 0.0
             local pkg1_copy = deepcopy(pkg1_graphs)
             local pre_hidden_sheets = deepcopy(get(res, "_Hidden_Sheets", Dict{String,DataFrame}()))
 
+            # Capture initial Vault snapshot before handing file & lock ownership to background task.
+            updated_base64 = FAST_ReadToStore_DDEF(path)
+            job_id = FAST_StageAsyncJob_DDEF("LENS_JOB_" * string(hash((time(), rand()))); Status=:Running)
+
             FAST_Log_DDEF("LENS", "Render", "(Pkg 1) Prepared $(length(pkg1_graphs)) units for Priority delivery.", "OK")
 
-            Threads.@spawn begin
-                try
-                    Log = FAST_Log_DDEF
-                    
-                    config_b = FAST_ReadConfig_DDEF(path)
-                    in_n = collect(String, res["InNames"])
-                    out_n = collect(String, res["OutNames"])
-                    
-                    bp, bs, ldf, sc, warns = VISE_RunOptimisation_DDEF(
-                        res["X_Clean"], res["Models"], goals, config_b, phase_str, in_n, out_n, opts, Log
-                    )
-                    
-                    # 1. Unify pre-BBO sheets and Leaders sheet into a single atomic write transaction
-                    commit_sheets = Dict{String,DataFrame}()
-                    for (k, v) in pre_hidden_sheets
-                        commit_sheets[string(k)] = v
-                    end
-                    if !isempty(ldf)
-                        commit_sheets[C.PREFIX_LEADERS * phase_str] = ldf
-                    end
-                    if !isempty(commit_sheets)
-                        FAST_WriteExcel_DDEF(path, commit_sheets)
-                    end
-                    
-                    # 2. Build full result for report generation
-                    res_b = copy(res)
-                    res_b["BestPoint"] = bp
-                    res_b["BestScore"] = bs
-                    res_b["Leaders"]   = ldf
-                    res_b["BoundaryWarnings"] = warns
-                    
-                    rep_b = VISE_GenSciReport_DDEF(res_b)
-                    
-                    # 3. Build Leaders HTML
-                    ld_html = LENS_BuildLeadersTable_DDEF(ldf, res_b)
+            let bg_path = path, bg_job = job_id, bg_res = res, bg_goals = goals, bg_phase = phase_str,
+                bg_opts = opts, bg_pkg1 = pkg1_copy, bg_hidden = pre_hidden_sheets, bg_t0 = t_start
+                Threads.@spawn begin
+                    try
+                        Log = FAST_Log_DDEF
 
-                    rad_b = (haskey(res_b, "RadioCorrection") && !isempty(res_b["RadioCorrection"])) ?
-                            dbc_badge([html_i(className="fas fa-radiation me-1 colourtx-v5pb"), "Radio-Corrected"], className="ms-2 fw-bold colourgl-c4tg colourtx-v5pb") : ""
+                        config_b = FAST_ReadConfig_DDEF(bg_path)
+                        in_n  = collect(String, bg_res["InNames"])
+                        out_n = collect(String, bg_res["OutNames"])
 
-                    # 4. Render deferred graphs (66 units)
-                    def_opts = copy(opts)
-                    def_opts["Mode"] = :Deferred
-                    def_raw = ARTS_Render_DDEF(
-                        res["Models"], res["X_Clean"], res["Y_Clean"], get(res, "DisplayInNames", res["InNames"]), get(res, "DisplayOutNames", res["OutNames"]), 
-                        goals, res["R2_Adj"], res["Q2"], def_opts, ldf, res["Sensitivities"], res["Residuals"]
-                    )
-                    pkg_graphs = [
-                        Dict{String,Any}(
-                            "figure"  => Dict{String,Any}("data" => g["Plot"].data, "layout" => g["Plot"].layout, "config" => g["Plot"].config),
-                            "title"   => string(g["Title"]),
-                            "type"    => string(get(g, "Type", "")),
-                            "out_idx" => get(g, "OutputIdx", 0),
-                            "sub_idx" => get(g, "SubIdx", 0)
-                        ) for g in def_raw
-                    ]
-                    
-                    # 5. Build Collective Portfolio: Priority + Deferred
-                    full_graphs = vcat(pkg1_copy, pkg_graphs)
-                    full_blob   = JSON3.write(full_graphs)
-                    
-                    # 6. Re-read Excel as base64 for vault update (Leaders included)
-                    updated_vault_b64 = FAST_ReadToStore_DDEF(path)
-                    
-                    # 7. Sanitise result bundle for store (remove heavy objects first)
-                    delete!(res_b, "Graphs")
-                    delete!(res_b, "_Hidden_Sheets")
-                    final_bundle = FAST_SanitiseJSON_DDEF(res_b)
-                    final_bundle["dataid"] = updated_vault_b64
-                    final_bundle["type"] = "SCIENCE_PULSE"
-                    
-                    t_bg_total = round(time() - t_start; digits=1)
-                    # 8. Store payload for interval pickup (NO graphs, small payload)
-                    vault_pkg = Dict{String,Any}("content" => updated_vault_b64, "dataid" => updated_vault_b64, "type" => "SCIENCE_PULSE", "filename" => "")
-                    LENS_BatchPayload_DDEC[] = Dict{String,Any}(
-                        "opt_results"   => Dict{String,Any}("Report" => rep_b, "Bundle" => final_bundle, "Leaders" => ld_html, "Badge" => rad_b),
-                        "vault_payload" => vault_pkg,
-                        "vault_b64"     => updated_vault_b64,
-                        "graph_count"   => length(full_graphs),
-                        "graph_blob"    => full_blob,
-                        "t_total"       => t_bg_total
-                    )
-                    Log("LENS", "BATCH_ASYNC", "Background Portfolio Compiled [Total: $(length(full_graphs))]. Blob Packed.", "OK")
-                catch e
-                    FAST_Log_DDEF("LENS", "BATCH_CRASH", "Background Task failed: $e", "FAIL")
-                finally
-                    !isempty(path) && try rm(path; force=true) catch end
+                        bp, bs, ldf, sc, warns = VISE_RunOptimisation_DDEF(
+                            bg_res["X_Clean"], bg_res["Models"], bg_goals, config_b, bg_phase, in_n, out_n, bg_opts, Log
+                        )
+
+                        commit_sheets = Dict{String,DataFrame}()
+                        for (k, v) in bg_hidden
+                            commit_sheets[string(k)] = v
+                        end
+                        if !isempty(ldf)
+                            commit_sheets[C.PREFIX_LEADERS * bg_phase] = ldf
+                        end
+                        if !isempty(commit_sheets)
+                            FAST_WriteExcel_DDEF(bg_path, commit_sheets)
+                        end
+
+                        res_b = copy(bg_res)
+                        res_b["BestPoint"] = bp
+                        res_b["BestScore"] = bs
+                        res_b["Leaders"]   = ldf
+                        res_b["BoundaryWarnings"] = warns
+
+                        rep_b = VISE_GenSciReport_DDEF(res_b)
+                        ld_html = LENS_BuildLeadersTable_DDEF(ldf, res_b)
+
+                        rad_b = (haskey(res_b, "RadioCorrection") && !isempty(res_b["RadioCorrection"])) ?
+                                dbc_badge([html_i(className="fas fa-radiation me-1 colourtx-v5pb"), "Radio-Corrected"], className="ms-2 fw-bold colourgl-c4tg colourtx-v5pb") : ""
+
+                        def_opts = copy(bg_opts)
+                        def_opts["Mode"] = :Deferred
+                        def_opts["ModifiersDCYP"] = get(bg_res, "ModifiersDCYP", CORE_ModifierDCYP_DDES[])
+                        def_raw = ARTS_Render_DDEF(
+                            bg_res["Models"], bg_res["X_Clean"], bg_res["Y_Clean"], get(bg_res, "DisplayInNames", bg_res["InNames"]), get(bg_res, "DisplayOutNames", bg_res["OutNames"]),
+                            bg_goals, bg_res["R2_Adj"], bg_res["Q2"], def_opts, ldf, bg_res["Sensitivities"], bg_res["Residuals"]
+                        )
+                        pkg_graphs = [
+                            Dict{String,Any}(
+                                "figure"  => Dict{String,Any}("data" => g["Plot"].data, "layout" => g["Plot"].layout, "config" => g["Plot"].config),
+                                "title"   => string(g["Title"]),
+                                "type"    => string(get(g, "Type", "")),
+                                "out_idx" => get(g, "OutputIdx", 0),
+                                "sub_idx" => get(g, "SubIdx", 0)
+                            ) for g in def_raw
+                        ]
+
+                        full_graphs = vcat(bg_pkg1, pkg_graphs)
+                        full_blob   = JSON3.write(full_graphs)
+
+                        updated_vault_b64 = FAST_ReadToStore_DDEF(bg_path)
+
+                        delete!(res_b, "Graphs")
+                        delete!(res_b, "_Hidden_Sheets")
+                        final_bundle = FAST_SanitiseJSON_DDEF(res_b)
+                        final_bundle["dataid"] = updated_vault_b64
+                        final_bundle["type"] = "SCIENCE_PULSE"
+
+                        t_bg_total = round(time() - bg_t0; digits=1)
+                        vault_pkg = Dict{String,Any}("content" => updated_vault_b64, "dataid" => updated_vault_b64, "type" => "SCIENCE_PULSE", "filename" => "")
+                        FAST_StageAsyncJob_DDEF(bg_job, Dict{String,Any}(
+                            "opt_results"   => Dict{String,Any}("Report" => rep_b, "Bundle" => final_bundle, "Leaders" => ld_html, "Badge" => rad_b),
+                            "vault_payload" => vault_pkg,
+                            "vault_b64"     => updated_vault_b64,
+                            "graph_count"   => length(full_graphs),
+                            "graph_blob"    => full_blob,
+                            "t_total"       => t_bg_total
+                        ); Status=:Ready)
+                        Log("LENS", "BATCH_ASYNC", "Background Portfolio Compiled [Total: $(length(full_graphs))]. Blob Packed.", "OK")
+                    catch e
+                        err_msg = FAST_HandleCatch_DDEF(FAST_TierUI_DDES(), e, "LENS", "BATCH_CRASH", "Background task failed"; MaxLen=200)
+                        # Stage a terminal failure payload so the UI interval can surface the error and disable cleanly.
+                        FAST_StageAsyncJob_DDEF(bg_job, Dict{String,Any}(
+                            "_Failed" => true,
+                            "error"   => err_msg
+                        ); Status=:Ready)
+                    finally
+                        FAST_CleanTransient_DDEF(bg_path)
+                        FAST_ReleaseLock_DDEF("VISE_ANALYSIS")
+                    end
                 end
+                spawned = true
             end
 
             summary_rows = [
@@ -2393,12 +2261,8 @@ function LENS_RegisterCallbacks_DDEF(app)
                 end
             ])
 
-            updated_base64 = FAST_ReadToStore_DDEF(path)
-
+            # Leaders are populated asynchronously once background BBO completes; clear stale display during Stage 1.
             leaders_html = ""
-            if haskey(res, "Leaders") && !isempty(res["Leaders"])
-                leaders_html = LENS_BuildLeadersTable_DDEF(res["Leaders"], res)
-            end
             rad_badge = (haskey(res, "RadioCorrection") && !isempty(res["RadioCorrection"])) ?
                         dbc_badge([html_i(className="fas fa-radiation me-1 colourtx-v5pb"), "Radio-Corrected"], className="ms-2 fw-bold colourgl-c4tg colourtx-v5pb") : ""
 
@@ -2428,7 +2292,7 @@ function LENS_RegisterCallbacks_DDEF(app)
                 updated_vault_payload, 
                 leaders_html, 
                 rad_badge,
-                Dict("next_pkg" => 2, "handle" => "", "working" => false),
+                Dict("next_pkg" => 2, "handle" => job_id, "working" => true),
                 false,
                 pkg1_blob
             )
@@ -2436,16 +2300,16 @@ function LENS_RegisterCallbacks_DDEF(app)
         # --- Error Guard: Failure State Recovery & Concurrency Cleanup ---
 
         catch e
-            bt = sprint(showerror, e, catch_backtrace())
-            FAST_Log_DDEF("LENS", "ANALYSIS_CRASH", bt, "FAIL")
-            !isempty(path) && try rm(path; force=true) catch end
-            LENS_LastPayloadTime_DDEC[] = 0.0
-            LENS_BatchPayload_DDEC[] = nothing
-            err_msg = html_span(["❌ Analysis Error: ", first(string(e), 120)], className="fw-bold small colourtx-c0hr")
+            msg = FAST_HandleCatch_DDEF(FAST_TierUI_DDES(), e, "LENS", "ANALYSIS_CRASH", "Analysis orchestrator crashed")
+            !spawned && FAST_CleanTransient_DDEF(path)
+            !spawned && !isempty(job_id) && FAST_PollAsyncJob_DDEF(job_id; Action=:Clear)
+            err_msg = html_span(["❌ Analysis Error: ", msg], className="fw-bold small colourtx-c0hr")
             return (nu, nu, err_msg, nu, nu, nu, nu, nu, Dict("next_pkg" => 0, "handle" => "", "working" => false), true, nu)
         finally
-            # Mandatory release of the architectural lock to restore system concurrency.
-            FAST_ReleaseLock_DDEF("VISE_ANALYSIS")
+            if !spawned
+                FAST_CleanTransient_DDEF(path)
+                FAST_ReleaseLock_DDEF("VISE_ANALYSIS")
+            end
         end
     end
 
@@ -2472,14 +2336,9 @@ function LENS_RegisterCallbacks_DDEF(app)
         end
 
         # Deliver-to-Unlock Security Lock: Prevent re-entry while analysis or delivery is active.
-        lpt = LENS_LastPayloadTime_DDEC[]
-        if lpt > 0.0
-            # If lpt < 1.0, it's analysis phase. If lpt > 1.0, it's delivery phase.
-            # Safety Check: If timeout hasn't reached, keep it locked.
-            if lpt < 1.0 || (time() - lpt < 60.0)
-                has_res = !isnothing(results) && FAST_ExtractDataID_DDEF(results) == FAST_ExtractDataID_DDEF(vault)
-                return true, !has_res, !has_res
-            end
+        if FAST_PollAsyncJob_DDEF(""; Action=:IsActive, Timeout=60.0)
+            has_res = !isnothing(results) && FAST_ExtractDataID_DDEF(results) == FAST_ExtractDataID_DDEF(vault)
+            return true, !has_res, !has_res
         end
 
         if isnothing(vault) || isempty(vault)
@@ -2727,12 +2586,6 @@ function LENS_RegisterCallbacks_DDEF(app)
 
         # Format column names for UI display: never display internal prefixes or raw underscores
         columns = [Dict{String,Any}("name" => FAST_FormatDisplayHeader_DDEF(c), "id" => c) for c in cols_to_show]
-        for col in columns
-            if uppercase(strip(string(col["id"]))) in ("SCORE", C.COL_SCORE)
-                col["type"]   = "numeric"
-                col["format"] = Dict("specifier" => ".4f")
-            end
-        end
 
         return data, columns
     end
@@ -2747,6 +2600,7 @@ function LENS_RegisterCallbacks_DDEF(app)
         Output("lens-prev-dir-x1",     "value"),
         Output("lens-prev-dir-x2",     "value"),
         Output("lens-prev-dir-x3",     "value"),
+        Output("lens-prev-input-project", "value"),
         Input("lens-lead-btn-confirm",  "n_clicks"),
         Input("lens-prev-slider-contraction",  "value"),
         Input("lens-prev-dd-method",    "value"),
@@ -2755,8 +2609,9 @@ function LENS_RegisterCallbacks_DDEF(app)
         State("lens-table-candidates",  "data"),
         State("store-master-vault",     "data"),
         State("lens-store-results",     "data"),
+        State("lens-input-project",     "value"),
         prevent_initial_call=true
-    ) do n_prev, contraction_p, meth_p, src, sel_rows, cand_data, base64_file, results
+    ) do n_prev, contraction_p, meth_p, src, sel_rows, cand_data, base64_file, results, lens_proj
         trig = BASE_GetTrigger_DDEF(callback_context())
 
         contraction_map = Float64[1.0, 0.75, 0.5, 0.25, 0.1]
@@ -2773,7 +2628,7 @@ function LENS_RegisterCallbacks_DDEF(app)
         slot_leaders = Any[nu, nu, nu]
         slot_modes   = Any[nu, nu, nu]
 
-        (isnothing(base64_file) || isnothing(sel_rows) || isempty(sel_rows)) && return Dict(), ret_z, Dash.no_update(), slot_names..., slot_leaders..., slot_modes..., nu, nu, nu
+        (isnothing(base64_file) || isnothing(sel_rows) || isempty(sel_rows)) && return Dict(), ret_z, Dash.no_update(), slot_names..., slot_leaders..., slot_modes..., nu, nu, nu, nu
 
         path = FAST_GetTransientPath_DDEF(base64_file)
         try
@@ -2802,29 +2657,40 @@ function LENS_RegisterCallbacks_DDEF(app)
             res = FLOW_BuildIPKT_DDEF(path, src, sel_id, Float64(z))
 
             res["SelectedContraction"] = z
-            res["SelectedMethod"] = m
+            res["SelectedMethod"] = m; res["IsReset"] = is_reset
             res["IsRadioCorrected"] = !isnothing(results) && haskey(results, "RadioCorrection") && !isempty(results["RadioCorrection"])
             res["RadioOpts"]        = get(config_full, "RadioOpts", Dict{String,Any}())
 
             ret_dir1 = nu
             ret_dir2 = nu
             ret_dir3 = nu
+            ret_proj = nu
             if is_reset
                 g_curr = get(config_full, "Global", Dict())
                 ret_dir1, ret_dir2, ret_dir3 = FAST_ExtractDirections_DDEF(g_curr, vars_config)
+
+                cfg_proj  = strip(string(FAST_SafeGet_DDEF(g_curr, "ProjectName", "")))
+                ui_proj   = isnothing(lens_proj) ? "" : strip(string(lens_proj))
+                ret_proj  = if !isempty(ui_proj) && (lowercase(ui_proj) != "doecisory" || isempty(cfg_proj))
+                    ui_proj
+                elseif !isempty(cfg_proj)
+                    cfg_proj
+                else
+                    ""
+                end
 
                 leader_vals = get(res, "LeaderValues", Float64[])
                 for j in 1:min(3, length(vars_config))
                     vname = get(vars_config[j], "Name", "Var $j")
                     vunit = get(vars_config[j], "Unit", "")
-                    lv    = j <= length(leader_vals) ? round(leader_vals[j]; digits=3) : 0.0
+                    lv    = j <= length(leader_vals) ? round(leader_vals[j]; digits=C.PREC_DATA) : 0.0
                     slot_names[j]   = vname
                     slot_leaders[j] = "Leader: $lv $vunit"
                     slot_modes[j]   = "KEEP"
                 end
             end
             
-            return res, ret_z, ret_m, slot_names..., slot_leaders..., slot_modes..., ret_dir1, ret_dir2, ret_dir3
+            return FAST_SanitiseJSON_DDEF(res), ret_z, ret_m, slot_names..., slot_leaders..., slot_modes..., ret_dir1, ret_dir2, ret_dir3, ret_proj
         finally
             FAST_CleanTransient_DDEF(path)
         end
@@ -2851,26 +2717,22 @@ function LENS_RegisterCallbacks_DDEF(app)
 
         excluded = (isnothing(excluded_raw) || !(excluded_raw isa AbstractVector)) ? String[] : String[string(x) for x in excluded_raw]
 
-        new_conf    = FAST_SafeGet_DDEF(res, "NewConfig", [])
-        old_conf    = FAST_SafeGet_DDEF(res, "OldConfig", new_conf)
-        raw_lv      = FAST_SafeGet_DDEF(res, "LeaderValues", Float64[])
-        leader_vals = Float64[FAST_SafeNum_DDEF(x) for x in raw_lv]
-        header_info = FAST_SafeGet_DDEF(res, "Global", Dict())
-        vol         = Float64(FAST_SafeNum_DDEF(FAST_SafeGet_DDEF(header_info, "Volume", 0.0)))
-        conc        = Float64(FAST_SafeNum_DDEF(FAST_SafeGet_DDEF(header_info, "Conc", 0.0)))
-        contraction_f = FAST_SafeNum_DDEF(FAST_SafeGet_DDEF(res, "SelectedContraction", 0.5))
-
-        display_conf = [Dict{String,Any}(string(k) => (v isa AbstractVector ? copy(v) : v) for (k,v) in pairs(c)) for c in new_conf]
-
         slots = LENS_ExtractSlots_DDEF(slot_cfg)
-        LENS_ApplySlotCustomisation_DDEF!(display_conf, slots, leader_vals, contraction_f, old_conf)
-
-        # Separate active components (excluding deleted constants) for stoichiometry audit & graph
-        active_conf = filter(c -> !(lowercase(strip(string(FAST_SafeGet_DDEF(c, "Role", "")))) in ("fixed", "fix") && string(FAST_SafeGet_DDEF(c, "Name", "")) in excluded), display_conf)
+        phase_space  = FLOW_CustomisePhaseSpace_DDEF(res, slots; Excluded=excluded)
+        display_conf = phase_space["DisplayConfig"]
+        active_conf  = phase_space["ActiveConfig"]
+        old_conf     = phase_space["OldConfig"]
+        active_vars  = phase_space["ActiveVars"]
+        leader_vals  = phase_space["LeaderValues"]
+        vol          = phase_space["Volume"]
+        conc         = phase_space["Conc"]
+        audit_ok     = phase_space["AuditOK"]
+        audit_report = phase_space["AuditReport"]
+        var_modes    = phase_space["VarBoundaryModes"]
+        b_alerts     = phase_space["BoundaryAlerts"]
 
         # Dynamic Direction Labels for X1, X2, X3
-        active_vars = filter(c -> get(c, "Role", "") == C.ROLE_VAR, active_conf)
-        subscripts  = ("₁", "₂", "₃")
+        subscripts = ("₁", "₂", "₃")
         lbls = [
             if k <= length(active_vars)
                 var_n = string(get(active_vars[k], "Name", "Var $k"))
@@ -2883,26 +2745,6 @@ function LENS_RegisterCallbacks_DDEF(app)
 
         d_vec = [dx isa Number ? Int(dx) : something(tryparse(Int, string(something(dx, -1))), -1) for dx in (dir_x1, dir_x2, dir_x3)]
         m_str = string(something(meth_val, "BB15"))
-
-        audit_rows = [Dict(
-            "Name" => string(get(c, "Name", "Unknown")),
-            "Role" => string(get(c, "Role", "Fixed")),
-            "L1"   => Float64(get(c, "Levels", [0.0, 0.0, 0.0])[1]),
-            "L2"   => Float64(get(c, "Levels", [0.0, 0.0, 0.0])[2]),
-            "L3"   => Float64(get(c, "Levels", [0.0, 0.0, 0.0])[3]),
-            "MW"   => Float64(get(c, "MW", 0.0)),
-            "Unit" => string(get(c, "Unit", "-"))
-        ) for c in active_conf]
-
-        audit_ok, audit_report, audit_results, _, _ = MOLE_AuditQuick_DDEF(audit_rows, vol, conc)
-
-        if !isempty(audit_results)
-            for c in active_conf
-                get(c, "Role", "") != C.ROLE_FILL && continue
-                m_idx = findfirst(==(get(c, "Name", "")), audit_results.Component)
-                !isnothing(m_idx) && (c["Levels"] = [0.0, audit_results[m_idx, :TARGET_MASS_mg], 0.0])
-            end
-        end
 
         fig = FLOW_RenderIPKT_DDEF(old_conf, active_conf, leader_vals; Method=m_str, Direction=d_vec)
 
@@ -2917,32 +2759,18 @@ function LENS_RegisterCallbacks_DDEF(app)
 
             slot_mode = role == C.ROLE_VAR ? (var_slot_idx += 1; var_slot_idx <= length(slots) ? get(slots[var_slot_idx], "Mode", "KEEP") : "KEEP") : ""
             mode_badge = slot_mode in ("SCALE", "REPLACE") ? html_span(slot_mode == "SCALE" ? " ASTM" : " R", className="badge ms-1 colourbg-c3tc colourtx-v5pb", style=Dict("fontSize" => "8px")) : ""
-            seeking_badge = ""
-            if role == C.ROLE_VAR
-                c_min = haskey(c, "Min") ? Float64(FAST_SafeNum_DDEF(c["Min"])) : 0.0
-                c_max = haskey(c, "Max") ? Float64(FAST_SafeNum_DDEF(c["Max"])) : Inf
-                v_cand = (var_slot_idx <= length(leader_vals)) ? Float64(leader_vals[var_slot_idx]) : Float64(lvls[2])
-                ref_lvls = haskey(c, "OldLevels") ? Float64.(c["OldLevels"]) : lvls
-                cand_span = lvls[3] - lvls[1]
-                b_stat = FLOW_ClassifyBoundaryMode_DDEF(v_cand, ref_lvls[1], ref_lvls[3], c_min, c_max, cand_span)
-                if b_stat isa FLOW_ModeSeekLower_DDES
-                    seeking_badge = html_span(" Seek-Min", className="badge ms-1 colourbg-c3tc colourtx-v5pb", style=Dict("fontSize" => "8px"))
-                elseif b_stat isa FLOW_ModeSeekUpper_DDES
-                    seeking_badge = html_span(" Seek-Max", className="badge ms-1 colourbg-c3tc colourtx-v5pb", style=Dict("fontSize" => "8px"))
-                elseif b_stat isa FLOW_ModeTranslateUpper_DDES
-                    seeking_badge = html_span(" Trans-Upper", className="badge ms-1 colourbg-c3tc colourtx-v5pb", style=Dict("fontSize" => "8px"))
-                elseif b_stat isa FLOW_ModeTranslateLower_DDES
-                    seeking_badge = html_span(" Trans-Lower", className="badge ms-1 colourbg-c3tc colourtx-v5pb", style=Dict("fontSize" => "8px"))
-                else
-                    seeking_badge = html_span(" Contract", className="badge ms-1 colourbg-c3tc colourtx-v5pb", style=Dict("fontSize" => "8px"))
-                end
+            seeking_badge = if role == C.ROLE_VAR && var_slot_idx <= length(var_modes) && !(var_modes[var_slot_idx] isa FLOW_ModeReplaced_DDES) && slot_mode != "REPLACE"
+                badge_txt = get(LENS_BoundaryBadgeMap_DDEC, typeof(var_modes[var_slot_idx]), " Contract")
+                html_span(badge_txt, className="badge ms-1 colourbg-c3tc colourtx-v5pb", style=Dict("fontSize" => "8px"))
+            else
+                ""
             end
 
             disp_name = c_name
             r_opts = FAST_SafeGet_DDEF(res, "RadioOpts", Dict{String,Any}())
-            if get(r_opts, "Apply", false) && !get(c, "IsReplaced", false)
+            if get(r_opts, "Apply", false) === true && get(c, "IsReplaced", false) !== true
                 forw_dict = FAST_SafeGet_DDEF(r_opts, "FORW", Dict{String,Any}())
-                forw_on = get(forw_dict, "Enabled", false) in (true, 1, "ON", "true", "TRUE")
+                forw_on = FAST_IsFlagTrue_DDEF(get(forw_dict, "Enabled", false))
                 if forw_on
                     alias = FAST_SafeGet_DDEF(forw_dict, disp_name, Dict{String,Any}())
                     al_name = string(FAST_SafeGet_DDEF(alias, "Name", ""))
@@ -2955,9 +2783,9 @@ function LENS_RegisterCallbacks_DDEF(app)
             disp_unit = get(c, "Unit", "")
             final_name = (isempty(disp_unit) || disp_unit == "-") ? disp_name : "$disp_name $disp_unit"
 
-            l1_s = string(round(lvls[1]; digits=3))
-            l2_s = string(round(lvls[2]; digits=3))
-            l3_s = string(round(lvls[3]; digits=3))
+            l1_s = string(round(lvls[1]; digits=C.PREC_DATA))
+            l2_s = string(round(lvls[2]; digits=C.PREC_DATA))
+            l3_s = string(round(lvls[3]; digits=C.PREC_DATA))
 
             btn_cell = ""
             if is_fixed
@@ -3037,22 +2865,6 @@ function LENS_RegisterCallbacks_DDEF(app)
             ], className="d-flex align-items-center")
         ], className="mt-3 border-0 shadow colourgl-c5hy colourtx-v5pb") : html_div()
 
-                b_alerts = FAST_SafeGet_DDEF(res, "BoundaryAlerts", String[])
-        live_alerts = String[]
-        for (k, c_var) in enumerate(active_vars)
-            lvls = get(c_var, "Levels", [0.0, 0.0, 0.0])
-            val  = (k <= length(leader_vals)) ? Float64(leader_vals[k]) : Float64(lvls[2])
-            min_lim = haskey(c_var, "Min") ? Float64(FAST_SafeNum_DDEF(c_var["Min"])) : 0.0
-            max_lim = haskey(c_var, "Max") ? Float64(FAST_SafeNum_DDEF(c_var["Max"])) : Inf
-            ref_lvls = haskey(c_var, "OldLevels") ? Float64.(c_var["OldLevels"]) : lvls
-            cand_span = lvls[3] - lvls[1]
-            ok, msg = FLOW_AuditLeader_DDEF(val, ref_lvls, min_lim, max_lim, cand_span)
-            !ok && push!(live_alerts, "[$(get(c_var, "Name", "Var $k"))]: " * msg)
-            if haskey(c_var, "ASTMWarning") && !isempty(c_var["ASTMWarning"])
-                push!(live_alerts, "[$(get(c_var, "Name", "Var $k")) ASTM]: " * c_var["ASTMWarning"])
-            end
-        end
-        b_alerts = isempty(live_alerts) ? FAST_SafeGet_DDEF(res, "BoundaryAlerts", String[]) : live_alerts
         boundary_html = if !isempty(b_alerts)
             dbc_alert([
                 html_div([
@@ -3084,7 +2896,7 @@ function LENS_RegisterCallbacks_DDEF(app)
         prop = (!isnothing(prop_state) && (haskey(prop_state, "NewConfig") || haskey(prop_state, :NewConfig))) ? prop_state : 
                (!isnothing(prop_data) && (haskey(prop_data, "NewConfig") || haskey(prop_data, :NewConfig)) ? prop_data : Dict{String,Any}())
         if trig == "lens-store-next-phase-proposal" || isempty(prop)
-            return String[]
+            return (!isempty(prop) && FAST_SafeGet_DDEF(prop, "IsReset", true) == false) ? Dash.no_update() : String[]
         end
 
         del_idx = findfirst(i -> trig == "lens-const-del-$i", 1:max_fixed)
@@ -3097,19 +2909,10 @@ function LENS_RegisterCallbacks_DDEF(app)
         excluded = (isnothing(cur_excluded) || !(cur_excluded isa AbstractVector)) ? String[] : String[string(x) for x in cur_excluded]
 
         slots = LENS_ExtractSlots_DDEF(slot_cfg)
+        fixed_names = FLOW_CustomisePhaseSpace_DDEF(prop, slots)["FixedNames"]
 
-        raw_conf = FAST_SafeGet_DDEF(prop, "NewConfig", [])
-        old_conf = FAST_SafeGet_DDEF(prop, "OldConfig", raw_conf)
-        display_conf = [Dict{String,Any}(string(k) => (v isa AbstractVector ? copy(v) : v) for (k,v) in pairs(c)) for c in raw_conf]
-        raw_lv = FAST_SafeGet_DDEF(prop, "LeaderValues", Float64[])
-        leader_vals = Float64[FAST_SafeNum_DDEF(x) for x in raw_lv]
-        contraction_f = FAST_SafeNum_DDEF(FAST_SafeGet_DDEF(prop, "SelectedContraction", 0.5))
-        LENS_ApplySlotCustomisation_DDEF!(display_conf, slots, leader_vals, contraction_f, old_conf)
-
-        fixed_items = [c for c in display_conf if lowercase(strip(string(FAST_SafeGet_DDEF(c, "Role", "")))) in ("fixed", "fix")]
-
-        if del_idx <= length(fixed_items)
-            c_name = string(FAST_SafeGet_DDEF(fixed_items[del_idx], "Name", ""))
+        if del_idx <= length(fixed_names)
+            c_name = fixed_names[del_idx]
             if c_name in excluded
                 filter!(x -> x != c_name, excluded)
             else
@@ -3156,18 +2959,11 @@ function LENS_RegisterCallbacks_DDEF(app)
 
         slots = LENS_ExtractSlots_DDEF(slot_cfg)
 
-        has_custom = any(get(s, "Mode", "KEEP") != "KEEP" || haskey(s, "NewMin") || haskey(s, "NewMax") for s in slots) || !isempty(excluded)
+        has_custom = any(!isequal(get(s, "Mode", "KEEP"), "KEEP") || haskey(s, "NewMin") || haskey(s, "NewMax") for s in slots) || !isempty(excluded)
 
-        custom_conf = nothing
         base_new_conf = FAST_SafeGet_DDEF(proposal, "NewConfig", nothing)
-        if !isnothing(base_new_conf) && base_new_conf isa AbstractVector
-            custom_conf = [Dict{String,Any}(string(k) => (v isa AbstractVector ? copy(v) : v) for (k,v) in pairs(c)) for c in base_new_conf]
-            base_old_conf = FAST_SafeGet_DDEF(proposal, "OldConfig", base_new_conf)
-            raw_lv = FAST_SafeGet_DDEF(proposal, "LeaderValues", Float64[])
-            leader_vals = Float64[FAST_SafeNum_DDEF(x) for x in raw_lv]
-            LENS_ApplySlotCustomisation_DDEF!(custom_conf, slots, leader_vals, Float64(contraction), base_old_conf)
-            filter!(c -> !(lowercase(strip(string(FAST_SafeGet_DDEF(c, "Role", "")))) in ("fixed", "fix") && string(FAST_SafeGet_DDEF(c, "Name", "")) in excluded), custom_conf)
-        end
+        custom_conf = (has_custom && !isnothing(base_new_conf) && base_new_conf isa AbstractVector) ?
+            FLOW_CustomisePhaseSpace_DDEF(proposal, slots; Excluded=excluded)["ActiveConfig"] : nothing
 
         target_proj = if !isnothing(prev_proj_v) && !isempty(strip(string(prev_proj_v)))
             String(strip(string(prev_proj_v)))
@@ -3178,36 +2974,36 @@ function LENS_RegisterCallbacks_DDEF(app)
         end
 
         path = FAST_GetTransientPath_DDEF(base64_file)
-        res  = FLOW_CommitIPKT_DDEF(
-            path, src, sel_id, Float64(contraction), meth;
-            Direction=direction_vec,
-            CustomConfig=has_custom ? custom_conf : nothing,
-            ProjectName=target_proj
-        )
-
-        if res["Status"] == "OK"
-
-            new_vault = FAST_ReadToStore_DDEF(path)
-            _, bytes = FAST_PrepareDownload_DDEF(path)
-            FAST_CleanTransient_DDEF(path)
-
-            fname = FAST_GenSmartName_DDEF(target_proj, res["TargetPhase"], "EVO", "xlsx")
-
-            return (
-                Dict("filename" => fname, "content" => base64encode(bytes), "base64" => true),
-                Dict("success"  => true, "msg" => "Phase Created Successfully", "base64" => new_vault),
-                ""
+        try
+            res = FLOW_CommitIPKT_DDEF(
+                path, src, sel_id, Float64(contraction), meth;
+                Direction=direction_vec,
+                CustomConfig=has_custom ? custom_conf : nothing,
+                ProjectName=target_proj
             )
-        else
+
+            if res["Status"] == "OK"
+                new_vault = FAST_ReadToStore_DDEF(path)
+                _, bytes = FAST_PrepareDownload_DDEF(path)
+                fname = FAST_GenSmartName_DDEF(target_proj, res["TargetPhase"], "EVO", "xlsx")
+
+                return (
+                    Dict("filename" => fname, "content" => base64encode(bytes), "base64" => true),
+                    Dict("success"  => true, "msg" => "Phase Created Successfully", "base64" => new_vault),
+                    ""
+                )
+            else
+                err_box = dbc_alert([
+                    html_div([
+                        html_i(className="fas fa-exclamation-triangle me-2"),
+                        html_strong("Phase Creation Blocked: "),
+                        html_span(string(res["Message"]))
+                    ])
+                ], color="danger", className="shadow-sm py-2 px-3 small border-0")
+                return Dash.no_update(), Dict("success" => false, "msg" => res["Message"]), err_box
+            end
+        finally
             FAST_CleanTransient_DDEF(path)
-            err_box = dbc_alert([
-                html_div([
-                    html_i(className="fas fa-exclamation-triangle me-2"),
-                    html_strong("Phase Creation Blocked: "),
-                    html_span(string(res["Message"]))
-                ])
-            ], color="danger", className="shadow-sm py-2 px-3 small border-0")
-            return Dash.no_update(), Dict("success" => false, "msg" => res["Message"]), err_box
         end
     end
 
@@ -3374,7 +3170,7 @@ function LENS_RegisterCallbacks_DDEF(app)
                         end
                     end
                 catch e_p
-                    FAST_Log_DDEF("LENS", "PLOT_EXP_WARN", string(e_p), "WARN")
+                    FAST_HandleCatch_DDEF(FAST_TierLogged_DDES(), e_p, "LENS", "PLOT_EXP_WARN", "Portfolio plot export failed"; MsgType="WARN")
                 end
             end
 
@@ -3387,7 +3183,7 @@ function LENS_RegisterCallbacks_DDEF(app)
                     clean_txt = LENS_RealignMarkdownTables_DDEF(clean_txt)
                     write(joinpath(export_dir, report_fname), clean_txt)
                 catch e_r
-                    FAST_Log_DDEF("LENS", "REPORT_EXP_WARN", string(e_r), "WARN")
+                    FAST_HandleCatch_DDEF(FAST_TierLogged_DDES(), e_r, "LENS", "REPORT_EXP_WARN", "Portfolio report export failed"; MsgType="WARN")
                 end
             end
 
@@ -3401,7 +3197,7 @@ function LENS_RegisterCallbacks_DDEF(app)
                         cp(path_trans, joinpath(export_dir, excel_fname); force=true)
                     end
                 catch e_x
-                    FAST_Log_DDEF("LENS", "EXCEL_EXP_WARN", string(e_x), "WARN")
+                    FAST_HandleCatch_DDEF(FAST_TierLogged_DDES(), e_x, "LENS", "EXCEL_EXP_WARN", "Portfolio Excel export failed"; MsgType="WARN")
                 finally
                     FAST_CleanTransient_DDEF(path_trans)
                 end
@@ -3445,9 +3241,9 @@ function LENS_RegisterCallbacks_DDEF(app)
                 html_span([html_i(className="fas fa-check-circle me-1"), "Portfolio exported successfully."], className="fw-bold small colourtx-c4tg")
             )
         catch e
-            FAST_Log_DDEF("LENS", "EXPORT_FAIL", string(e), "FAIL")
+            msg = FAST_HandleCatch_DDEF(FAST_TierUI_DDES(), e, "LENS", "EXPORT_FAIL", "Portfolio archive export failed")
             rm(export_dir; recursive=true, force=true)
-            return Dash.no_update(), html_span([html_i(className="fas fa-times-circle me-1"), "Export Error: $e"], className="fw-bold small colourtx-c0hr")
+            return Dash.no_update(), html_span([html_i(className="fas fa-times-circle me-1"), "Export Error: $msg"], className="fw-bold small colourtx-c0hr")
         end
     end
 
@@ -3529,7 +3325,7 @@ function LENS_RegisterCallbacks_DDEF(app)
         outputs = get(config, "Outputs", [])
 
         # Build Isotope Options (prioritising radioactive precursors)
-        rad_inputs = filter(i -> (get(i, "IsRadioactive", false) in (true, 1, "true", "TRUE")) ||
+        rad_inputs = filter(i -> FAST_IsFlagTrue_DDEF(get(i, "IsRadioactive", false)) ||
                                  FAST_SafeNum_DDEF(get(i, "HalfLife", 0.0)) > 0, ingreds)
         iso_pool = !isempty(rad_inputs) ? rad_inputs : ingreds
         iso_options = Dict{String,String}[]
@@ -3613,17 +3409,13 @@ function LENS_RegisterCallbacks_DDEF(app)
         end
         forw_alias = !isempty(forw_saved_target) ? get(fwd_dict[forw_saved_target], "Name", "") : ""
         forw_unit  = !isempty(forw_saved_target) ? get(fwd_dict[forw_saved_target], "Unit", "") : ""
-        forw_mode  = if haskey(fwd_dict, "Enabled")
-            fwd_dict["Enabled"] in (true, 1, "ON", "true", "TRUE") ? "ON" : "OFF"
-        else
-            "OFF"
-        end
+        forw_mode  = (haskey(fwd_dict, "Enabled") && FAST_IsFlagTrue_DDEF(fwd_dict["Enabled"])) ? "ON" : "OFF"
 
         # Col 2: Reaction Penalty (DCYP)
         dcyp_mode = if dcyp_cfg isa AbstractDict && haskey(dcyp_cfg, "Enabled")
-            dcyp_cfg["Enabled"] in (true, 1, "ON", "true", "TRUE") ? "ON" : "OFF"
+            FAST_IsFlagTrue_DDEF(dcyp_cfg["Enabled"]) ? "ON" : "OFF"
         elseif dcyp_cfg isa AbstractString
-            uppercase(strip(dcyp_cfg)) in ("ON", "TRUE", "1") ? "ON" : "OFF"
+            uppercase(strip(string(dcyp_cfg))) in ("ON", "TRUE", "1") ? "ON" : "OFF"
         elseif dcyp_cfg isa Bool
             dcyp_cfg ? "ON" : "OFF"
         else
@@ -3649,11 +3441,7 @@ function LENS_RegisterCallbacks_DDEF(app)
         end
         reve_alias = !isempty(reve_saved_target) ? get(rev_dict[reve_saved_target], "Name", "") : ""
         reve_unit  = !isempty(reve_saved_target) ? get(rev_dict[reve_saved_target], "Unit", "") : ""
-        reve_mode  = if haskey(rev_dict, "Enabled")
-            rev_dict["Enabled"] in (true, 1, "ON", "true", "TRUE") ? "ON" : "OFF"
-        else
-            "OFF"
-        end
+        reve_mode  = (haskey(rev_dict, "Enabled") && FAST_IsFlagTrue_DDEF(rev_dict["Enabled"])) ? "ON" : "OFF"
 
         return (
             forw_mode, iso_options, forw_iso, in_options, forw_target, forw_alias, forw_unit,
@@ -3718,6 +3506,8 @@ function LENS_RegisterCallbacks_DDEF(app)
         
         if trig == "lens-upload-data"
             (isnothing(upload_cont) || upload_cont == "") && return Dash.no_update(), Dash.no_update()
+            # Brief UI-level guard against rapid accidental double-uploads.
+            sleep(0.25)
             return Dict("content" => upload_cont, "filename" => upload_fname), nothing
         end
 
@@ -3884,8 +3674,8 @@ function LENS_RegisterCallbacks_DDEF(app)
         slots = Dict{String,Any}[]
         for i in 1:3
             mode = isnothing(modes[i]) ? "KEEP" : string(modes[i])
-            alpha_val = FAST_SafeNum_DDEF(isnothing(alphas[i]) ? 1.0 : alphas[i])
-            beta_val  = FAST_SafeNum_DDEF(isnothing(betas[i])  ? 0.0 : betas[i])
+            alpha_val = let v = FAST_SafeNum_DDEF(alphas[i]); isfinite(v) ? v : 1.0 end
+            beta_val  = let v = FAST_SafeNum_DDEF(betas[i]);  isfinite(v) ? v : 0.0 end
 
             slot = Dict{String,Any}("Mode" => mode, "Alpha" => alpha_val, "Beta" => beta_val)
 
@@ -3900,14 +3690,14 @@ function LENS_RegisterCallbacks_DDEF(app)
                 slot["NewName"] = isnothing(snames[i]) ? "" : string(snames[i])
                 has_num(smins[i]) && (slot["NewMin"] = FAST_SafeNum_DDEF(smins[i]))
                 has_num(smaxs[i]) && (slot["NewMax"] = FAST_SafeNum_DDEF(smaxs[i]))
-                if i <= length(leader_vals)
-
+                if i <= length(leader_vals) && isfinite(leader_vals[i])
+                    var_c  = [c for c in FAST_SafeGet_DDEF(proposal, "NewConfig", []) if FAST_SafeGet_DDEF(c, "Role", "") == C.ROLE_VAR]
                     raw_tv = FLOW_ApplyASTM_DDEF(leader_vals[i], alpha_val, beta_val)
-                    s_min  = haskey(slot, "NewMin") ? Float64(slot["NewMin"]) : -Inf
-                    s_max  = haskey(slot, "NewMax") ? Float64(slot["NewMax"]) : Inf
+                    c_ref  = i <= length(var_c) ? var_c[i] : Dict{String,Any}()
+                    s_min, s_max = FLOW_ResolvePhysicalBounds_DDEF(get(slot, "NewMin", get(c_ref, "Min", -Inf)), get(slot, "NewMax", get(c_ref, "Max", Inf)))
                     _, tv, _ = FLOW_ValidateASTM_DDEF(raw_tv, s_min, s_max)
-                    slot["TransformedVal"] = tv
-                    transformed_displays[i] = string(round(tv; digits=3))
+                    isfinite(tv) && (slot["TransformedVal"] = tv)
+                    transformed_displays[i] = isfinite(tv) ? string(round(tv; digits=C.PREC_DATA)) : "—"
                 end
             elseif mode == "REPLACE"
                 slot["NewName"] = isnothing(rnames[i]) ? "" : string(rnames[i])
@@ -3915,15 +3705,15 @@ function LENS_RegisterCallbacks_DDEF(app)
                 v1 = FAST_SafeNum_DDEF(r_l1s[i])
                 v2 = FAST_SafeNum_DDEF(r_l2s[i])
                 v3 = FAST_SafeNum_DDEF(r_l3s[i])
-                slot["NewL1"] = v1
-                slot["NewL2"] = v2
-                slot["NewL3"] = v3
+                isfinite(v1) && (slot["NewL1"] = v1)
+                isfinite(v2) && (slot["NewL2"] = v2)
+                isfinite(v3) && (slot["NewL3"] = v3)
                 has_num(rmins[i]) && (slot["NewMin"] = FAST_SafeNum_DDEF(rmins[i]))
                 has_num(rmaxs[i]) && (slot["NewMax"] = FAST_SafeNum_DDEF(rmaxs[i]))
                 slot["HalfLife"] = 0.0
                 slot["HalfLifeUnit"] = "Hours"
                 slot["IsRadioactive"] = false
-                transformed_displays[i] = isnan(v2) ? "—" : string(round(v2; digits=3))
+                transformed_displays[i] = !isfinite(v2) ? "—" : string(round(v2; digits=C.PREC_DATA))
             end
 
             push!(slots, slot)

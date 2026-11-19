@@ -132,7 +132,13 @@ function VISE_ExpandDesign_DDEF(X::AbstractMatrix{Float64}, ModelType::AbstractS
     return VISE_ExpandMatrix_DDEF(m_type, X)
 end
 
-VISE_ExpandMatrix_DDEF(::CORE_ModelLinear_DDES, X) = hcat(ones(size(X, 1)), X)
+function VISE_ExpandMatrix_DDEF(::CORE_ModelLinear_DDES, X)
+    N, k = size(X)
+    Xd = Matrix{Float64}(undef, N, k + 1)
+    fill!(view(Xd, :, 1), 1.0)
+    copyto!(view(Xd, :, 2:(k + 1)), X)
+    return Xd
+end
 function VISE_ExpandMatrix_DDEF(::CORE_ModelQuadratic_DDES, X)
     N = size(X, 1)
     Xd = Matrix{Float64}(undef, N, 10)
@@ -184,11 +190,19 @@ function VISE_Predict_DDEF(Model::AbstractDict, X_Raw::Any)
     return Xd * Beta
 end
 
-VISE_PrepareMatrix_DDEF(X::AbstractMatrix) = Float64.(collect(X))
-VISE_PrepareMatrix_DDEF(X::AbstractVector{<:AbstractVector}) = Float64.(reduce(vcat, transpose.(collect.(X))))
+VISE_PrepareMatrix_DDEF(X::AbstractMatrix) = Float64.(FAST_SafeNum_DDEF.(X))
+function VISE_PrepareMatrix_DDEF(X::AbstractVector{<:AbstractVector})
+    isempty(X) && return zeros(Float64, 0, 3)
+    return reduce(vcat, [reshape(Float64.(FAST_SafeNum_DDEF.(collect(row))), 1, :) for row in X])
+end
 function VISE_PrepareMatrix_DDEF(X::AbstractVector)
-    length(X) % 3 == 0 && return reshape(Float64.(collect(X)), :, 3)
-    return Float64.(collect(X))
+    isempty(X) && return zeros(Float64, 0, 3)
+    if all(el -> el isa AbstractVector, X)
+        return reduce(vcat, [reshape(Float64.(FAST_SafeNum_DDEF.(collect(row))), 1, :) for row in X])
+    end
+    vals = Float64.(FAST_SafeNum_DDEF.(X))
+    length(vals) % 3 == 0 && return reshape(vals, :, 3)
+    return vals
 end
 
 # ==============================================================================
@@ -252,23 +266,28 @@ function VISE_Regress_DDEF(X_Raw::AbstractMatrix{Float64}, Y::AbstractVector{Flo
         h_ii = vec(sum(abs2, Matrix(F.Q); dims=2))
         out_idx = findall(r -> abs(r) > 3 * RMSE, Resid)
 
+        X_Coded_Raw = CORE_CodeMatrix_DDEF(X_Raw)
+        Xd_Coded    = VISE_ExpandDesign_DDEF(X_Coded_Raw, ModelType)
+
         if n > p && sst > 1e-9 && sse > 1e-9
             msr, mse = (sst - sse) / max(1, p - 1), sse / (n - p)
             if mse > 1e-15
                 fs = msr / mse
                 pv = 1.0 - cdf(FDist(max(1, p - 1), n - p), fs)
-                # Compute (X'X)^(-1) diagonal via F.R^(-1) to avoid squaring cond(Xd).
-                Rinv = inv(UpperTriangular(F.R))
-                diag_inv = vec(sum(abs2, Rinv; dims=2))
-                sec = sqrt.(max.(0.0, mse .* diag_inv))
-                ts = Beta ./ max.(sec, 1e-15)
-                pc = 2.0 .* (1.0 .- cdf.(TDist(n - p), abs.(ts)))
+                # Compute SE, t, and p in coded [-1, +1] space for Minitab-consistent parameter inference.
+                F_c = qr(Xd_Coded)
+                if rank(F_c.R) == p
+                    Beta_c = F_c \ Y
+                    Rinv_c = inv(UpperTriangular(F_c.R))
+                    diag_inv_c = vec(sum(abs2, Rinv_c; dims=2))
+                    sec = sqrt.(max.(0.0, mse .* diag_inv_c))
+                    ts  = Beta_c ./ max.(sec, 1e-15)
+                    pc  = 2.0 .* (1.0 .- cdf.(TDist(n - p), abs.(ts)))
+                end
             end
         end
 
-        X_Coded_Raw = CORE_CodeMatrix_DDEF(X_Raw)
-        Xd_Vif      = VISE_ExpandDesign_DDEF(X_Coded_Raw, ModelType)
-        v           = VISE_CalcVIF_DDEF(Xd_Vif)
+        v           = VISE_CalcVIF_DDEF(Xd_Coded)
         tn          = VISE_GetTermNames_DDEF(InNames, ModelType)
         
         res = VISE_RegressionResult_DDES(
@@ -279,7 +298,7 @@ function VISE_Regress_DDEF(X_Raw::AbstractMatrix{Float64}, Y::AbstractVector{Flo
         )
         return Dict(res)
     catch e
-        FAST_Log_DDEF("VISE", "MODELLING", "Diagnostics Failure: $(string(e))", "FAIL")
+        FAST_HandleCatch_DDEF(FAST_TierLogged_DDES(), e, "VISE", "MODELLING", "Diagnostics failure")
         return Dict{String, Any}("Status" => "FAIL", "Error" => string(e))
     end
 end
@@ -315,8 +334,8 @@ function VISE_CalcVIF_DDEF(X_Design::AbstractMatrix)
         end
         v_diag       = diag(inv(M))
         vifs[2:end] .= v_diag
-    catch
-        # Assign extreme fallback values for non-invertible or ill-conditioned matrices.
+    catch e
+        FAST_HandleCatch_DDEF(FAST_TierLogged_DDES(), e, "VISE", "VIF_FALLBACK", "VIF inversion failed; assigning fallback penalty"; MsgType="WARN")
         vifs[2:end] .= VISE_VifFallback_DDEC
     end
     return vifs
@@ -348,7 +367,7 @@ function VISE_CalcPureError_DDEF(X_Coords::AbstractMatrix, Y::AbstractVector)::T
     for i in 1:n
         key = Vector{Float64}(undef, m)
         @inbounds for j in 1:m
-            key[j] = round((X_f[i, j] - col_mins[j]) / col_scales[j]; digits=5) + 0.0
+            key[j] = round((X_f[i, j] - col_mins[j]) / col_scales[j]; digits=C.PREC_FINE) + 0.0
         end
         push!(get!(unique_rows, key, Float64[]), Float64(Y[i]))
     end
@@ -463,9 +482,9 @@ function VISE_GenANOVATable_DDEF(Model::AbstractDict, X_Raw::Any, Y_Raw::Any)
 
     df_anova = DataFrame(
         Source = sources,
-        SS     = round.(ss_vals; digits=4),
+        SS     = round.(ss_vals; digits=C.PREC_STAT),
         df     = df_vals,
-        MS     = [ismissing(v) ? missing : round(v; digits=4) for v in ms_raw],
+        MS     = [ismissing(v) ? missing : round(v; digits=C.PREC_STAT) for v in ms_raw],
         F      = Vector{Union{Float64, Missing}}(missing, length(sources)),
         P      = Vector{Union{Float64, Missing}}(missing, length(sources))
     )
@@ -475,10 +494,12 @@ function VISE_GenANOVATable_DDEF(Model::AbstractDict, X_Raw::Any, Y_Raw::Any)
     idx_res = findfirst(==("Residual"), sources)
 
     if !isnothing(idx_mod) && !isnothing(idx_res)
-        if !ismissing(ms_raw[idx_res]) && !ismissing(ms_raw[idx_mod]) && ms_raw[idx_res] > 1e-12
-            f                   = ms_raw[idx_mod] / ms_raw[idx_res]
-            df_anova.F[idx_mod] = round(f; digits=2)
-            df_anova.P[idx_mod] = round(clamp(1.0 - cdf(FDist(df_vals[idx_mod], df_vals[idx_res]), f), 0.0, 1.0); digits=4)
+        ms_mod = ms_raw[idx_mod]
+        ms_res = ms_raw[idx_res]
+        if !ismissing(ms_res) && !ismissing(ms_mod) && ms_res > 1e-12
+            f                   = ms_mod / ms_res
+            df_anova.F[idx_mod] = round(f; digits=C.PREC_SUMMARY)
+            df_anova.P[idx_mod] = round(clamp(1.0 - cdf(FDist(df_vals[idx_mod], df_vals[idx_res]), f), 0.0, 1.0); digits=C.PREC_STAT)
         end
     end
 
@@ -486,10 +507,12 @@ function VISE_GenANOVATable_DDEF(Model::AbstractDict, X_Raw::Any, Y_Raw::Any)
     idx_lof = findfirst(==("Lack of Fit"), sources)
     idx_pe = findfirst(==("Pure Error"), sources)
     if !isnothing(idx_lof) && !isnothing(idx_pe)
-        if !ismissing(ms_raw[idx_pe]) && !ismissing(ms_raw[idx_lof]) && ms_raw[idx_pe] > 1e-12
-            f_lof               = ms_raw[idx_lof] / ms_raw[idx_pe]
-            df_anova.F[idx_lof] = round(f_lof; digits=2)
-            df_anova.P[idx_lof] = round(clamp(1.0 - cdf(FDist(df_vals[idx_lof], df_vals[idx_pe]), f_lof), 0.0, 1.0); digits=4)
+        ms_lof = ms_raw[idx_lof]
+        ms_pe  = ms_raw[idx_pe]
+        if !ismissing(ms_pe) && !ismissing(ms_lof) && ms_pe > 1e-12
+            f_lof               = ms_lof / ms_pe
+            df_anova.F[idx_lof] = round(f_lof; digits=C.PREC_SUMMARY)
+            df_anova.P[idx_lof] = round(clamp(1.0 - cdf(FDist(df_vals[idx_lof], df_vals[idx_pe]), f_lof), 0.0, 1.0); digits=C.PREC_STAT)
         end
     end
 
@@ -528,12 +551,12 @@ function VISE_TestNormality_DDEF(Model::AbstractDict, X_Raw::Any, Y_Raw::Any)
         sw = HypothesisTests.ShapiroWilkTest(Resid)
         p  = pvalue(sw)::Float64
         return Dict(
-            "p"        => round(p; digits=4), 
+            "p"        => round(p; digits=C.PREC_STAT), 
             "IsNormal" => p > 0.05, 
             "Test"     => "Shapiro-Wilk"
         )
-    catch
-        return Dict("p" => NaN, "IsNormal" => false, "Test" => "Fail")
+    catch e
+        return FAST_HandleCatch_DDEF(FAST_TierLogged_DDES(), e, "VISE", "NORMALITY_FAIL", "Shapiro-Wilk normality test failed", Dict("p" => NaN, "IsNormal" => false, "Test" => "Fail"); MsgType="WARN")
     end
 end
 
@@ -628,7 +651,7 @@ function VISE_SelectBestModel_DDEF(X::AbstractMatrix{Float64}, Y::AbstractVector
 
         score = 0.6 * q2_safe + 0.4 * r2a_safe
 
-        push!(log_details, "$(uppercasefirst(type_str)): R²Adj=$(round(r2a_safe, digits=3)), Q²=$(round(q2_safe, digits=3))")
+        push!(log_details, "$(uppercasefirst(type_str)): R²Adj=$(round(r2a_safe; digits=C.PREC_DATA)), Q²=$(round(q2_safe; digits=C.PREC_DATA))")
 
         if score > best_score
             best_score     = score
@@ -689,8 +712,8 @@ function VISE_CrossValidate_DDEF(X_Raw::AbstractMatrix{Float64}, Y::AbstractVect
         PRESS = sum(abs2, Resid ./ denom)
         SST = var(Y) * (N - 1)
         return SST < 1e-9 ? 0.0 : 1.0 - PRESS / SST
-    catch
-        return NaN
+    catch e
+        return FAST_HandleCatch_DDEF(FAST_TierLogged_DDES(), e, "VISE", "Q2_FAIL", "Cross-validation Q2 calculation failed", NaN; MsgType="WARN")
     end
 end
 
@@ -733,9 +756,9 @@ function VISE_RunGridSearch_DDEF(Models::AbstractVector, Goals::AbstractVector, 
     m_lbl = NumModels == 1 ? "model" : "models"
     FAST_Log_DDEF("VISE", "GRID_SEARCH", "Exploration Pulse [N=$NumPoints] - Dispatching $(NumModels) $m_lbl...", "WAIT")
 
-    # Pre-expand design matrices for Linear and Quadratic structures
-    X_Linear = VISE_ExpandDesign_DDEF(Candidates, "linear")
-    X_Quadratic = VISE_ExpandDesign_DDEF(Candidates, "quadratic")
+    # Expand design matrices lazily so pure-linear or pure-quadratic runs skip unused allocations.
+    X_Linear    = nothing
+    X_Quadratic = nothing
 
     # 1. Deterministic Matrix-Vector Multiplication (Thread-safe)
     for m in 1:NumModels
@@ -744,58 +767,24 @@ function VISE_RunGridSearch_DDEF(Models::AbstractVector, Goals::AbstractVector, 
         m_type_str = lowercase(get(Mod, "ModelType", "quadratic"))
         Beta = collect(Float64, Mod["Coefs"])
         
-        X_eff = (m_type_str == "linear") ? X_Linear : X_Quadratic
+        X_eff = if m_type_str == "linear"
+            isnothing(X_Linear) && (X_Linear = VISE_ExpandDesign_DDEF(Candidates, "linear"))
+            X_Linear
+        else
+            isnothing(X_Quadratic) && (X_Quadratic = VISE_ExpandDesign_DDEF(Candidates, "quadratic"))
+            X_Quadratic
+        end
         mul!(view(Predictions, :, m), X_eff, Beta)
         Active_Flags[m] = true
     end
 
     # 2. Multi-Objective Desirability Scoring
     active_idx = findall(Active_Flags)
-    Scores = Vector{Float64}(undef, NumPoints)
     if isempty(active_idx)
-        fill!(Scores, 1.0)
+        Scores = ones(Float64, NumPoints)
     else
-        parsed_goals = Vector{Tuple}(undef, NumModels)
-        for m in 1:NumModels
-            gtup = CORE_ExtractGoal_DDEF(m <= length(Goals) ? Goals[m] : get(Models[m], "Goal", Dict()))
-            parsed_goals[m] = gtup
-        end
-        base_goals = [(g[1], g[2], g[3], g[4], 1.0) for g in parsed_goals]
-        inv_k = length(active_idx) > 0 ? (1.0 / length(active_idx)) : 1.0
-        neighbour_weights = [CORE_GetNeighbourWeights_DDEF(parsed_goals[m][5]) for m in active_idx]
-
-        Threads.@threads for i in 1:NumPoints
-            @inbounds begin
-                prod_u = 1.0
-                prod_e = 1.0
-                for (j, m_idx) in enumerate(active_idx)
-                    pred_val = Predictions[i, m_idx]
-                    if isnan(pred_val) || isinf(pred_val)
-                        prod_u = 0.0
-                        prod_e = 0.0
-                        break
-                    end
-
-                    b = CORE_CalcDesirability_DDEF(pred_val, base_goals[m_idx])
-                    if b <= 1e-12
-                        prod_u = 0.0
-                        prod_e = 0.0
-                        break
-                    end
-
-                    w_m, w_c, w_p = neighbour_weights[j]
-                    u = b^(w_c * inv_k)
-                    e = (b^(w_m * inv_k) + u + b^(w_p * inv_k)) / 3.0
-                    prod_u *= u
-                    prod_e *= e
-                end
-                res_val = clamp(0.50 * prod_u + 0.50 * prod_e, 0.0, 1.0)
-                for dm in ModifiersDCYP
-                    res_val = CORE_ApplyDCYP_DDEF(res_val, dm, view(Candidates, i, :))
-                end
-                Scores[i] = (isnan(res_val) || isinf(res_val)) ? 0.0 : clamp(res_val, 0.0, 1.0)
-            end
-        end
+        active_goals = [CORE_ExtractGoal_DDEF(m <= length(Goals) ? Goals[m] : get(Models[m], "Goal", Dict{String, Any}())) for m in active_idx]
+        Scores = CORE_CalcDesirability_DDEF(view(Predictions, :, active_idx), active_goals, Candidates, ModifiersDCYP)
     end
 
     FAST_Log_DDEF("VISE", "GRID_SEARCH", "Exploration Pulse completed successfully.", "OK")
@@ -825,9 +814,11 @@ function VISE_AnalyseSensitivity_DDEF(Model::AbstractDict, X_Point::AbstractVect
         delta = span * 0.001
         
         Xp = copy(X_Point)
-        Xp[i] += delta
+        step = (X_Point[i] + delta > c_max && X_Point[i] - delta >= c_min) ? -delta : delta
+        Xp[i] += step
         pred_p = VISE_Predict_DDEF(Model, reshape(Xp, 1, 3))[1]
-        gradients[i] = abs(pred_p - base_pred) / delta
+        # Scale physical derivative by factor half-span (span/2) for unit-invariant coded sensitivity.
+        gradients[i] = (abs(pred_p - base_pred) / delta) * (span * 0.5)
     end
     
     total = sum(gradients)
@@ -912,7 +903,7 @@ function VISE_FormatMarkdownTable_DDEF(headers::Vector{String}, aligns::Vector{S
 end
 
 function VISE_GetWeightRating_DDEF(w::Any)::String
-    w_val = round((w isa Real) ? Float64(w) : something(tryparse(Float64, string(w)), 1.0); digits=2)
+    w_val = round((w isa Real) ? Float64(w) : something(tryparse(Float64, string(w)), 1.0); digits=C.PREC_SUMMARY)
     w_val == 0.50 && return "1/5"
     w_val == 0.75 && return "2/5"
     w_val == 1.00 && return "3/5"
@@ -1310,7 +1301,7 @@ function VISE_GenSciReport_DDEF(Res::AbstractDict)
         write(io, VISE_FormatMarkdownTable_DDEF(coef_headers, coef_aligns, coef_rows))
         write(io, "\n")
         
-        non_intercept_sig = filter(!=("(Intercept)"), sig_terms)
+        non_intercept_sig = filter(t -> t != "Intercept" && t != "(Intercept)", sig_terms)
         sig_msg = if isempty(non_intercept_sig)
             @sprintf("No factor terms reached statistical significance at α = %.2f.", C.EVAL_ALPHA_SIG)
         else
@@ -1428,8 +1419,8 @@ function VISE_GenSciReport_DDEF(Res::AbstractDict)
                 
                 y_opt = try
                     VISE_Predict_DDEF(mod, bp_mat)[1]
-                catch
-                    NaN
+                catch e
+                    FAST_HandleCatch_DDEF(FAST_TierLogged_DDES(), e, "VISE", "REPORT_PRED_WARN", "Optimal point prediction failed in report", NaN; MsgType="WARN")
                 end
                 m_goal = (m_idx <= length(goals)) ? goals[m_idx] : get(mod, "Goal", Dict())
                 gtup = CORE_ExtractGoal_DDEF(m_goal)
@@ -1576,7 +1567,7 @@ function VISE_TrainEnsemble_DDEF(X::AbstractMatrix{Float64}, Y::AbstractMatrix{F
                 models[m] = mod
                 Log("VISE", "MODELLING", "Output $m ($ModelType): $(string(log_msg))", "OK")
             catch e
-                Log("VISE", "ERR", "Output $m modelling failed: $(string(e))", "FAIL")
+                FAST_HandleCatch_DDEF(FAST_TierLogged_DDES(), e, "VISE", "ERR", "Output $m modelling failed"; Logger=Log)
                 models[m] = Dict{String, Any}(
                     "Status"     => "FAIL",
                     "ModelType"  => lowercase(string(ModelType)),
@@ -1644,13 +1635,15 @@ function VISE_Execute_DDEF(DataFile::AbstractString, Phase::AbstractString, Goal
                 for col in names(df_up)
                     col_sym = Symbol(col)
                     col_up_str = uppercase(string(col))
-                    is_meta_col = col_up_str in (C.COL_EXP_ID, "ID", C.COL_PHASE, C.COL_STATUS, C.COL_NOTES)
+                    is_meta_col = col_up_str in (C.COL_EXP_ID, C.COL_ID, C.COL_PHASE, C.COL_STATUS, C.COL_NOTES)
                     if col_sym in propertynames(df_full)
-                        if !is_meta_col && eltype(df_full[!, col_sym]) === Missing
+                        if !is_meta_col && Sys_Fast.FAST_CanCoerceFloat_DDEF(df_full[!, col_sym])
                             VISE_WidenColumnFloat_DDEF!(df_full, col_sym)
+                        else
+                            eltype(df_full[!, col_sym]) === Any || (df_full[!, col_sym] = Vector{Any}(df_full[!, col_sym]))
                         end
                     else
-                        col_eltype = is_meta_col ? String : Union{Missing, Float64}
+                        col_eltype = is_meta_col ? Union{Missing, String} : Union{Missing, Float64}
                         df_full[!, col_sym] = Vector{col_eltype}(missing, nrow(df_full))
                     end
                 end
@@ -1658,7 +1651,10 @@ function VISE_Execute_DDEF(DataFile::AbstractString, Phase::AbstractString, Goal
                 for (i, r_idx) in enumerate(p_indices)
                     if i <= nrow(df_up)
                         for col in names(df_up)
-                            df_full[r_idx, Symbol(col)] = df_up[i, Symbol(col)]
+                            col_sym = Symbol(col)
+                            val = df_up[i, col_sym]
+                            tgt_t = nonmissingtype(eltype(df_full[!, col_sym]))
+                            df_full[r_idx, col_sym] = (!ismissing(val) && tgt_t <: AbstractString && !(val isa AbstractString)) ? string(val) : val
                         end
                     end
                 end
@@ -1666,7 +1662,8 @@ function VISE_Execute_DDEF(DataFile::AbstractString, Phase::AbstractString, Goal
             end
         end
     catch e_merge
-        Log("VISE", "MERGE_WARN", "Multi-phase data merge fallback: $e_merge", "WARN")
+        FAST_HandleCatch_DDEF(FAST_TierLogged_DDES(), e_merge, "VISE", "MERGE_FAIL", "Multi-phase data merge failed; write aborted to preserve existing phases"; Logger=Log)
+        return Dict("Status" => "FAIL", "Message" => "Multi-phase merge failed: $e_merge")
     end
 
     # 3. Handle Configuration Merging & Commit to Disk
@@ -1729,8 +1726,8 @@ function VISE_ExecuteInternal_DDEF(df_raw::DataFrame, config::AbstractDict, Phas
     if get(r_opts, "Apply", false)
         f_dict = get(r_opts, "FORW", Dict{String,Any}())
         r_dict = get(r_opts, "REVE", Dict{String,Any}())
-        forw_active_disp = get(f_dict, "Enabled", false) in (true, 1, "ON", "true", "TRUE")
-        reve_active_disp = get(r_dict, "Enabled", false) in (true, 1, "ON", "true", "TRUE")
+        forw_active_disp = FAST_IsFlagTrue_DDEF(get(f_dict, "Enabled", false))
+        reve_active_disp = FAST_IsFlagTrue_DDEF(get(r_dict, "Enabled", false))
 
         if forw_active_disp
             for (i, n) in enumerate(DispInNames)
@@ -1830,7 +1827,7 @@ function VISE_ExecuteInternal_DDEF(df_raw::DataFrame, config::AbstractDict, Phas
 
             # When FORW(Input) shifted coordinates enough to dissolve exact replicates, surface nominal-grouped reference diagnostics transparently without forging formal LOF.
             if isnan(vitals["LOF"]) && !isapprox(X_Clean, X_Nominal; atol=1e-9)
-                nom_keys = [round.(Float64.(view(X_Nominal, r, :)); digits=5) for r in 1:n_samples]
+                nom_keys = [round.(Float64.(view(X_Nominal, r, :)); digits=C.PREC_FINE) for r in 1:n_samples]
                 nom_groups = Dict{Vector{Float64}, Vector{Int}}()
                 for (r, k) in enumerate(nom_keys)
                     push!(get!(nom_groups, k, Int[]), r)
@@ -1843,9 +1840,9 @@ function VISE_ExecuteInternal_DDEF(df_raw::DataFrame, config::AbstractDict, Phas
                     drifted_factors = [
                         Dict{String, Any}(
                             "Name"      => DispInNames[c],
-                            "Nominal"   => round(Float64(X_Nominal[first(centre_idx), c]); digits=4),
-                            "ActualMin" => round(Float64(minimum(view(X_Clean, centre_idx, c))); digits=4),
-                            "ActualMax" => round(Float64(maximum(view(X_Clean, centre_idx, c))); digits=4)
+                            "Nominal"   => round(Float64(X_Nominal[first(centre_idx), c]); digits=C.PREC_DATA),
+                            "ActualMin" => round(Float64(minimum(view(X_Clean, centre_idx, c))); digits=C.PREC_DATA),
+                            "ActualMax" => round(Float64(maximum(view(X_Clean, centre_idx, c))); digits=C.PREC_DATA)
                         ) for c in 1:size(X_Clean, 2) if !isapprox(X_Clean[:, c], X_Nominal[:, c]; atol=1e-9)
                     ]
 
@@ -1876,22 +1873,24 @@ function VISE_ExecuteInternal_DDEF(df_raw::DataFrame, config::AbstractDict, Phas
             end
         end
     catch e
-        Log("VISE", "VITALS_WARN", "Design vitals evaluation incomplete: $e", "WARN")
+        FAST_HandleCatch_DDEF(FAST_TierLogged_DDES(), e, "VISE", "VITALS_WARN", "Design vitals evaluation incomplete"; MsgType="WARN", Logger=Log)
     end
     
     opts_with_mode = copy(Opts)
     opts_with_mode["Mode"] = RenderMode
+    opts_with_mode["ModifiersDCYP"] = mods_dcyp
 
     graphs = ARTS_Render_DDEF(models, X_Clean, Y_Clean, DispInNames, DispOutNames, Goals, 
         [get(m, "R2_Adj", 0.0) for m in models], [get(m, "Q2", 0.0) for m in models], opts_with_mode, ldf,
         sens_list, residuals)
         
-    sheets_to_commit = Dict(C.SHEET_DATA => df_updated)
+    sheets_to_commit = Dict{String, DataFrame}(C.SHEET_DATA => df_updated)
     sheet_leader     = C.PREFIX_LEADERS * Phase
     sheets_to_commit[sheet_leader] = ldf
     
     res_bundle = VISE_AssembleBundle_DDEF(Phase, InNames_v, OutNames_v, DispInNames, DispOutNames, models, bp, bs, ldf, X_Clean, Y_Clean, Opts, 
         Goals, Y_Pred, Actual_Scores, radio_audit, warns, vitals, anova_tables, normality_res, residuals, sens_list, graphs, t_start)
+    res_bundle["ModifiersDCYP"] = mods_dcyp
         
     return res_bundle, sheets_to_commit
 end
@@ -1927,7 +1926,9 @@ function VISE_ExtractMatrices_DDEF(df::DataFrame, config::AbstractDict, Log)
     for (ci, c) in enumerate(in_cols) X[:, ci] .= FAST_SafeNum_DDEF.(df[!, c]) end
     for (ci, c) in enumerate(out_cols) Y[:, ci] .= FAST_SafeNum_DDEF.(df[!, c]) end
     
-    mask = out_len > 0 ? vec(all(!isnan, Y[:, 1:out_len]; dims=2)) : fill(false, nr)
+    mask_x = in_len > 0 ? vec(all(isfinite, @view(X[:, 1:in_len]); dims=2)) : fill(false, nr)
+    mask_y = out_len > 0 ? vec(all(isfinite, @view(Y[:, 1:out_len]); dims=2)) : fill(false, nr)
+    mask = mask_x .& mask_y
     xc, yc = X[mask, 1:in_len], Y[mask, 1:out_len]   
     
     # Strict Type Enforcement: Ensure names are Vector{String} to avoid MethodError in TrainEnsemble
@@ -2091,8 +2092,8 @@ function VISE_ApplyFRDecay_DDEF(X, Y, in_n, out_n, df, config, opts, Log; mask=t
     fwd_dict    = get(r_opts, "FORW", Dict{String,Any}())
     rev_dict    = get(r_opts, "REVE", Dict{String,Any}())
 
-    forw_active = apply_radio && (get(fwd_dict, "Enabled", false) in (true, 1, "ON", "true", "TRUE"))
-    reve_active = apply_radio && (get(rev_dict, "Enabled", false) in (true, 1, "ON", "true", "TRUE"))
+    forw_active = (apply_radio === true) && FAST_IsFlagTrue_DDEF(get(fwd_dict, "Enabled", false))
+    reve_active = (apply_radio === true) && FAST_IsFlagTrue_DDEF(get(rev_dict, "Enabled", false))
 
     ingreds = get(config, "Ingredients", [])
     idx_m   = findall(mask)
@@ -2110,7 +2111,7 @@ function VISE_ApplyFRDecay_DDEF(X, Y, in_n, out_n, df, config, opts, Log; mask=t
         hl_raw   = Float64(FAST_SafeNum_DDEF(get(ing, "HalfLife", 0.0)))
         hl_unit  = string(get(ing, "HalfLifeUnit", "Hours"))
         hl_min   = MOLE_ConvertToMinutes_DDEF(hl_raw, hl_unit)
-        is_radio = (get(ing, "IsRadioactive", false) in (true, 1, "true", "TRUE")) || hl_min > 0.0
+        is_radio = FAST_IsFlagTrue_DDEF(get(ing, "IsRadioactive", false)) || hl_min > 0.0
         !is_radio && continue
 
         v_idx = findfirst(==(v_name), in_n)
@@ -2163,7 +2164,7 @@ function VISE_ApplyFRDecay_DDEF(X, Y, in_n, out_n, df, config, opts, Log; mask=t
                 val_nom
 
             if !isempty(col_actual) && val_act > 0.0
-                df[r_idx, Symbol(col_actual)] = round(val_act; digits=4)
+                df[r_idx, Symbol(col_actual)] = round(val_act; digits=C.PREC_DATA)
             end
 
             # Only mutate training matrix X if Forward Decay is explicitly active for this ingredient
@@ -2179,12 +2180,19 @@ function VISE_ApplyFRDecay_DDEF(X, Y, in_n, out_n, df, config, opts, Log; mask=t
             disp_name = get(f_opts, "Name", "")
             disp_name = isempty(disp_name) ? v_name : disp_name
 
+            avg_dt = if isempty(col_exp)
+                0.0
+            else
+                valid_dt = filter(isfinite, FAST_SafeNum_DDEF.(df[idx_m, col_exp]))
+                isempty(valid_dt) ? 0.0 : mean(valid_dt)
+            end
+
             push!(audit, Dict(
                 "Name"        => disp_name,
                 "HalfLife"    => hl_raw,
                 "Unit"        => hl_unit,
                 "Type"        => type_lbl,
-                "AvgDeltaT"   => isempty(col_exp) ? 0.0 : mean(FAST_SafeNum_DDEF.(df[idx_m, col_exp])),
+                "AvgDeltaT"   => avg_dt,
                 "AvgDF"       => isempty(dfs) ? 1.0 : mean(dfs),
                 "IsCorrected" => true
             ))
@@ -2239,7 +2247,7 @@ function VISE_ApplyFRDecay_DDEF(X, Y, in_n, out_n, df, config, opts, Log; mask=t
             val_act = (hl_min > 0.0 && t_min > 0.0 && val_nom > 0.0) ?
                 MOLE_CalcRadioDecay_DDEF(val_nom, hl_raw, hl_unit, t_min; Reverse=false) : val_nom
             if val_act > 0.0
-                df[r_idx, Symbol(col_str)] = round(val_act; digits=4)
+                df[r_idx, Symbol(col_str)] = round(val_act; digits=C.PREC_DATA)
             end
         end
     end
@@ -2313,7 +2321,7 @@ function VISE_ApplyFRDecay_DDEF(X, Y, in_n, out_n, df, config, opts, Log; mask=t
                              val_raw
 
                 if A_out_corr > 0.0
-                    df[r_idx, Symbol(col_act_out)] = round(A_out_corr; digits=4)
+                    df[r_idx, Symbol(col_act_out)] = round(A_out_corr; digits=C.PREC_DATA)
                 end
 
                 # When radio correction is applied, update Y directly with EOS activity
@@ -2369,7 +2377,7 @@ function VISE_ExtractDCYP_DDEF(in_n::AbstractVector{<:AbstractString}, out_n::Ab
     dcyp_cfg  = get(r_opts, "DCYP", Dict())
     
     dcyp_enabled = if dcyp_cfg isa AbstractDict
-        get(dcyp_cfg, "Enabled", false) in (true, 1, "ON", "true", "TRUE")
+        FAST_IsFlagTrue_DDEF(get(dcyp_cfg, "Enabled", false))
     elseif dcyp_cfg isa AbstractString
         uppercase(strip(dcyp_cfg)) in ("ON", "TRUE", "1")
     elseif dcyp_cfg isa Bool
@@ -2382,28 +2390,28 @@ function VISE_ExtractDCYP_DDEF(in_n::AbstractVector{<:AbstractString}, out_n::Ab
     ingreds = get(config, "Ingredients", [])
 
     # Step 1: Identify reaction time variable index among the input factors
-    time_indices = Int[]
+    time_entries = Tuple{Int, Float64}[]
     for (idx, name) in enumerate(in_n)
         ing_match = findfirst(i -> get(i, "Name", "") == name, ingreds)
         if !isnothing(ing_match)
             unit_str = string(get(ingreds[ing_match], "Unit", ""))
-            if MOLE_IsTimeUnit_DDEF(unit_str) || occursin(r"(?i)(time|duration|min|minute|hour|sec)", name)
-                push!(time_indices, idx)
+            if MOLE_IsTimeUnit_DDEF(unit_str)
+                push!(time_entries, (idx, MOLE_ConvertToMinutes_DDEF(1.0, unit_str)))
+            elseif occursin(r"(?i)(time|duration|min|minute|hour|sec)", name)
+                push!(time_entries, (idx, 1.0))
             end
-        else
-            if occursin(r"(?i)(time|duration|min|minute|hour|sec)", name)
-                push!(time_indices, idx)
-            end
+        elseif occursin(r"(?i)(time|duration|min|minute|hour|sec)", name)
+            push!(time_entries, (idx, 1.0))
         end
     end
 
-    isempty(time_indices) && return modifiers
+    isempty(time_entries) && return modifiers
 
     # Step 2: Identify isotope for decay constant lambda
     selected_iso = dcyp_cfg isa AbstractDict ? get(dcyp_cfg, "Isotope", "Auto") : "Auto"
     
     rad_candidates = filter(ingreds) do ing
-        is_rad = get(ing, "IsRadioactive", false) == true
+        is_rad = FAST_IsFlagTrue_DDEF(get(ing, "IsRadioactive", false))
         hl_raw = FAST_SafeNum_DDEF(get(ing, "HalfLife", 0.0))
         return is_rad || hl_raw > 0.0
     end
@@ -2430,15 +2438,15 @@ function VISE_ExtractDCYP_DDEF(in_n::AbstractVector{<:AbstractString}, out_n::Ab
     lambda = log(2) / hl_min
     iso_name = string(get(target_ing, "Name", "Radioisotope"))
 
-    for t_idx in time_indices
+    for (t_idx, t_scale) in time_entries
         push!(modifiers, CORE_ModifierDCYP_DDES(
-            t_idx, lambda, iso_name
+            t_idx, lambda, iso_name, t_scale
         ))
     end
 
     if !isempty(modifiers)
         FAST_Log_DDEF("VISE", "DECAY_BRIDGE",
-            "Decay-Coupled Optimisation (DCYP) ACTIVE: $(iso_name) (t½ = $(hl_raw) $(hl_unit)) on factor '$(in_n[first(time_indices)])' [λ = $(round(lambda; digits=6)) min⁻¹]", "OK")
+            "Decay-Coupled Optimisation (DCYP) ACTIVE: $(iso_name) (t½ = $(hl_raw) $(hl_unit)) on factor '$(in_n[first(time_entries)[1]])' [λ = $(round(lambda; digits=6)) min⁻¹]", "OK")
     end
 
     return modifiers
@@ -2517,7 +2525,7 @@ function VISE_RunOptimisation_DDEF(X, models, goals, config, phase, in_n, out_n,
     for i in 1:min(3, size(YP, 2))
         (i > length(models) || get(models[i], "Status", "") != "OK") && continue
         tag_pre = i <= length(out_n) ? replace(strip(out_n[i]), " " => "_") : "Y$i"
-        m_goal = get(models[i], "Goal", Dict())
+        m_goal = (i <= length(goals)) ? goals[i] : get(models[i], "Goal", Dict())
         gtup = CORE_ExtractGoal_DDEF(m_goal)
         best_idx, max_d = -1, -Inf
         for idx in tier_indices
@@ -2597,8 +2605,9 @@ function VISE_RunOptimisation_DDEF(X, models, goals, config, phase, in_n, out_n,
         var_confs = filter(c -> get(c, "Role", "") == C.ROLE_VAR, ingreds)
         for i in 1:min(3, length(bp))
             v_range = [bounds[i, 1], (bounds[i, 1] + bounds[i, 2]) / 2, bounds[i, 2]]
-            min_lim = (i <= length(var_confs) && haskey(var_confs[i], "Min")) ? Float64(FAST_SafeNum_DDEF(var_confs[i]["Min"])) : -Inf
-            max_lim = (i <= length(var_confs) && haskey(var_confs[i], "Max")) ? Float64(FAST_SafeNum_DDEF(var_confs[i]["Max"])) : Inf
+            min_lim, max_lim = (i <= length(var_confs)) ?
+                FLOW_ResolvePhysicalBounds_DDEF(get(var_confs[i], "Min", -Inf), get(var_confs[i], "Max", Inf)) :
+                (-Inf, Inf)
             ok, msg = FLOW_AuditLeader_DDEF(bp[i], v_range, min_lim, max_lim)
             !ok && push!(warns, "$(in_n[i]): $msg")
         end
@@ -2612,11 +2621,11 @@ function VISE_PrepareLeaders_DDEF(xt, yp, sc, tags, in_n, out_n, phase)
     df[!, Symbol(C.COL_ID)] = tags
     df[!, Symbol(C.COL_PHASE)] = fill(phase, length(tags))
     df[!, Symbol(C.COL_STATUS)] = fill("Candidate", length(tags))
-    df[!, Symbol(C.COL_SCORE)] = round.(sc; digits=4)
+    df[!, Symbol(C.COL_SCORE)] = round.(sc; digits=C.PREC_DATA)
     
     for (i, n) in enumerate(in_n)
         col_sym = Symbol(C.PRE_VAR * n)
-        df[!, col_sym] = round.(xt[:, i]; digits=3)
+        df[!, col_sym] = round.(xt[:, i]; digits=C.PREC_DATA)
     end
     
     # Result columns first 
@@ -2629,7 +2638,7 @@ function VISE_PrepareLeaders_DDEF(xt, yp, sc, tags, in_n, out_n, phase)
     for (i, n) in enumerate(out_n)
         col_pred = Symbol(C.PRE_PRED * n)
         df[!, col_pred] = Union{Missing, Float64}[
-            isnan(v) ? missing : round(v; digits=3) for v in view(yp, :, i)
+            isnan(v) ? missing : round(v; digits=C.PREC_DATA) for v in view(yp, :, i)
         ]
     end
     
@@ -2641,57 +2650,13 @@ function VISE_GenPredictions_DDEF(X, Y, models, goals;
     n_points = size(X, 1)
     active_flags = [get(m, "Status", "") == "OK" for m in models]
     yp = hcat([active_flags[j] ? VISE_Predict_DDEF(models[j], X) : fill(NaN, n_points) for j in eachindex(models)]...)
-    pg = [CORE_ExtractGoal_DDEF(j <= length(goals) ? goals[j] : get(models[j], "Goal", Dict())) for j in eachindex(models)]
-    bg = [(g[1], g[2], g[3], g[4], 1.0) for g in pg]
-
     active_idx = findall(active_flags)
-    k = length(active_idx)
-    sc = zeros(n_points)
-    if k == 0
-        fill!(sc, 1.0)
-        return yp, sc
+    if isempty(active_idx)
+        return yp, ones(Float64, n_points)
     end
 
-    inv_k = 1.0 / k
-    neighbour_weights = [CORE_GetNeighbourWeights_DDEF(pg[j][5]) for j in active_idx]
-
-    Threads.@threads for i in 1:n_points
-        @inbounds begin
-            prod_u = 1.0
-            prod_e = 1.0
-            for (pos, j) in enumerate(active_idx)
-                val = yp[i, j]
-                if isnan(val) || isinf(val)
-                    prod_u = 0.0
-                    prod_e = 0.0
-                    break
-                end
-
-                b = CORE_CalcDesirability_DDEF(val, bg[j])
-                if b <= 1e-12
-                    prod_u = 0.0
-                    prod_e = 0.0
-                    break
-                end
-
-                w_m, w_c, w_p = neighbour_weights[pos]
-                u = b^(w_c * inv_k)
-                e = (b^(w_m * inv_k) + u + b^(w_p * inv_k)) / 3.0
-                prod_u *= u
-                prod_e *= e
-            end
-            score = clamp(0.50 * prod_u + 0.50 * prod_e, 0.0, 1.0)
-
-            # Decay-Coupled Optimisation
-            for dm in ModifiersDCYP
-                if dm.TimeIndex >= 1 && dm.TimeIndex <= size(X, 2)
-                    score = CORE_ApplyDCYP_DDEF(score, dm, view(X, i, :))
-                end
-            end
-
-            sc[i] = (isnan(score) || isinf(score)) ? 0.0 : clamp(score, 0.0, 1.0)
-        end
-    end
+    active_goals = [CORE_ExtractGoal_DDEF(j <= length(goals) ? goals[j] : get(models[j], "Goal", Dict{String, Any}())) for j in active_idx]
+    sc = CORE_CalcDesirability_DDEF(view(yp, :, active_idx), active_goals, X, ModifiersDCYP)
     
     return yp, sc
 end
@@ -2715,7 +2680,7 @@ function VISE_PreparePredictionsSheet_DDEF(df::DataFrame, phase::AbstractString,
         for (i, r_idx) in enumerate(idx_m)
             if i <= size(yp, 1) && m <= size(yp, 2)
                 val = yp[i, m]
-                df[r_idx, target_sym] = (isnan(val) || isinf(val)) ? missing : round(Float64(val); digits=3)
+                df[r_idx, target_sym] = (isnan(val) || isinf(val)) ? missing : round(Float64(val); digits=C.PREC_DATA)
             end
         end
     end
@@ -2732,7 +2697,7 @@ function VISE_PreparePredictionsSheet_DDEF(df::DataFrame, phase::AbstractString,
 
     for (i, r_idx) in enumerate(idx_m)
         if i <= length(sc)
-            df[r_idx, target_score] = round(Float64(sc[i]); digits=4)
+            df[r_idx, target_score] = round(Float64(sc[i]); digits=C.PREC_DATA)
         end
     end
 
@@ -2762,8 +2727,8 @@ function VISE_ExportToExcel_DDEF(Res::AbstractDict, FilePath::AbstractString)
         XLSX.openxlsx(FilePath, mode="w") do xf
             # Local helpers keep Excel numeric columns typed as Float64 while guarding missing/NaN values.
             safe_float(val, default) = (!ismissing(val) && val isa Real && !isnan(val)) ? Float64(val) : default
-            fmt_cell(val; digits::Int=4) = (!ismissing(val) && val isa Real && isfinite(val)) ? round(Float64(val); digits=digits) : "N/A"
-            fmt_pval(val) = (!ismissing(val) && val isa Real && isfinite(val)) ? (val < 1e-4 ? round(Float64(val); sigdigits=3) : round(Float64(val); digits=4)) : "N/A"
+            fmt_cell(val; digits::Int=C.PREC_STAT) = (!ismissing(val) && val isa Real && isfinite(val)) ? round(Float64(val); digits=digits) : "N/A"
+            fmt_pval(val) = (!ismissing(val) && val isa Real && isfinite(val)) ? (val < 1e-4 ? round(Float64(val); sigdigits=C.PREC_DATA) : round(Float64(val); digits=C.PREC_STAT)) : "N/A"
 
             models_xls    = get(Res, "Models", Dict{String,Any}[])
             out_names_xls = get(Res, "DisplayOutNames", get(Res, "OutNames", []))
@@ -2785,13 +2750,13 @@ function VISE_ExportToExcel_DDEF(Res::AbstractDict, FilePath::AbstractString)
                 v = Res["Vitals"]
                 ev = VISE_AssessEvals_DDEF(v)
                 sheet_ov["A8"] = ["Design Vital Criterion", "Value", "Benchmark Reference", "Status"]
-                c_num = isinf(ev.c_num) ? "Inf" : round(ev.c_num; digits=2)
-                v_num = round(ev.v_num; digits=2)
+                c_num = isinf(ev.c_num) ? "Inf" : round(ev.c_num; digits=C.PREC_SUMMARY)
+                v_num = round(ev.v_num; digits=C.PREC_SUMMARY)
 
-                sheet_ov["A9"]  = ["D-Efficiency", round(ev.d_num * 100; digits=2), ev.d_bench_xls, ev.d_label]
-                sheet_ov["A10"] = ["A-Optimality", ev.a_num > 0.0 ? round(ev.a_num; digits=4) : "N/A", "tr((X'X)^-1) minim.", "Average parameter variance"]
-                sheet_ov["A11"] = ["G-Optimality", ev.g_num > 0.0 ? round(ev.g_num; digits=4) : "N/A", "max SPV minim.", "Maximum prediction variance"]
-                sheet_ov["A12"] = ["I-Optimality", ev.i_num > 0.0 ? round(ev.i_num; digits=4) : "N/A", "Integral(SPV dX) minim.", "Mean prediction variance"]
+                sheet_ov["A9"]  = ["D-Efficiency", round(ev.d_num * 100; digits=C.PREC_SUMMARY), ev.d_bench_xls, ev.d_label]
+                sheet_ov["A10"] = ["A-Optimality", ev.a_num > 0.0 ? round(ev.a_num; digits=C.PREC_STAT) : "N/A", "tr((X'X)^-1) minim.", "Average parameter variance"]
+                sheet_ov["A11"] = ["G-Optimality", ev.g_num > 0.0 ? round(ev.g_num; digits=C.PREC_STAT) : "N/A", "max SPV minim.", "Maximum prediction variance"]
+                sheet_ov["A12"] = ["I-Optimality", ev.i_num > 0.0 ? round(ev.i_num; digits=C.PREC_STAT) : "N/A", "Integral(SPV dX) minim.", "Mean prediction variance"]
                 sheet_ov["A13"] = ["Condition Number (kappa)", c_num, @sprintf("< %.2f", C.EVAL_COND_WELL), ev.c_label_xls]
                 sheet_ov["A14"] = ["Maximum VIF", v_num, @sprintf("<= %.2f", C.EVAL_VIF_LOW), ev.v_label_xls]
                 sheet_ov["A15"] = ["Lack-of-Fit (p-value)", ev.lof_str, @sprintf("p >= %.4f", C.EVAL_ALPHA_SIG), ev.lof_label_xls]
@@ -2806,9 +2771,9 @@ function VISE_ExportToExcel_DDEF(Res::AbstractDict, FilePath::AbstractString)
                         sheet_ov["A$(fd_row)"] = [
                             string(get(r, "Response", "Response")),
                             fmt_pval(get(r, "NominalRefLOF", NaN)),
-                            fmt_cell(get(r, "NominalCentreSD", NaN); digits=4),
-                            fmt_cell(get(r, "NominalCentreCV", NaN); digits=2),
-                            fmt_cell(get(r, "PostForwResidSD", NaN); digits=4)
+                            fmt_cell(get(r, "NominalCentreSD", NaN); digits=C.PREC_STAT),
+                            fmt_cell(get(r, "NominalCentreCV", NaN); digits=C.PREC_SUMMARY),
+                            fmt_cell(get(r, "PostForwResidSD", NaN); digits=C.PREC_STAT)
                         ]
                         fd_row += 1
                     end
@@ -2899,7 +2864,7 @@ function VISE_ExportToExcel_DDEF(Res::AbstractDict, FilePath::AbstractString)
                     sh_coef[j+1, 1] = term_clean
                     sh_coef[j+1, 2] = fmt_cell(c_v)
                     sh_coef[j+1, 3] = fmt_pval(pv_v)
-                    sh_coef[j+1, 4] = fmt_cell(vf_v; digits=2)
+                    sh_coef[j+1, 4] = fmt_cell(vf_v; digits=C.PREC_SUMMARY)
                     sh_coef[j+1, 5] = VISE_AssessEvals_DDEF(Val(:pstars), pv_v)
                 end
             end
@@ -2937,10 +2902,10 @@ function VISE_ExportToExcel_DDEF(Res::AbstractDict, FilePath::AbstractString)
 
                         sh_goals[g_idx+1, 1] = p_name
                         sh_goals[g_idx+1, 2] = p_goal
-                        sh_goals[g_idx+1, 3] = fmt_cell(get(g, "Target", NaN))
-                        sh_goals[g_idx+1, 4] = fmt_cell(get(g, "Low", get(g, "Min", NaN)))
-                        sh_goals[g_idx+1, 5] = fmt_cell(get(g, "High", get(g, "Max", NaN)))
-                        sh_goals[g_idx+1, 6] = round(raw_w; digits=2)
+                        sh_goals[g_idx+1, 3] = fmt_cell(get(g, "Target", NaN); digits=C.PREC_DATA)
+                        sh_goals[g_idx+1, 4] = fmt_cell(get(g, "Low", get(g, "Min", NaN)); digits=C.PREC_DATA)
+                        sh_goals[g_idx+1, 5] = fmt_cell(get(g, "High", get(g, "Max", NaN)); digits=C.PREC_DATA)
+                        sh_goals[g_idx+1, 6] = round(raw_w; digits=C.PREC_DATA)
                         sh_goals[g_idx+1, 7] = VISE_GetWeightRating_DDEF(raw_w)
                     end
                 end
@@ -2953,10 +2918,10 @@ function VISE_ExportToExcel_DDEF(Res::AbstractDict, FilePath::AbstractString)
                 for (r_idx, itm) in enumerate(Res["RadioCorrection"])
                     sh_rad[r_idx+1, 1] = get(itm, "Name", "")
                     sh_rad[r_idx+1, 2] = get(itm, "Type", "Decay")
-                    sh_rad[r_idx+1, 3] = fmt_cell(get(itm, "HalfLife", NaN); digits=4)
+                    sh_rad[r_idx+1, 3] = fmt_cell(get(itm, "HalfLife", NaN); digits=C.PREC_STAT)
                     sh_rad[r_idx+1, 4] = get(itm, "Unit", "")
-                    sh_rad[r_idx+1, 5] = fmt_cell(get(itm, "AvgDeltaT", NaN); digits=4)
-                    sh_rad[r_idx+1, 6] = fmt_cell(get(itm, "AvgDF", NaN); digits=6)
+                    sh_rad[r_idx+1, 5] = fmt_cell(get(itm, "AvgDeltaT", NaN); digits=C.PREC_STAT)
+                    sh_rad[r_idx+1, 6] = fmt_cell(get(itm, "AvgDF", NaN); digits=C.PREC_FINE)
                     sh_rad[r_idx+1, 7] = get(itm, "IsCorrected", false) ? "YES (Dynamic)" : "NO"
                 end
             end
@@ -2965,8 +2930,7 @@ function VISE_ExportToExcel_DDEF(Res::AbstractDict, FilePath::AbstractString)
         FAST_Log_DDEF("VISE", "EXPORT", "Scientific Portfolio Generated with Publication Fidelity.", "OK")
         return true
     catch e
-        FAST_Log_DDEF("VISE", "EXPORT", "Excel export failed: $e", "FAIL")
-        return false
+        return FAST_HandleCatch_DDEF(FAST_TierLogged_DDES(), e, "VISE", "EXPORT", "Excel export failed", false)
     end
 end
 

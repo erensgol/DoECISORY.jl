@@ -18,20 +18,20 @@ using ..Lib_Mole
 using ..Lib_Vise
 using ..Lib_Arts
 
-export BASE_StyleCell_DDEC, BASE_StyleInput_DDEC, BASE_StyleInputCentre_DDEC, 
-       BASE_StyleHeader_DDEC, BASE_StyleDataTableCell_DDEC, BASE_StyleInlineHeader_DDEC, 
-       BASE_StyleHr_DDEC, BASE_EmptyFigure_DDEC, BASE_SafeRows_DDEF, BASE_GetTrigger_DDEF, 
-       BASE_BuildPageHeader_DDEF, BASE_BuildGlassPanel_DDEF, BASE_BuildDataTable_DDEF, BASE_BuildModal_DDEF, 
-       BASE_ApplyPlotlyWhite_DDEF!, BASE_BuildVitalCard_DDEF, BASE_BuildLoading_DDEF, 
-       BASE_BuildSystemAudit_DDEF, BASE_BuildSciAudit_DDEF, BASE_BuildStatusIcon_DDEF, 
-       BASE_BuildIconButton_DDEF, BASE_BuildTableHeader_DDEF, BASE_BuildControlGroup_DDEF, 
-       BASE_BuildActionButton_DDEF, BASE_BuildSeparator_DDEF, BASE_BuildSidebarHeader_DDEF, 
-       BASE_BuildUpload_DDEF, BASE_BuildNextButton_DDEF, BASE_BuildIDRow_DDEF, BASE_BuildLevelRow_DDEF, 
-       BASE_BuildLimitsRow_DDEF, BASE_BuildGoalRow_DDEF, BASE_ValidateUniqueNames_DDEF,
-       BASE_BuildNavbar_DDEF, BASE_BuildLayout_DDEF, BASE_RoutePage_DDEF, BASE_SyncVault_DDEF,
-       BASE_RegisterDiagnostics_DDEF, BASE_RegisterRecovery_DDEF,
-       BASE_HandleLoadingOverlay_DDEF, BASE_RegisterAppCallbacks_DDEF,
-       BASE_WarmupApp_DDEF, BASE_CreateApp_DDEF, BASE_SystemReady_DDEC
+export BASE_StyleCell_DDEC, BASE_StyleInput_DDEC, BASE_StyleInputCentre_DDEC,
+       BASE_StyleHeader_DDEC, BASE_StyleDataTableCell_DDEC, BASE_StyleInlineHeader_DDEC,
+       BASE_StyleHr_DDEC, BASE_EmptyFigure_DDEC, BASE_SafeRows_DDEF, BASE_GetTrigger_DDEF,
+       BASE_BuildPageHeader_DDEF, BASE_BuildGlassPanel_DDEF, BASE_BuildDataTable_DDEF,
+       BASE_BuildModal_DDEF, BASE_ApplyPlotlyWhite_DDEF!, BASE_BuildVitalCard_DDEF,
+       BASE_BuildSystemAudit_DDEF, BASE_BuildSciAudit_DDEF, BASE_BuildStatusIcon_DDEF,
+       BASE_BuildIconButton_DDEF, BASE_BuildTableHeader_DDEF, BASE_BuildControlGroup_DDEF,
+       BASE_BuildActionButton_DDEF, BASE_BuildSeparator_DDEF, BASE_BuildSidebarHeader_DDEF,
+       BASE_BuildUpload_DDEF, BASE_BuildNextButton_DDEF, BASE_BuildIDRow_DDEF, BASE_BuildLevelRow_DDEF,
+       BASE_BuildLimitsRow_DDEF, BASE_BuildGoalRow_DDEF, BASE_BuildNavbar_DDEF, BASE_BuildLayout_DDEF,
+       BASE_BuildLoading_DDEF, BASE_ValidateUniqueNames_DDEF, BASE_RoutePage_DDEF, BASE_SyncVault_DDEF,
+       BASE_RegisterDiagnostics_DDEF, BASE_RegisterRecovery_DDEF, BASE_HandleLoadingOverlay_DDEF,
+       BASE_RegisterAppCallbacks_DDEF, BASE_WarmupApp_DDEF, BASE_CreateApp_DDEF,
+       BASE_SystemReady_DDEC, BASE_CatchBadge_DDEF
 
 # ==============================================================================
 # PART A: DESIGN SYSTEM & ATOMIC WIDGETS
@@ -767,6 +767,33 @@ function BASE_BuildLayout_DDEF()
     ])
 end
 
+"""
+    BASE_CatchBadge_DDEF(Source, Event, err, Prefix; MaxLen=120, FontSize="0.75rem", WithIcon=false)
+Logs a Tier-3 UI callback exception via `FAST_HandleCatch_DDEF` and returns a standardised
+error badge component for user feedback.
+"""
+function BASE_CatchBadge_DDEF(
+    Source::AbstractString,
+    Event::AbstractString,
+    err,
+    Prefix::AbstractString;
+    Context::AbstractString="",
+    MaxLen::Int=120,
+    FontSize::AbstractString="0.75rem",
+    WithIcon::Bool=false
+)
+    ctx = isempty(Context) ? Prefix : Context
+    msg = FAST_HandleCatch_DDEF(FAST_TierUI_DDES(), err, Source, Event, ctx; MaxLen=MaxLen)
+    style = Dict("color" => "var(--colour-val0-purwhi)", "backgroundColor" => "var(--colour-chr0-huered)", "fontSize" => FontSize)
+    if WithIcon
+        return html_div([
+            html_i(className="fas fa-exclamation-triangle me-2"),
+            html_span("$Prefix: $msg", className="fw-bold")
+        ], className="badge w-100 p-2 shadow-sm", style=style)
+    end
+    return html_div("$Prefix: $msg", className="badge w-100 p-2", style=style)
+end
+
 # ------------------------------------------------------------------------------
 # SECTION 10: TOP-LEVEL ROUTING & STATE BRIDGES
 # ------------------------------------------------------------------------------
@@ -922,7 +949,7 @@ function BASE_HandleLoadingOverlay_DDEF(n::Any)
 
         return Dash.no_update(), false
     catch e
-        FAST_Log_DDEF("BOOT", "UI_SYNC_FAIL", "Error in loading overlay sync: $e. Releasing lock.", "FAIL")
+        FAST_HandleCatch_DDEF(FAST_TierUI_DDES(), e, "BOOT", "UI_SYNC_FAIL", "Error in loading overlay sync (releasing lock)")
         BASE_SystemReady_DDEC[] = true
         return Dict("display" => "none"), true
     end
@@ -1242,7 +1269,7 @@ function BASE_WarmupApp_DDEF()::Nothing
         elapsed                = round(time() - t0; digits=2)
         FAST_Log_DDEF("BOOT", "Precompile", "JIT complete ($(elapsed)s) — System Ready.", "OK")
     catch e
-        FAST_Log_DDEF("BOOT", "WARMUP_FAIL", "JIT pre-compilation failed: $(sprint(showerror, e))", "FAIL")
+        FAST_HandleCatch_DDEF(FAST_TierLogged_DDES(), e, "BOOT", "WARMUP_FAIL", "JIT pre-compilation failed"; FullTrace=true)
         BASE_SystemReady_DDEC[] = true
     end
     return nothing

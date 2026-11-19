@@ -117,7 +117,8 @@ function CALL_Launch_DDEF(; host::String="0.0.0.0", port::Union{Int, Nothing}=no
                     sock = Dash.HTTP.Sockets.connect(target_ip, target_port)
                     close(sock)
                     break
-                catch
+                catch e
+                    FAST_HandleCatch_DDEF(FAST_TierSilent_DDES(), e)
                 end
             end
             try
@@ -130,7 +131,8 @@ function CALL_Launch_DDEF(; host::String="0.0.0.0", port::Union{Int, Nothing}=no
                 else
                     run(`xdg-open http://127.0.0.1:$(target_port)`; wait=false)
                 end
-            catch
+            catch e
+                FAST_HandleCatch_DDEF(FAST_TierSilent_DDES(), e)
             end
         end
     end

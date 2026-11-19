@@ -10,6 +10,7 @@ module Lib_Core
 
 using Random
 using LinearAlgebra
+using Statistics
 using Printf
 using ..Sys_Fast
 using BlackBoxOptim
@@ -264,24 +265,27 @@ Parse and validate response desirability goal parameters into a typed dispatch t
 Extracts numerical limits, target thresholds, and exponential importance weights while resolving default midpoints.
 
 # Arguments
-- `Goal::AbstractDict`: Dictionary containing `"Type"` (`"Max"`, `"Min"`, or `"Nominal"`), `"Min"`, `"Max"`, `"Target"`, and `"Weight"`.
+- `Goal::AbstractDict`: Dictionary containing `"Type"` (`"Maximise"`, `"Minimise"`, or `"Nominal"`), `"Min"`, `"Max"`, `"Target"`, and `"Weight"`.
 
 # Returns
 - `Tuple`: `(Trait, G_Min, G_Max, G_Tgt, Weight)` where `Trait` is a `CORE_AbstractGoalType_DDET`.
 """
 function CORE_ExtractGoal_DDEF(Goal::AbstractDict)::Tuple{CORE_AbstractGoalType_DDET, Float64, Float64, Float64, Float64}
-    G_Min = Float64(get(Goal, "Min", -Inf))
-    G_Max = Float64(get(Goal, "Max", Inf))
-    G_Tgt_Raw = get(Goal, "Target", nothing)
-    G_Tgt = if !isnothing(G_Tgt_Raw)
-        Float64(G_Tgt_Raw)
+    min_raw = FAST_SafeNum_DDEF(get(Goal, "Min", -Inf))
+    max_raw = FAST_SafeNum_DDEF(get(Goal, "Max", Inf))
+    G_Min = isnan(min_raw) ? -Inf : Float64(min_raw)
+    G_Max = isnan(max_raw) ?  Inf : Float64(max_raw)
+    tgt_raw = FAST_SafeNum_DDEF(get(Goal, "Target", nothing))
+    G_Tgt = if isfinite(tgt_raw)
+        Float64(tgt_raw)
     elseif isfinite(G_Min) && isfinite(G_Max)
         (G_Min + G_Max) / 2
     else
         0.0
     end
     Type_Str = lowercase(strip(string(get(Goal, "Type", "Nominal"))))
-    Weight = max(0.0, Float64(get(Goal, "Weight", 1.0)))
+    w_raw = FAST_SafeNum_DDEF(get(Goal, "Weight", 1.0))
+    Weight = isfinite(w_raw) ? max(0.0, Float64(w_raw)) : 1.0
     
     Trait = get(CORE_GoalMap_DDEC, Type_Str, CORE_GoalNominal_DDES())
     return (Trait, G_Min, G_Max, G_Tgt, Weight)
@@ -306,26 +310,30 @@ function CORE_CalcDesirability_DDEF(Val::Float64, Goal::AbstractDict)::Float64
 end
 
 function CORE_CalcDesirability_DDEF(Val::Float64, GoalTup::Tuple{CORE_AbstractGoalType_DDET, Float64, Float64, Float64, Float64})::Float64
+    !isfinite(Val) && return 0.0
     return CORE_CalcDesirability_DDEF(GoalTup[1], Val, GoalTup[2], GoalTup[3], GoalTup[4], GoalTup[5])
 end
 
 function CORE_CalcDesirability_DDEF(::CORE_GoalMaximise_DDES, Val::Float64, G_Min::Float64, G_Max::Float64, G_Tgt::Float64, Weight::Float64)::Float64
-    Val >= G_Tgt && return 1.0
+    G_Min > G_Max && return 0.0
     Val <= G_Min && return 0.0
+    Val >= G_Tgt && return 1.0
     denom = G_Tgt - G_Min
     res = denom > 1e-9 ? ((Val - G_Min) / denom)^Weight : 1.0
     return clamp(res, 0.0, 1.0)
 end
 
 function CORE_CalcDesirability_DDEF(::CORE_GoalMinimise_DDES, Val::Float64, G_Min::Float64, G_Max::Float64, G_Tgt::Float64, Weight::Float64)::Float64
-    Val <= G_Tgt && return 1.0
+    G_Min > G_Max && return 0.0
     Val >= G_Max && return 0.0
+    Val <= G_Tgt && return 1.0
     denom = G_Max - G_Tgt
     res = denom > 1e-9 ? ((G_Max - Val) / denom)^Weight : 1.0
     return clamp(res, 0.0, 1.0)
 end
 
 function CORE_CalcDesirability_DDEF(::CORE_GoalNominal_DDES, Val::Float64, G_Min::Float64, G_Max::Float64, G_Tgt::Float64, Weight::Float64)::Float64
+    G_Min > G_Max && return 0.0
     (Val <= G_Min || Val >= G_Max) && return 0.0
     abs(Val - G_Tgt) < 1e-12 && return 1.0
     if Val < G_Tgt
@@ -341,11 +349,21 @@ end
 const CORE_StarWeights_DDEC = Float64[0.50, 0.75, 1.00, 1.50, 2.00]
 
 function CORE_GetNeighbourWeights_DDEF(Weight::Float64)::Tuple{Float64, Float64, Float64}
-    idx = findmin(abs.(CORE_StarWeights_DDEC .- Weight))[2]
-    w_minus = CORE_StarWeights_DDEC[max(1, idx - 1)]
-    w_curr  = CORE_StarWeights_DDEC[idx]
-    w_plus  = CORE_StarWeights_DDEC[min(5, idx + 1)]
-    return (w_minus, w_curr, w_plus)
+    best_idx  = 1
+    best_diff = abs(CORE_StarWeights_DDEC[1] - Weight)
+    @inbounds for i in 2:length(CORE_StarWeights_DDEC)
+        diff = abs(CORE_StarWeights_DDEC[i] - Weight)
+        if diff < best_diff
+            best_diff = diff
+            best_idx  = i
+        end
+    end
+    @inbounds begin
+        w_minus = CORE_StarWeights_DDEC[max(1, best_idx - 1)]
+        w_curr  = CORE_StarWeights_DDEC[best_idx]
+        w_plus  = CORE_StarWeights_DDEC[min(5, best_idx + 1)]
+        return (w_minus, w_curr, w_plus)
+    end
 end
 
 # ------------------------------------------------------------------------------
@@ -366,7 +384,10 @@ struct CORE_ModifierDCYP_DDES
     TimeIndex::Int
     Lambda::Float64
     IsotopeName::String
+    TimeScaleToMin::Float64
 end
+CORE_ModifierDCYP_DDES(TimeIndex::Int, Lambda::Float64, IsotopeName::String) =
+    CORE_ModifierDCYP_DDES(TimeIndex, Lambda, IsotopeName, 1.0)
 
 """
     CORE_ApplyDCYP_DDEF(Score::Float64, Mod::CORE_ModifierDCYP_DDES, x) -> Float64
@@ -383,9 +404,100 @@ Resolves the trade-off between chemical reaction completion and radioactive deca
 """
 function CORE_ApplyDCYP_DDEF(Score::Float64, Mod::CORE_ModifierDCYP_DDES, x)::Float64
     (Mod.TimeIndex < 1 || Mod.TimeIndex > length(x)) && return Score
-    t_val = Float64(x[Mod.TimeIndex])
+    t_val = Float64(x[Mod.TimeIndex]) * Mod.TimeScaleToMin
     t_val <= 0.0 && return Score
     return Score * exp(-Mod.Lambda * t_val)
+end
+
+# Dispatch composite scoring onto CORE_CalcDesirability_DDEF so single-point and batch callers share identical StarWeights and DCYP math.
+function CORE_CalcDesirability_DDEF(
+    Vals::AbstractVector{Float64},
+    GoalTuples::AbstractVector{<:Tuple},
+    x,
+    ModifiersDCYP::AbstractVector{CORE_ModifierDCYP_DDES}=CORE_ModifierDCYP_DDES[];
+    Weighted::Bool=true,
+    NeighbourWeights::Union{AbstractVector{Tuple{Float64, Float64, Float64}}, Nothing}=nothing
+)::Float64
+    k = length(Vals)
+    k == 0 && return 1.0
+    inv_k = 1.0 / k
+    prod_u = 1.0
+    prod_e = 1.0
+    @inbounds for j in 1:k
+        val = Vals[j]
+        !isfinite(val) && return 0.0
+        gt = GoalTuples[j]
+        b = CORE_CalcDesirability_DDEF(gt[1], val, gt[2], gt[3], gt[4], 1.0)
+        b <= 1e-12 && return 0.0
+        if Weighted
+            w_m, w_c, w_p = isnothing(NeighbourWeights) ? CORE_GetNeighbourWeights_DDEF(gt[5]) : NeighbourWeights[j]
+            u = b^(w_c * inv_k)
+            e = (b^(w_m * inv_k) + u + b^(w_p * inv_k)) / 3.0
+            prod_u *= u
+            prod_e *= e
+        else
+            prod_u *= b^inv_k
+        end
+    end
+    score = Weighted ? clamp(0.50 * prod_u + 0.50 * prod_e, 0.0, 1.0) : clamp(prod_u, 0.0, 1.0)
+    if Weighted
+        for dm in ModifiersDCYP
+            score = CORE_ApplyDCYP_DDEF(score, dm, x)
+        end
+    end
+    return isfinite(score) ? clamp(score, 0.0, 1.0) : 0.0
+end
+
+function CORE_CalcDesirability_DDEF(
+    Predictions::AbstractMatrix{Float64},
+    GoalTuples::AbstractVector{<:Tuple},
+    Coords::AbstractMatrix{Float64},
+    ModifiersDCYP::AbstractVector{CORE_ModifierDCYP_DDES}=CORE_ModifierDCYP_DDES[];
+    Weighted::Bool=true
+)::Vector{Float64}
+    n_pts, k = size(Predictions)
+    scores = Vector{Float64}(undef, n_pts)
+    k == 0 && (fill!(scores, 1.0); return scores)
+    inv_k = 1.0 / k
+    n_weights  = Weighted ? [CORE_GetNeighbourWeights_DDEF(gt[5]) for gt in GoalTuples] : Tuple{Float64, Float64, Float64}[]
+    Threads.@threads for i in 1:n_pts
+        @inbounds begin
+            prod_u = 1.0
+            prod_e = 1.0
+            zero_hit = false
+            for j in 1:k
+                val = Predictions[i, j]
+                gt  = GoalTuples[j]
+                b   = isfinite(val) ? CORE_CalcDesirability_DDEF(gt[1], val, gt[2], gt[3], gt[4], 1.0) : 0.0
+                if b <= 1e-12
+                    zero_hit = true
+                    break
+                end
+                if Weighted
+                    w_m, w_c, w_p = n_weights[j]
+                    u = b^(w_c * inv_k)
+                    e = (b^(w_m * inv_k) + u + b^(w_p * inv_k)) / 3.0
+                    prod_u *= u
+                    prod_e *= e
+                else
+                    prod_u *= b^inv_k
+                end
+            end
+            if zero_hit
+                scores[i] = 0.0
+            elseif !Weighted
+                scores[i] = clamp(prod_u, 0.0, 1.0)
+            else
+                sc = clamp(0.50 * prod_u + 0.50 * prod_e, 0.0, 1.0)
+                x_row = view(Coords, i, :)
+                for dm in ModifiersDCYP
+                    sc = CORE_ApplyDCYP_DDEF(sc, dm, x_row)
+                end
+                scores[i] = isfinite(sc) ? clamp(sc, 0.0, 1.0) : 0.0
+            end
+        end
+    end
+    return scores
 end
 
 """
@@ -413,58 +525,25 @@ function CORE_OptimiseDesirability_DDEF(Models::AbstractVector, Goals::AbstractV
     NumModels = length(Models)
 
     active_indices = Int[]
-    parsed_goals = [CORE_ExtractGoal_DDEF(m <= length(Goals) ? Goals[m] : get(Models[m], "Goal", Dict{String, Any}())) for m in 1:NumModels]
-    base_goals   = [(g[1], g[2], g[3], g[4], 1.0) for g in parsed_goals]
+    predictors     = Union{CORE_LinearPredictor_DDES, CORE_QuadraticPredictor_DDES}[]
     for m in 1:NumModels
-        if get(Models[m], "Status", "") == "OK"
-            push!(active_indices, m)
-        end
-    end
-    num_active = length(active_indices)
-    inv_k      = num_active > 0 ? (1.0 / num_active) : 1.0
-    neighbour_weights = [CORE_GetNeighbourWeights_DDEF(parsed_goals[m][5]) for m in active_indices]
-
-    closures = Any[nothing for _ in 1:NumModels]
-    for m in 1:NumModels
-        mod_status = get(Models[m], "Status", "")
-        mod_status != "OK" && continue
-        
-        # Defensive acquisition of model coefficients
+        get(Models[m], "Status", "") != "OK" && continue
         private_beta = collect(Float64, get(Models[m], "Coefs", Float64[]))
         isempty(private_beta) && continue
-        
         mod_type = CORE_GetModelType_DDEF(lowercase(get(Models[m], "ModelType", "quadratic")))
-        closures[m] = CORE_GetPredictor_DDEF(mod_type, private_beta)
+        push!(predictors, CORE_GetPredictor_DDEF(mod_type, private_beta))
+        push!(active_indices, m)
     end
+    isempty(active_indices) && return (vec(mean(X_Bounds; dims=2)), 0.0)
+    active_goals = [CORE_ExtractGoal_DDEF(m <= length(Goals) ? Goals[m] : get(Models[m], "Goal", Dict{String, Any}())) for m in active_indices]
+    n_weights    = Tuple{Float64, Float64, Float64}[CORE_GetNeighbourWeights_DDEF(gt[5]) for gt in active_goals]
+    vals_buf     = Vector{Float64}(undef, length(active_indices))
 
     calc_objective(x) = begin
-        prod_u = 1.0
-        prod_e = 1.0
-        for (j, m) in enumerate(active_indices)
-            c = closures[m]
-            isnothing(c) && continue
-            val = c(x)
-            (isnan(val) || isinf(val)) && return 0.0
-
-            b = CORE_CalcDesirability_DDEF(val, base_goals[m])
-            if b <= 1e-12
-                prod_u = 0.0
-                prod_e = 0.0
-                break
-            end
-
-            w_m, w_c, w_p = neighbour_weights[j]
-            u = b^(w_c * inv_k)
-            e = (b^(w_m * inv_k) + u + b^(w_p * inv_k)) / 3.0
-            prod_u *= u
-            prod_e *= e
+        @inbounds for j in eachindex(predictors)
+            vals_buf[j] = predictors[j](x)
         end
-        score = clamp(0.50 * prod_u + 0.50 * prod_e, 0.0, 1.0)
-
-        # Decay-Coupled Optimisation: Penalise composite desirability directly by reaction time decay
-        for dm in ModifiersDCYP
-            score = CORE_ApplyDCYP_DDEF(score, dm, x)
-        end
+        score = CORE_CalcDesirability_DDEF(vals_buf, active_goals, x, ModifiersDCYP; NeighbourWeights=n_weights)
 
         if PenaltyFn !== nothing
             score *= PenaltyFn(x)
@@ -504,7 +583,7 @@ function CORE_OptimiseDesirability_DDEF(Models::AbstractVector, Goals::AbstractV
         end
         return best_x, best_score
     catch e
-        FAST_Log_DDEF("CORE", "BBO_FAIL", "BlackBoxOptim encountered a critical failure: $e. Reverting to geometric centre.", "FAIL")
+        FAST_HandleCatch_DDEF(FAST_TierLogged_DDES(), e, "CORE", "BBO_FAIL", "BlackBoxOptim encountered a critical failure (reverting to geometric centre)")
         return [ (X_Bounds[i, 1] + X_Bounds[i, 2]) / 2.0 for i in 1:Dim ], 0.0
     end
 end
@@ -545,14 +624,36 @@ function CORE_RefineLocal_DDEF(obj_fn, start_x, bounds_range; iters=100)
     return current_x, current_score
 end
 
-function CORE_GetPredictor_DDEF(::CORE_ModelLinear_DDES, b::Vector{Float64})
-    length(b) < 4 && throw(ArgumentError("Linear coefficients vector must have at least 4 elements, got $(length(b))"))
-    return (x::AbstractVector{Float64}) -> (b[1] + b[2]*x[1] + b[3]*x[2] + b[4]*x[3])::Float64
+# Concrete functors replace anonymous closures so mixed-model BBO evaluation avoids Any dynamic dispatch.
+struct CORE_LinearPredictor_DDES
+    b::NTuple{4, Float64}
+end
+@inline function (p::CORE_LinearPredictor_DDES)(x::AbstractVector{Float64})::Float64
+    b = p.b
+    @inbounds return b[1] + b[2]*x[1] + b[3]*x[2] + b[4]*x[3]
 end
 
-function CORE_GetPredictor_DDEF(::CORE_ModelQuadratic_DDES, b::Vector{Float64})
+struct CORE_QuadraticPredictor_DDES
+    b::NTuple{10, Float64}
+end
+@inline function (p::CORE_QuadraticPredictor_DDES)(x::AbstractVector{Float64})::Float64
+    b = p.b
+    @inbounds begin
+        x1, x2, x3 = x[1], x[2], x[3]
+        return b[1] + b[2]*x1 + b[3]*x2 + b[4]*x3 +
+               b[5]*x1*x2 + b[6]*x1*x3 + b[7]*x2*x3 +
+               b[8]*x1*x1 + b[9]*x2*x2 + b[10]*x3*x3
+    end
+end
+
+function CORE_GetPredictor_DDEF(::CORE_ModelLinear_DDES, b::Vector{Float64})::CORE_LinearPredictor_DDES
+    length(b) < 4 && throw(ArgumentError("Linear coefficients vector must have at least 4 elements, got $(length(b))"))
+    return CORE_LinearPredictor_DDES((b[1], b[2], b[3], b[4]))
+end
+
+function CORE_GetPredictor_DDEF(::CORE_ModelQuadratic_DDES, b::Vector{Float64})::CORE_QuadraticPredictor_DDES
     length(b) < 10 && throw(ArgumentError("Quadratic coefficients vector must have at least 10 elements, got $(length(b))"))
-    return (x::AbstractVector{Float64}) -> (@inbounds (b[1] + b[2]*x[1] + b[3]*x[2] + b[4]*x[3] + b[5]*x[1]*x[2] + b[6]*x[1]*x[3] + b[7]*x[2]*x[3] + b[8]*x[1]*x[1] + b[9]*x[2]*x[2] + b[10]*x[3]*x[3]))::Float64
+    return CORE_QuadraticPredictor_DDES((b[1], b[2], b[3], b[4], b[5], b[6], b[7], b[8], b[9], b[10]))
 end
 
 # ------------------------------------------------------------------------------
@@ -573,7 +674,8 @@ Reads the specified phase candidate table, retrieves the global best or user-sel
 # Returns
 - `Dict{String, Any}`: Dictionary containing `"ID"`, `"Score"`, `"Vals"` (factor coordinates), and `"InputNames"`.
 """
-function CORE_ExtractLeader_DDEF(FilePath::AbstractString, PhaseCode::AbstractString, SelectedID::AbstractString="", VarNames::AbstractVector{<:AbstractString}=String[])
+function CORE_ExtractLeader_DDEF(FilePath::AbstractString, PhaseCode::AbstractString, SelectedID::Union{AbstractString, Nothing}="", VarNames::AbstractVector{<:AbstractString}=String[])
+    sel_id = isnothing(SelectedID) ? "" : SelectedID
     sheet = C.PREFIX_LEADERS * PhaseCode
 
     df = FAST_ReadExcel_DDEF(FilePath, sheet)
@@ -589,12 +691,12 @@ function CORE_ExtractLeader_DDEF(FilePath::AbstractString, PhaseCode::AbstractSt
     isnothing(col_score) && return Dict{String,Any}()
 
     idx = 0
-    if !isempty(SelectedID) && !isnothing(col_id)
-        idx = findfirst(==(SelectedID), string.(df[!, col_id]))
+    if !isempty(sel_id) && !isnothing(col_id)
+        idx = findfirst(==(sel_id), string.(df[!, col_id]))
         if isnothing(idx)
-            FAST_Log_DDEF("CORE", "LEADER_WARN", "ID '$SelectedID' not found. Defaulting to Best.", "WARN")
+            FAST_Log_DDEF("CORE", "LEADER_WARN", "ID '$sel_id' not found. Defaulting to Best.", "WARN")
         else
-            FAST_Log_DDEF("CORE", "LEADER_FETCH", "Manual selection: $SelectedID", "OK")
+            FAST_Log_DDEF("CORE", "LEADER_FETCH", "Manual selection: $sel_id", "OK")
         end
     end
 
@@ -654,6 +756,7 @@ function CORE_ValidateDesign_DDEF(DesignMatrix::AbstractMatrix, Config::Abstract
     R, K   = size(DesignMatrix)
     issues = String[]
 
+    !all(isfinite, DesignMatrix) && push!(issues, "Design matrix contains non-finite (NaN/Inf) entries.")
     R < 3 && push!(issues, "Design has fewer than 3 runs ($R). Regression will fail.")
 
     @inbounds for j in 1:K
@@ -675,11 +778,12 @@ function CORE_ValidateDesign_DDEF(DesignMatrix::AbstractMatrix, Config::Abstract
     end
     dup_count > R ÷ 2 && push!(issues, "Design has $dup_count duplicate rows out of $R total.")
 
-    if R >= K
-        X_sc    = DesignMatrix ./ max.(maximum(abs, DesignMatrix; dims=1), 1e-9)
-        det_val = det(X_sc' * X_sc)
-        if det_val < 1e-8
-            push!(issues, "Design is near-singular (Det ≈ $(round(det_val; digits=4))). Regression may fail.")
+    if R >= K && isempty(issues)
+        # Scale to [-1, 1] before QR so large factor offsets do not trigger false singularity.
+        X_sc = CORE_CodeMatrix_DDEF(DesignMatrix)
+        F = qr(hcat(ones(Float64, R), X_sc))
+        if rank(F.R) < K + 1
+            push!(issues, "Design is rank-deficient or near-singular. Regression may fail.")
         end
     end
 
@@ -727,9 +831,7 @@ function CORE_CodeMatrix_DDEF(X::AbstractMatrix, Bounds::Union{AbstractMatrix, N
         col_safe  = clamp.(col, b_min, b_max)
         
         if range_val < 1e-9
-            X_coded[:, j] .= col_safe
-        elseif b_min >= -1.0001 && b_max <= 1.0001 && abs(b_min + b_max) < 1e-3
-            X_coded[:, j] .= col_safe
+            X_coded[:, j] .= 0.0
         else
             X_coded[:, j] .= 2.0 .* (col_safe .- b_min) ./ range_val .- 1.0
         end
@@ -811,8 +913,8 @@ function CORE_CalcDEfficiency_DDEF(X::AbstractMatrix, ModelType::CORE_AbstractMo
         (isnan(det_val) || det_val <= 0.0) && return 0.0
         eff = (det_val / (Float64(R)^p))^(1.0 / p)
         return isnan(eff) ? 0.0 : clamp(eff, 0.0, 1.0)
-    catch
-        return 0.0
+    catch e
+        return FAST_HandleCatch_DDEF(FAST_TierLogged_DDES(), e, "CORE", "DEFF_FAIL", "D-efficiency computation failed; returning 0.0", 0.0; MsgType="WARN")
     end
 end
 
@@ -865,6 +967,29 @@ CORE_CalcCriterion_DDEF(::CORE_CriterionG_DDES, lev::AbstractVector{Float64}, p:
     max_var > 0.0 ? clamp(p / (R * max_var), 0.0, 1.0) : 0.0
 end
 
+CORE_CalcCriterion_DDEF(::CORE_CriterionI_DDES, inv_XtX::AbstractMatrix{Float64}, p::Int, R::Int)::Float64 = begin
+    M = zeros(Float64, p, p)
+    M[1, 1] = 1.0
+    for i in 2:min(4, p)
+        M[i, i] = 1.0 / 3.0
+    end
+    if p >= 10
+        for i in 5:7
+            M[i, i] = 1.0 / 9.0
+        end
+        for i in 8:10
+            M[i, i] = 1.0 / 5.0
+            M[1, i] = M[i, 1] = 1.0 / 3.0
+            for j in 8:10
+                i != j && (M[i, j] = 1.0 / 9.0)
+            end
+        end
+    end
+    avg_var = tr(inv_XtX * M)
+    # Normalise against orthogonal baseline tr(M)/R so cube I-efficiency stays strictly within (0, 1].
+    avg_var > 0.0 ? clamp(tr(M) / (R * avg_var), 0.0, 1.0) : 0.0
+end
+
 CORE_CalcCriterion_DDEF(::CORE_CriterionI_DDES, lev::AbstractVector{Float64}, p::Int, R::Int)::Float64 = begin
     mean_lev = sum(lev) / length(lev)
     mean_lev > 0.0 ? clamp(p / (R * mean_lev), 0.0, 1.0) : 0.0
@@ -904,7 +1029,7 @@ function CORE_CalcDesignMetrics_DDEF(X::AbstractMatrix, ModelType::CORE_Abstract
 
     try
         XtX = Matrix{Float64}(X_exp' * X_exp)
-        res["Condition"] = cond(XtX)
+        res["Condition"] = cond(X_exp)
         res["D"] = CORE_CalcCriterion_DDEF(CORE_CriterionD_DDES(), XtX, p, R)
 
         inv_XtX = Matrix{Float64}(pinv(XtX))
@@ -912,9 +1037,9 @@ function CORE_CalcDesignMetrics_DDEF(X::AbstractMatrix, ModelType::CORE_Abstract
 
         lev = Vector{Float64}(diag(X_exp * inv_XtX * X_exp'))
         res["G"] = CORE_CalcCriterion_DDEF(CORE_CriterionG_DDES(), lev, p, R)
-        res["I"] = CORE_CalcCriterion_DDEF(CORE_CriterionI_DDES(), lev, p, R)
+        res["I"] = CORE_CalcCriterion_DDEF(CORE_CriterionI_DDES(), inv_XtX, p, R)
     catch e
-        FAST_Log_DDEF("CORE", "METRICS_ERR", "Stability error in design metrics: $e", "WARN")
+        FAST_HandleCatch_DDEF(FAST_TierLogged_DDES(), e, "CORE", "METRICS_ERR", "Stability error in design metrics"; MsgType="WARN")
     end
     return res
 end
