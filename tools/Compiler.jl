@@ -1,7 +1,7 @@
 # ==============================================================================
 # DoECISORY Sysimage Compiler
 # ==============================================================================
-# Usage:  julia --threads auto --project=. tools/Compiler.jl
+# Usage:  julia --threads auto --project=. tools/Compiler.jl [--full | --dev]
 # Output: tools/Sysimage.dll (Windows) / .so (Linux)
 # ==============================================================================
 
@@ -29,7 +29,7 @@ catch
     error("[BUILD] PackageCompiler not found. Please install it globally and re-run.")
 end
 
-is_dev_mode   = ("--dev" in ARGS)
+is_dev_mode   = ("--dev" in ARGS) && !("--full" in ARGS)
 project_dir   = abspath(joinpath(@__DIR__, ".."))
 sysimg_ext    = Sys.iswindows() ? "dll" : "so"
 sysimg_name   = is_dev_mode ? "Sysimage_Deps.$sysimg_ext" : "Sysimage.$sysimg_ext"

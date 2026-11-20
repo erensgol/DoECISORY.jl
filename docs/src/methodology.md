@@ -164,50 +164,41 @@ This multi-faceted portfolio allows the research team to select a leader tailore
 
 ---
 
-## 4. Sequential Interphase Transfer (ACTA and ASTM)
+## 4. Sequential Interphase Transfer (ASTM and ACTA)
 
-The **Interphase Knowledge Transfer (IPKT)** framework connects sequential experimental phases through a two-step mathematical operator: **ACTA** handles intra-space domain adaptation, while **ASTM** executes cross-system affine mapping and space regeneration.
+The **Interphase Knowledge Transfer (IPKT)** framework connects sequential experimental phases through a strictly ordered two-stage pipeline: **ASTM** first projects historical coordinates and bounds into the target scale or equipment space, and **ACTA** then executes intra-space domain adaptation (contraction, automatic edge translation, or boundary seeking) within the target limits.
 
-### 4.1. Domain Adaptation (ACTA)
-Given the chosen leader coordinate $x_i^*$ within current bounds $[L_i, U_i]$, the normalised relative position $p_i$ is evaluated:
+### 4.1. Affine Transformation (ASTM — Pre-Adaptation Mapping)
+Before adapting search bounds, source bounds and leader coordinates undergo affine mapping to accommodate inter-phase scale changes, equipment migrations, or manual coordinate shifts:
+
+```math
+x_{\text{target}} = \alpha \cdot x_{\text{source}} + \beta
+```
+
+Mapping via ASTM *before* ACTA ensures that physical limit clipping and boundary-seeking margins operate directly in the target physical units. This operator supports four distinct experimental scenarios:
+1. **Thermodynamic Invariance ($\alpha = 1.0, \beta = 0.0$):** Factors such as temperature or pH that maintain identical physical boundaries across experimental scales are transferred directly.
+2. **Kinetic & Volumetric Scaling ($\alpha \neq 1.0, \beta = 0.0$):** When transitioning from a 1 mL micro-reactor to a 10 mL preparative vessel, flow rates or reaction times are multiplied by scaling ratio $\alpha$.
+3. **Systematic Offset / Manual Shift ($\alpha = 1.0, \beta \neq 0.0$):** Applies systematic calibration offsets or deliberate researcher-specified coordinate shifts ($\beta$) when changing instruments or shifting operating windows.
+4. **Space Regeneration & Factor Replacement:** When a solvent or catalyst is substituted between phases, common continuous factors retain their historical knowledge and peak positions through IPKT, while the novel factor is initialised with new physical levels. This avoids resetting the entire experimental campaign.
+
+### 4.2. Domain Adaptation (ACTA)
+Within the ASTM-mapped domain $[L_i, U_i]$ (span $\Delta_i = U_i - L_i$), the leader coordinate $x_i^*$ is evaluated via its normalised relative position:
 
 ```math
 p_i = \frac{x_i^* - L_i}{U_i - L_i}
 ```
 
-* **Contraction ($0.25 \le p_i \le 0.75$, `FLOW_BoundarySafe_DDES`):**
-  The optimum is situated comfortably within the central inter-quartile search volume. The search window is contracted symmetrically around the leader point:
+* **Contraction ($0.05 \le p_i \le 0.95$, `FLOW_ModeContract_DDES`):**
+  When the optimum lies safely in the interior (outside the $5\%$ boundary margin), ACTA contracts the search window symmetrically around $x_i^*$:
   ```math
-  \Delta_{\text{new}} = c \cdot (U_i - L_i)
+  \Delta_{\text{new}} = c \cdot \Delta_i, \qquad L_i^{\text{new}} = x_i^* - \frac{\Delta_{\text{new}}}{2}, \quad U_i^{\text{new}} = x_i^* + \frac{\Delta_{\text{new}}}{2}
   ```
-  ```math
-  L_i^{\text{new}} = x_i^* - \frac{\Delta_{\text{new}}}{2}, \quad U_i^{\text{new}} = x_i^* + \frac{\Delta_{\text{new}}}{2}
-  ```
-  The contraction factor $c \in (0.0, 1.0]$ (default: $c = 0.50$, representing a $50\%$ range narrowing) is researcher-controlled via UI slider or script argument.
+  In the graphical interface, $c \in \{1.0, 0.75, 0.50\text{ [default]}, 0.25, 0.10\}$ is the only user-selected ACTA parameter (`Global Contraction`); programmatic callers can choose any $c \in [0.05, 1.0]$.
 
-* **Translation ($p_i < 0.25$ or $p_i > 0.75$, `FLOW_BoundaryLower_DDES` / `Upper_DDES`):**
-  The optimum lies in the outer boundary quartiles, indicating that the true physical summit may reside outside the current domain. Contraction is suspended to prevent premature narrowing; the domain translates directionally along the gradient with user-configurable translation factor $\delta \in [-1.0, 1.0]$:
-  ```math
-  x_{\text{mid}} = x_i^* + \delta \cdot \frac{U_i - L_i}{2}
-  ```
-  ```math
-  L_i^{\text{new}} = x_{\text{mid}} - \frac{U_i - L_i}{2}, \quad U_i^{\text{new}} = x_{\text{mid}} + \frac{U_i - L_i}{2}
-  ```
+* **Automatic Edge Translation ($p_i < 0.05$ or $p_i > 0.95$, `FLOW_ModeTranslateLower_DDES` / `FLOW_ModeTranslateUpper_DDES`):**
+  When the leader approaches within $5\%$ of a domain edge or moves outside $[L_i, U_i]$, ACTA **automatically** transitions into edge-translation mode—no manual translation slider is required in the UI. Between the $5\%$ margin and $\pm 0.50\,\Delta_i$ beyond the old boundary, the span widens linearly from $c \cdot \Delta_i$ to $\Delta_i$ while anchoring the inner edge to retain overlap with explored data; beyond $\pm 0.50\,\Delta_i$, a full-span window ($\Delta_i$) is centred on $x_i^*$. (Programmatic callers of `FLOW_CalcACTA_DDEF` may optionally pass a `Translation` offset $\delta$ to pre-shift $x_i^*$ before classification.)
 
-* **Boundary Seeking & Window Sliding:**
-  When newly derived boundaries encounter physical, thermodynamic, or equipment limits $[L_i^{\text{abs}}, U_i^{\text{abs}}]$, DoECISORY engages adaptive space preservation:
-  - *Window Sliding (`FLOW_ShiftWindow_DDEF`)*: When bounds cross limits while the leader is outside boundary-seeking zones, the entire adapted span $(U_i - L_i)$ slides along the admissible continuum, preserving factorial information volume.
-  - *Boundary Seeking (`FLOW_SeekFloor_DDEF` / `FLOW_SeekCeiling_DDEF`)*: When an optimum lies within $5\%$ ($\tau_{\text{seek}} = 0.05 \cdot (U_i - L_i)$) of an absolute physical boundary, boundary seeking locks the search span to at least $10\%$ of the physical domain range and aligns the leader at the boundary threshold (L1 floor or L3 ceiling), preventing matrix singularity $\kappa(X^T X) \to \infty$.
-
-### 4.2. Affine Transformation (ASTM)
-Following ACTA boundary adaptation, coordinates undergo affine mapping to accommodate inter-phase scale changes, equipment migrations, or formulation changes:
-
-```math
-x_{\text{transformed}} = \alpha \cdot x + \beta
-```
-
-This operator supports four distinct experimental scenarios:
-1. **Thermodynamic Invariance ($\alpha = 1.0, \beta = 0.0$):** Factors such as temperature or pH that maintain identical physical boundaries across experimental scales are transferred directly.
-2. **Kinetic & Volumetric Scaling ($\alpha \neq 1.0, \beta = 0.0$):** When transitioning from a 1 mL micro-reactor to a 10 mL preparative vessel, flow rates or reaction times are multiplied by scaling ratio $\alpha$.
-3. **Systematic Offset ($\alpha = 1.0, \beta \neq 0.0$):** Incorporates systematic calibration offsets when changing analytical instruments or reagent batches.
-4. **Space Regeneration & Factor Replacement:** When a solvent or catalyst is substituted between phases, common continuous factors retain their historical knowledge, peak positions, and variance through IPKT, while the novel factor is initialised with new physical levels. This avoids resetting the entire experimental campaign.
+* **Boundary Seeking (`FLOW_ModeSeekLower_DDES` / `FLOW_ModeSeekUpper_DDES`) & Window Sliding:**
+  When candidate bounds encounter physical, thermodynamic, or equipment limits $[L_i^{\text{abs}}, U_i^{\text{abs}}]$, DoECISORY prevents domain collapse:
+  - *Boundary Seeking (`FLOW_SeekFloor_DDEF` / `FLOW_SeekCeiling_DDEF`)*: When candidate bounds clip against $[L_i^{\text{abs}}, U_i^{\text{abs}}]$, ACTA enforces a minimum span of $10\%$ of $\Delta_i$ and pins the active endpoint cleanly to the physical limit ($L_1$ floor or $L_3$ ceiling), preventing matrix singularity $\kappa(X^T X) \to \infty$.
+  - *Window Sliding (`FLOW_ShiftWindow_DDEF`)*: Helper routine that shifts a full target window inside finite bounds without collapsing its span when boundary limits are encountered.

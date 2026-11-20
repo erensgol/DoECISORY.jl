@@ -1,12 +1,16 @@
-module Sys_Fast
+"""
+    Sys_Fast
 
-# ==============================================================================
-# DOECISORY - SYSTEM FAST (IO & UTILS)
-# ==============================================================================
-# Description: High-speed I/O (Excel/XLSX), system-wide logging, and transient 
-#              data orchestration.
-# Module Tag:  FAST
-# ==============================================================================
+Foundational I/O, state persistence, and operational telemetry subsystem for **DoECISORY.jl**.
+Provides thread-safe Excel workbook exchange, transient disk storage, recursive JSON sanitisation,
+concurrency locking guards, and 145 mm composite SVG figure plate assembly.
+
+- **Tag:** `FAST`  |  **Catalogue:** `FAST_Data_DDEC` (`FAST_Catalogue_DDES`)
+- **Spreadsheet I/O:** Multi-sheet reading, styled writing, master init (`FAST_ReadExcel_DDEF`, `FAST_WriteExcel_DDEF`)
+- **Telemetry & Guards:** Timestamped logging and lock guards (`FAST_Log_DDEF`, `FAST_AcquireLock_DDEF`)
+- **Nomenclature & Plates:** Smart filenames (`FAST_GenSmartName_DDEF`) and SVG plates (`FAST_AssembleSvgPlate_DDEF`)
+"""
+module Sys_Fast
 
 using Dates
 using Printf
@@ -51,7 +55,7 @@ export FAST_Log_DDEF, FAST_ReadExcel_DDEF, FAST_Catalogue_DDES, FAST_SafeNum_DDE
 System-wide configuration, metadata structure, and primary colour palettes.
 """
 Base.@kwdef struct FAST_Catalogue_DDES
-    VERSION::String        = "v0.2.2"
+    VERSION::String        = "v0.2.3"
     COLOUR_PURWHI::String  = "#FFFFFF"
     COLOUR_LIGHIG::String  = "#E6E6E6"
     COLOUR_LIGLOW::String  = "#DCDCDC"
@@ -291,10 +295,6 @@ function FAST_WrapDetail_DDEF(Detail::AbstractString, MaxWidth::Int=45, Indent::
     return join(lines, "\n" * pad)
 end
 
-"""
-    FAST_Log_DDEF(Source, Event, [Detail], [Type])
-Standardised console logging with ANSI colour support and timestamps. Bridged to Value-Dispatch.
-"""
 function FAST_Log_DDEF(::Val{MsgType}, Source, Event, Detail) where {MsgType}
     c       = get(FAST_LogColours_DDEC, MsgType, "\e[34m")
     ts      = Dates.format(now(), "HH:MM:SS.sss")
@@ -2357,11 +2357,14 @@ end
 """
     FAST_AssembleSvgPlate_DDEF(Images::AbstractVector{<:AbstractString}, LayoutType::Symbol=:Grid2x3) -> String
 Assemble a composite SVG figure plate according to the 145 mm publication standard.
-Accepts either a vector of base64 PNG data strings or local PNG file paths.
-Supported LayoutTypes:
-- `:Grid2x3` (default): 6 panels (2 rows × 3 columns, 145 mm × 115.200 mm), labelled A to F.
-- `:Grid3x3`: 9 panels (3 rows × 3 columns, 145 mm × 172.800 mm), labelled A to I.
-- `:Strip1x3`: 3 panels (1 row × 3 columns, 145 mm × 57.600 mm), labelled A to C.
+Combines individual PNG panels into a standardised multi-panel grid (`:Grid2x3`, `:Grid3x3`, or `:Strip1x3`) with alphabetic panel labels.
+
+# Arguments
+- `Images::AbstractVector{<:AbstractString}`: Vector of base64-encoded PNG data strings or local PNG file paths.
+- `LayoutType::Symbol`: Plate grid geometry (`:Grid2x3` for 2×3 panels, `:Grid3x3` for 3×3 panels, or `:Strip1x3` for 1×3 panels; default: `:Grid2x3`).
+
+# Returns
+- `String`: Complete SVG XML markup string sized to 145 mm publication width.
 """
 function FAST_AssembleSvgPlate_DDEF(Images::AbstractVector{<:AbstractString}, LayoutType::Symbol=:Grid2x3)::String
     n_panels = (LayoutType == :Grid3x3) ? 9 : ((LayoutType == :Strip1x3) ? 3 : 6)

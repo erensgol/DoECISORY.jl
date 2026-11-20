@@ -52,13 +52,13 @@ end
 
 ### Track B — Graphical Interface (`Gui_Deck`)
 1. Open the browser interface at `http://127.0.0.1:8060` and navigate to the **Deck** tab.
-2. Under the **Formulation Configuration** card, input each reagent:
-   * **Active Precursor (`VAR`):** Enter Name `Precursor`, Role `VAR`, MW `450.5`, Unit `mg`, Levels `15.0 / 25.0 / 35.0`.
-   * **Process Variables (`VAR`):** Add `Temperature` (60 / 90 / 120 °C) and `Time` (5 / 15 / 25 min).
-   * **Fixed Salts (`FIX`):** Add `Buffer_Salt` (15.0 mg, MW 82.03).
-   * **Stabiliser (`FILL`):** Add `Ascorbic_Acid` (Filler, MW 176.12).
-3. Set Target Volume to `1.0 mL` and Target Concentration to `300 mM`.
-4. Click **Audit Mass Balance**. The card updates with a green status badge (*Audit Status: Passed*), displaying total formulation mass ($50.85\,\text{mg}$) and molar ratios.
+2. In the formulation table, input each reagent:
+   * **Active Precursor (`VAR`):** Enter Name `Precursor`, Role `Variable`, MW `450.5`, Unit `mg`, Levels `15.0 / 25.0 / 35.0`.
+   * **Process Variables (`VAR`):** Add `Temperature` (`60 / 90 / 120 °C`) and `Time` (`5 / 15 / 25 min`).
+   * **Fixed Salts (`FIX`):** Add `Buffer_Salt` (`15.0 mg`, MW `82.03`).
+   * **Stabiliser (`FILL`):** Add `Ascorbic_Acid` (`Filler`, MW `176.12`).
+3. Open **Stoichiometry Setup** and set Target Volume to `1.0 mL` and Target Concentration to `300 mM`.
+4. Click **Feasibility Audit**. The audit modal reports mass conservation status alongside total formulation mass ($50.85\,\text{mg}$) and molar ratios.
 
 ---
 
@@ -92,12 +92,12 @@ end
 
 ### Track B — Graphical Interface (`Gui_Deck`)
 1. In the **Experimental Factors** section of **Deck**, configure the 3 continuous factors:
-   * `Temperature`: Min `60.0`, Mid `90.0`, Max `120.0` (°C)
-   * `Time`: Min `5.0`, Mid `15.0`, Max `25.0` (min)
-   * `Precursor`: Min `15.0`, Mid `25.0`, Max `35.0` (mg)
-2. Under **Design Geometry**, select **Box-Behnken (15 Runs, BB15)**.
-3. Inspect the real-time **Information Optimality Card**: D-Efficiency (36.64%) and condition number (17.97) are displayed for the spherical 15-run domain.
-4. Click **Download Protocol Workbook (.xlsx)**. The system generates and downloads `DoECISORY_Protocol.xlsx`, containing pre-populated benchtop execution tables.
+   * `Temperature`: Lower `60.0`, Centre `90.0`, Upper `120.0` (°C)
+   * `Time`: Lower `5.0`, Centre `15.0`, Upper `25.0` (min)
+   * `Precursor`: Lower `15.0`, Centre `25.0`, Upper `35.0` (mg)
+2. Under **Design Method**, select **Box-Behnken (15 Runs, Q)**.
+3. Click **Matrix Diagnostic** to inspect design optimality: D-Efficiency (36.64%) and condition number (17.97) are displayed for the spherical 15-run domain.
+4. Click **Generate Design**. The system generates and downloads a smart-named protocol workbook (`*DESIGN*.xlsx`), containing pre-populated benchtop execution tables.
 
 ---
 
@@ -125,12 +125,12 @@ end
 ```
 
 ### Track B — Graphical Interface (`Gui_Lens`)
-1. Following physical laboratory runs, fill the measured response values into the downloaded `DoECISORY_Protocol.xlsx` sheet:
+1. Following physical laboratory runs, fill the measured response values into the downloaded `.xlsx` protocol sheet:
    * Column `RESULT_Conversion` (measured % conversion).
    * Column `RESULT_Yield` (isolated % RCY).
    * Column `RESULT_Impurity` (measured % radiolytic impurity).
 2. Switch to the **Lens** tab in your browser.
-3. Drag and drop `DoECISORY_Protocol.xlsx` into the **Dataset Dropzone**.
+3. Drag and drop the completed workbook into the **Dataset Dropzone**.
 4. The system validates the table schema, detects radionuclide $^{18}\text{F}$, and verifies data integrity.
 
 ---
@@ -164,13 +164,12 @@ end
 ```
 
 ### Track B — Graphical Interface (`Gui_Lens`)
-1. In the **Modelling Configuration** panel, set Model Hierarchy to **Quadratic Response Surface**.
-2. Click **Fit Models & Run Diagnostics**.
-3. Response metrics update instantly:
+1. In the **Regression Model** dropdown, select **Quadratic** (or **Automatic**).
+2. Click **Run Analysis** after setting optimisation criteria in the next step (or run immediately to inspect model fit):
    * Conversion: $R^2 = 0.998$, $\text{RMSE} = 0.92\%$
    * Yield: $R^2 = 0.997$, $\text{RMSE} = 0.90\%$
    * Impurity: $R^2 = 0.971$, $\text{RMSE} = 0.54\%$
-4. Click **View Analytical Summary** to open the 7-stage diagnostic modal:
+3. Click **Analytical Summary** to open the 7-stage diagnostic modal (`lens-modal-report`):
    * Inspect the ANOVA table: Confirm Lack-of-Fit $p$-value $> 0.05$ (indicating negligible model bias).
    * Check VIF values: All terms $< 2.5$, confirming absence of multicollinearity.
 
@@ -218,15 +217,15 @@ end
 ```
 
 ### Track B — Graphical Interface (`Gui_Lens`)
-1. In the **Desirability Optimization** card, configure criteria:
-   * `Conversion`: Type `Maximise`, Min `50.0`, Max `98.0`, Target `92.0`, Weight `1.0`
-   * `Yield`: Type `Maximise`, Min `40.0`, Max `85.0`, Target `80.0`, Weight `1.2`
-   * `Impurity`: Type `Minimise`, Min `1.0`, Max `10.0`, Target `2.0`, Weight `1.5`
-2. Toggle **Enable DCYP Kinetic Penalty**:
+1. In the **OPTIMISATION OBJECTIVES** card, configure criteria:
+   * `Conversion`: Objective `Maximise`, Lower `50.0`, Upper `98.0`, Target `92.0`, Weight `1.0`
+   * `Yield`: Objective `Maximise`, Lower `40.0`, Upper `85.0`, Target `80.0`, Weight `1.2`
+   * `Impurity`: Objective `Minimise`, Lower `1.0`, Upper `10.0`, Target `2.0`, Weight `1.5`
+2. Click **Radioactive Correction** (`lens-modal-radio-config`) to configure DCYP kinetic penalty:
    * Target Factor: `Time`
    * Half-Life Preset: Select `Fluorine-18 (109.8 min)`
-3. Click **Execute Optimization & Generate Candidate Pool**.
-4. The interactive 3D Plotly response surface updates with the optimal coordinates, while the **Candidate Portfolio Table** displays all extracted compromises:
+3. Click **Run Analysis**.
+4. The interactive 3D Plotly response surface updates with the optimal coordinates, while the **LEADER CANDIDATES** table displays all extracted compromises:
 
 | Candidate ID | Temp (°C) | Time (min) | Precursor (mg) | Pred. Conv (%) | Pred. Yield (%) | Pred. Impurity (%) | Desirability | Operational Rationale |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :--- |
@@ -261,8 +260,8 @@ begin
     # --------------------------------------------------------------------------
     acta_levels = Vector{Vector{Float64}}(undef, 3)
     for i in 1:3
-        # FLOW_CalcACTA_DDEF(LeaderVal, OldLevels, ContractionFactor, TranslationFactor, MinLimit)
-        acta_levels[i] = FLOW_CalcACTA_DDEF(leader_coords[i], old_levels[i], 0.50, 0.0, 0.0)
+        # FLOW_CalcACTA_DDEF(LeaderVal, OldLevels, ContractionFactor; MinLimit=0.0)
+        acta_levels[i] = FLOW_CalcACTA_DDEF(leader_coords[i], old_levels[i], 0.50; MinLimit=0.0)
     end
 
     println("--- Stage 1: ACTA Adapted Factor Bounds ---")
@@ -291,18 +290,18 @@ end
 ```
 
 ### Track B — Graphical Interface (`Gui_Lens` → `Gui_Deck`)
-1. Open the **IPKT Transition Wizard** in **Lens**:
+1. Click **Phase Evolution** in **Lens** to open the IPKT Transition Wizard:
    * **Step 1/3 (Target Phase):** Specify target stage as `Phase2`.
    * **Step 2/3 (Leader Selection):** Confirm the active leader is set to `TOP-01*` (`[103.18, 15.50, 27.80]`).
 2. In **Step 3/3 (Design Space Configuration)**:
-   * Set the **Contraction Ratio ($c$)** slider to `0.50` (narrowing the search window by $50\%$ centered on $x^*$).
-   * Configure factor slot modes:
+   * Set the **Global Contraction** slider to `0.5` (narrowing the search window by $50\%$ centred on $x^*$).
+   * Configure factor slot modes under **Variable Configuration**:
      - `Temperature`: Set Mode to `Scale (ASTM)` with $\alpha = 0.90$ and $\beta = 9.0$ °C.
-     - `Time`: Set Mode to `Keep (ACTA)` (or Scale with $\alpha = 1.0, \beta = 0.0$).
-     - `Precursor`: Set Mode to `Scale (ASTM)` with Absolute Min `10.0` mg, Absolute Max `50.0` mg.
-   * Inspect the **IPKT Visualisation Canvas** to confirm adapted ranges stay within safety limits.
-3. Click **Commit Phase Transition & Download Phase 2 Protocol**.
+     - `Time`: Set Mode to `Keep (ACTA)` (or `Scale (ASTM)` with $\alpha = 1.0, \beta = 0.0$).
+     - `Precursor`: Set Mode to `Scale (ASTM)` with Min Limit `10.0` mg, Max Limit `50.0` mg.
+   * Inspect the **IPKT Visualisation** canvas to confirm adapted ranges stay within safety limits.
+3. Click **Commit to Project Vault**.
 4. The application automatically commits the IPKT payload via `FLOW_CommitIPKT_DDEF` and transitions to the **Deck** workspace:
    * The new Phase 2 factor bounds are immediately populated into the formulation cards.
    * Prior mathematical variance and historical coefficients are preserved.
-   * Click **Download Protocol Workbook (.xlsx)** to download the Phase 2 experimental protocol ready for laboratory execution.
+   * Click **Generate Design** to download the Phase 2 experimental protocol workbook (`.xlsx`) ready for laboratory execution.

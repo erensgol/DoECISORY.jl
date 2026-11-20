@@ -24,26 +24,26 @@ Your default web browser will open the application at `http://127.0.0.1:8060`. T
 The **Deck** workspace manages formulation setup, mass balance auditing, and experimental matrix generation:
 
 ```
-  [1. Define Factors] ───► Enter Factor Names, Physical Units, and [Min, Mid, Max] Levels
+  [1. Define Factors] ───► Enter Factor Names, Physical Units, and [Lower, Centre, Upper] Levels
             │
   [2. Select Design]  ───► Choose Design Geometry (BB15, CD17, TL09, or DF14 Directional)
             │
-  [3. Recipe Audit]   ───► Specify Precursor, Buffer, Excipients & Run Stoichiometric Check
+  [3. Stoichiometry]  ───► Configure Stoichiometry Setup, Component Properties & Run Feasibility Audit
             │
-  [4. Export Excel]   ───► Click "Generate & Download Protocol Workbook (.xlsx)"
+  [4. Export Excel]   ───► Click "Generate Design" to Build & Download Protocol Workbook (.xlsx)
 ```
 
 ### 2.1. Defining Ingredients & Stoichiometry
-1. In the **Formulation Configuration** card, input each reagent:
-   * **Active Precursor (`VAR`):** Continuous variables subject to experimental variation.
-   * **Fixed Salts/Buffers (`FIX`):** Constant formulation components.
-   * **Diluent/Filler (`FILL`):** Solvent or carrier adjusted to maintain a constant total volume.
-2. If working with short-lived radionuclides (e.g. $^{18}\text{F}$, $^{68}\text{Ga}$) or labile reagents, click the **Component Properties** modal on the component row to specify the physical half-life ($t_{1/2}$) alongside its unit (`Minutes`, `Hours`, `Days`). The kinetic decay engine activates automatically when a positive half-life is entered.
-3. Click **Audit Mass Balance** to verify that concentration and total volume constraints are strictly satisfied.
+1. In the formulation table, input each reagent and select its role:
+   * **Variable (`VAR`):** Continuous variables subject to experimental variation.
+   * **Fixed (`FIX`):** Constant formulation components.
+   * **Filler (`FILL`):** Solvent or carrier adjusted to maintain a constant total volume.
+2. Open **Stoichiometry Setup** to specify the target batch volume (`mL`) and concentration (`mM`). If working with short-lived radionuclides (e.g. $^{18}\text{F}$, $^{68}\text{Ga}$) or labile reagents, click the **Component Properties** modal on the component row to specify the physical half-life ($t_{1/2}$) alongside its unit (`Minutes`, `Hours`, `Days`). The kinetic decay engine activates automatically when a positive half-life is entered.
+3. Click **Feasibility Audit** to verify that concentration, mass balance, and total volume constraints are strictly satisfied, and optionally **Matrix Diagnostic** to inspect design optimality (`D`, `A`, `G`, `I`, and condition number).
 
 ### 2.2. Generating the Protocol Sheet
-1. Select your target design geometry (e.g. `BB15 Box-Behnken`).
-2. Click **Download Protocol Workbook**. An Excel file (`DoECISORY_Protocol.xlsx`) is downloaded containing pre-formatted, colour-coded worksheets ready for benchtop execution.
+1. Select your target **Design Method** (e.g. `Box-Behnken (15 Runs, Q)`).
+2. Click **Generate Design**. A smart-named Excel workbook (`*DESIGN*.xlsx`) is downloaded containing pre-formatted, colour-coded worksheets ready for benchtop execution. All exported files in DoECISORY follow the `FAST_GenSmartName_DDEF` naming template `DoECISORY_<Project>_P<N>_<Tag>_<YYYY_MMDD_HHMM>.<ext>`.
 
 ---
 
@@ -74,21 +74,21 @@ Once laboratory runs are performed and analytical results obtained:
 * **Factor Slicing:** Use the slider below the graph to fix the third factor coordinate and evaluate 2D cross-sectional contours.
 
 ### 3.3. Statistical Diagnostics and Portfolio Export
-1. Click **Analytical Summary** to open the full statistical report modal.
+1. Click **Analytical Summary** to open the full statistical report modal (`lens-modal-report`).
 2. The modal displays:
    * Cross-validated $Q^2$ and $R^2$ values,
    * ANOVA $F$-tests and Lack-of-Fit indicators,
    * Variance Inflation Factors (VIF) to ensure absence of collinear distortion.
 3. **Exporting Analytics:**
-   * **Download Report (.txt):** Saves the complete 7-stage interpreted scientific report.
-   * **Download Plot (.png):** Exports the currently active canvas as a high-resolution raster image ($960 \times 1080\,\text{px}$).
-   * **Download Portfolio (.zip):** Generates a complete publication archive containing all 12 composite 145 mm SVG plates (`PLATE11` to `PLATE60`), the analytical report (`REPORT.txt`), and structured Excel data (`ANALYTICS.xlsx`).
+   * **Download Report (TXT):** Saves the complete 7-stage interpreted scientific report from the report modal.
+   * **Download Plot (PNG):** Via the Plotly hover modebar, exports the currently active canvas as a high-resolution raster image ($960 \times 1080\,\text{px}$, rendered at $480 \times 540$ with `scale = 2`).
+   * **Export Portfolio:** Generates a complete publication `.zip` archive (`*PORTFOLIO*.zip`) containing smart-named composite 145 mm SVG plates (up to 12 plates from `PLATE11` to `PLATE60` for 3-response portfolios), the analytical report (`*REPORT*.txt`), standalone `*PNGPLOTS*/`, and structured Excel data (`*ANALYTICS*.xlsx`).
 
 ---
 
 ## 4. Sequential Phase Transition (ACTA & ASTM)
 
-Sequential advancement from Phase 1 to Phase 2 is managed through a guided **3-Step IPKT Transition Wizard Modal**:
+Sequential advancement from Phase 1 to Phase 2 is triggered via **Phase Evolution** and managed through a guided **3-Step IPKT Transition Wizard Modal**:
 
 1. **Step 1/3: Target Phase Selection (`lens-modal-wizard`):**
    * Define the destination experimental stage identifier (e.g. `Phase2`).
@@ -101,14 +101,13 @@ Sequential advancement from Phase 1 to Phase 2 is managed through a guided **3-S
      * `OUT-Impurity`: Lowest radiolytic impurity candidate.
    * Select your target leader row.
 3. **Step 3/3: Design Space Configuration (`lens-modal-preview`):**
-   * **Global Contraction Ratio ($c$):** Set domain narrowing via slider ($1.0$, $0.75$, $0.50$ [default], $0.25$, or $0.10$).
-   * **Global Translation ($\delta$):** Set search space translation shift in $[-1.0, 1.0]$ when near domain edges.
-   * **Factor Slot Customisation:** For each active factor, choose between:
-     * `Keep (ACTA)`: Retains the factor and applies standard ACTA contraction/translation.
+   * **Global Contraction ($c$):** Set domain narrowing via slider (`1.0`, `0.75`, `0.5` [default], `0.25`, or `0.1`). Edge translation is handled automatically by ACTA whenever a leader enters the $5\%$ boundary margin; if manual coordinate shifting is desired, use ASTM's $\beta$ offset.
+   * **Variable Configuration (`Keep (ACTA)` / `Scale (ASTM)` / `Replace`):** For each active factor slot, choose between:
+     * `Keep (ACTA)`: Retains the factor and applies ACTA contraction/edge translation with physical limits preservation.
      * `Scale (ASTM)`: Applies affine scaling ($x' = \alpha x + \beta$) and validates against physical limits $[L^{\text{abs}}, U^{\text{abs}}]$.
-     * `Replace`: Drops an uninfluential variable and introduces a new physical process parameter.
-   * **IPKT Diagnostic Canvas:** Visually verify the gold target bar relative to the gray baseline and red extrapolation fences ($\pm 2.0$).
-   * Click **Commit Phase Transition & Download Phase 2 Protocol**. The updated workbook is generated with prior variance preserved.
+     * `Replace`: Drops an uninfluential variable and introduces a new physical process parameter with explicit `[Lower, Centre, Upper]` levels and limits.
+   * **IPKT Visualisation Canvas:** Visually verify the gold target bar relative to the grey baseline and red extrapolation fences ($\pm 2.0$).
+   * Click **Commit to Project Vault**. The updated phase state and protocol workbook are generated with prior variance preserved.
 
 ---
 
@@ -118,20 +117,20 @@ For researchers coordinating computational scripts and laboratory interfaces, th
 
 | Graphical Control / Widget | Workspace | User Operation | Underlying Julia API Function | Engine Arguments & Structs |
 | :--- | :--- | :--- | :--- | :--- |
-| **Audit Mass Balance Button** | Deck | Verifies formulation conservation | [`MOLE_AuditQuick_DDEF`](@ref) | `TableData::AbstractVector`, `Vol::Float64`, `Conc::Float64` |
-| **Design Geometry Dropdown** | Deck | Generates design matrix | [`CORE_GenDesign_DDEF`](@ref) | `Method::String, [FactorCount::Int=3]; Direction=[-1,-1,-1]` |
-| **Factor Level Inputs [Min, Mid, Max]** | Deck | Maps coded space to units | [`CORE_MapLevels_DDEF`](@ref) | `X_coded::Matrix`, `FactorConfig::Vector{Dict}` |
-| **Download Protocol Workbook Button** | Deck | Builds formatted `.xlsx` | [`FAST_WriteExcel_DDEF`](@ref) | `File::AbstractString`, `Updates::Dict{<:AbstractString, DataFrame}` |
+| **Feasibility Audit / Stoichiometry Setup** | Deck | Verifies formulation conservation | [`MOLE_AuditQuick_DDEF`](@ref) | `TableData::AbstractVector`, `Vol::Float64`, `Conc::Float64` |
+| **Design Method Dropdown** | Deck | Generates design matrix | [`CORE_GenDesign_DDEF`](@ref) | `Method::String, [FactorCount::Int=3]; Direction=[-1,-1,-1]` |
+| **Factor Level Inputs [Lower, Centre, Upper]** | Deck | Maps coded space to units | [`CORE_MapLevels_DDEF`](@ref) | `X_coded::Matrix`, `FactorConfig::Vector{Dict}` |
+| **Generate Design Button** | Deck | Builds formatted `.xlsx` | [`FAST_WriteExcel_DDEF`](@ref) | `File::AbstractString`, `Updates::Dict{<:AbstractString, DataFrame}` |
 | **Dataset Ingestion Dropzone** | Lens | Parses sheet & applies decay | [`FAST_ReadExcel_DDEF`](@ref) & [`VISE_ApplyFRDecay_DDEF`](@ref) | `df::DataFrame`, `decay_map::Dict` |
-| **Model Type Selector** | Lens | Fits response surfaces | [`VISE_Regress_DDEF`](@ref) | `X_Raw::AbstractMatrix{Float64}, Y::AbstractVector{Float64}, ModelType::String` |
-| **Analytical Summary Modal** | Lens | Displays 7-stage diagnostic report | [`VISE_GenSciReport_DDEF`](@ref) | `Res::AbstractDict` |
+| **Regression Model Selector** | Lens | Fits response surfaces | [`VISE_Regress_DDEF`](@ref) | `X_Raw::AbstractMatrix{Float64}, Y::AbstractVector{Float64}, ModelType::String` |
+| **Analytical Summary Button** | Lens | Displays 7-stage diagnostic report | [`VISE_GenSciReport_DDEF`](@ref) | `Res::AbstractDict` |
 | **ANOVA & Lack-of-Fit Display** | Lens | Evaluates model adequacy | [`VISE_GenANOVATable_DDEF`](@ref) | `Model::AbstractDict`, `X_Raw::Any`, `Y_Raw::Any` |
-| **DCYP Kinetic Penalty Toggle** | Lens | Enforces duration trade-off | [`CORE_ApplyDCYP_DDEF`](@ref) | `Score::Float64`, [`CORE_ModifierDCYP_DDES`](@ref), `x` |
-| **Execute Optimization Button** | Lens | Solves multi-objective landscape | [`CORE_OptimiseDesirability_DDEF`](@ref) | `Models, Goals, X_Bounds; MaxTime, ModifiersDCYP` |
+| **Radioactive Correction Modal** | Lens | Enforces kinetic decay & DCYP trade-off | [`CORE_ApplyDCYP_DDEF`](@ref) | `Score::Float64`, [`CORE_ModifierDCYP_DDES`](@ref), `x` |
+| **Run Analysis Button** | Lens | Fits models & solves multi-objective landscape | [`CORE_OptimiseDesirability_DDEF`](@ref) | `Models, Goals, X_Bounds; MaxTime, MaxSteps, ModifiersDCYP` |
 | **Candidate Portfolio Selector** | Lens | Extracts multi-criteria leaders | [`FLOW_GetCandidates_DDEF`](@ref) | `MasterFile, CurrentPhase` |
-| **ACTA Contraction Slider ($c$)** | Lens | Adapts domain boundaries | [`FLOW_CalcACTA_DDEF`](@ref) | `Val::Real, L_Old::AbstractVector, Contraction::Real, Translation::Real, [MinLimit, MaxLimit]` |
-| **ASTM Transformation Inputs** | Lens | Applies affine scaling and bounds validation | [`FLOW_ApplyASTM_DDEF`](@ref) | `Val::Real, Alpha::Real, Beta::Real` |
-| **Commit Phase Transition Button** | Lens $\rightarrow$ Deck | Bridges sequential phase | [`FLOW_CommitIPKT_DDEF`](@ref) | `MasterFile, CurrentPhase, [LeaderID, Contraction, Method, Translation]; Direction, CustomConfig` |
-| **Download Portfolio Button** | Lens | Builds 145 mm multi-plate ZIP | [`FAST_AssembleSvgPlate_DDEF`](@ref) | `Images::AbstractVector{<:AbstractString}, [LayoutType::Symbol=:Grid2x3]` |
+| **Global Contraction Slider ($c$)** | Lens | Adapts domain boundaries | [`FLOW_CalcACTA_DDEF`](@ref) | `Val::Real, L_Old::AbstractVector, Contraction::Real; Translation, MinLimit, MaxLimit, Alpha` |
+| **Scale (ASTM) Slot Inputs** | Lens | Applies affine scaling and bounds validation | [`FLOW_ApplyASTM_DDEF`](@ref) | `Val::Real, Alpha::Real, Beta::Real` |
+| **Commit to Project Vault Button** | Lens $\rightarrow$ Deck | Bridges sequential phase | [`FLOW_CommitIPKT_DDEF`](@ref) | `MasterFile, CurrentPhase, [LeaderID, Contraction, Method, Translation]; Direction, CustomConfig, ProjectName` |
+| **Export Portfolio Button** | Lens | Builds 145 mm multi-plate ZIP | [`FAST_AssembleSvgPlate_DDEF`](@ref) | `Images::AbstractVector{<:AbstractString}, [LayoutType::Symbol=:Grid2x3]` |
 | **Graph Index Badges** | Lens | Jumps carousel to plot group | Client-side DOM Trigger | `data-page`, `role="button"` |
 

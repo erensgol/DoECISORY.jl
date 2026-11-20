@@ -130,7 +130,7 @@ To bridge the gap between modular software architecture and physical laboratory 
 
 ## Modular Architecture Reference
 
-DoECISORY.jl provides both high-level and low-level APIs for programmatic execution. Currently, `design` serves as the primary high-level endpoint for experimental planning, with further high-level APIs planned for future releases. For direct low-level control, routines follow the symbol template:
+DoECISORY.jl provides both high-level and low-level APIs for programmatic execution. High-level entry points are [`launch`](@ref) for starting the interactive web interface and [`design`](@ref) for programmatic experimental planning, with further high-level wrappers planned for future releases. For direct low-level control, routines follow the symbol template:
 
 ```julia
 [DOMAIN]_[PascalCase-Action/Entity]_DDE[F|S|T|C]

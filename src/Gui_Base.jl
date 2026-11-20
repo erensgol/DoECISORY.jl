@@ -1,12 +1,16 @@
-module Gui_Base
+"""
+    Gui_Base
 
-# ==============================================================================
-# DOECISORY - GUI BASE (SHARED UI COMPONENTS & APP SHELL)
-# ==============================================================================
-# Description: Reusable Dash-Bootstrap components, high-fidelity styling tokens,
-#              global routing orchestration, and JIT warmup engine.
-# Module Tag:  BASE
-# ==============================================================================
+Shared Dash presentation primitives, application shell, and JIT warmup subsystem for **DoECISORY.jl**.
+Supplies reusable Dash-Bootstrap widgets, CSS design tokens, multi-page URL routing, store
+synchronisation, diagnostic/recovery modals, and background pre-compilation warmup.
+
+- **Tag:** `BASE`  |  **App Factory:** `BASE_CreateApp_DDEF` & `BASE_WarmupApp_DDEF`
+- **UI Primitives:** Glass panels, data tables, modals, form rows (`BASE_BuildGlassPanel_DDEF`, `BASE_BuildDataTable_DDEF`, `BASE_BuildModal_DDEF`)
+- **Routing & Sync:** Multi-page navigation and vault bridges (`BASE_RoutePage_DDEF`, `BASE_SyncVault_DDEF`)
+- **Diagnostics:** System audit panels, lock recovery, error badges (`BASE_RegisterDiagnostics_DDEF`, `BASE_CatchBadge_DDEF`)
+"""
+module Gui_Base
 
 using Dash
 using DashBootstrapComponents
@@ -1017,7 +1021,7 @@ end
 
 """
     BASE_RegisterAppCallbacks_DDEF(app) -> Nothing
-Registers all top-level application callbacks: page routing, store synchronization,
+Registers all top-level application callbacks: page routing, store synchronisation,
 diagnostics modal, emergency recovery lock release, and loading overlay dismissal.
 """
 function BASE_RegisterAppCallbacks_DDEF(app)::Nothing

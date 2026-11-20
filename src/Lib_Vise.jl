@@ -1,12 +1,16 @@
-module Lib_Vise
+"""
+    Lib_Vise
 
-# ==============================================================================
-# DOECISORY - LIB VISE (STATISTICAL ANALYSIS)
-# ==============================================================================
-# Description: Statistical analysis module for modelling (OLS), sensitivity 
-#              analysis, and multi-objective optimisation tasks.
-# Module Tag:  VISE
-# ==============================================================================
+Statistical modelling, diagnostic inference, and automated reporting engine for **DoECISORY.jl**.
+Executes QR-stabilised OLS regression, parsimonious model selection, ANOVA and Lack-of-Fit testing,
+cross-validation, multi-threaded grid exploration, and 7-stage scientific dossier compilation.
+
+- **Tag:** `VISE`  |  **Result Struct:** `VISE_RegressionResult_DDES`
+- **Modelling & Selection:** OLS fitting, AICc/BIC selection, LOO `Q²` (`VISE_Regress_DDEF`, `VISE_SelectBestModel_DDEF`, `VISE_CrossValidate_DDEF`)
+- **Diagnostics:** ANOVA, Lack-of-Fit, VIF, Shapiro-Wilk (`VISE_GenANOVATable_DDEF`, `VISE_TestLOF_DDEF`, `VISE_CalcVIF_DDEF`)
+- **Execution & Reporting:** Dense grid search, latency decay, 7-stage dossier (`VISE_Execute_DDEF`, `VISE_RunGridSearch_DDEF`, `VISE_GenSciReport_DDEF`)
+"""
+module Lib_Vise
 
 using DataFrames
 using JSON3
@@ -1601,7 +1605,7 @@ Coordinates data ingestion, radiochemical decay compensation, ensemble model fit
 - `Opts::AbstractDict`: Optimisation and radio-decay configuration options (default: empty dictionary).
 - `ConfigUpdates::AbstractDict`: Configuration metadata overrides (default: empty dictionary).
 - `t_start::Float64`: Execution start timestamp for pipeline telemetry (default: `time()`).
-- `RenderMode::Symbol`: Visualisation level (`:Full` or `:Minimal`).
+- `RenderMode::Symbol`: Visualisation level (`:Full`, `:Priority`, or `:Deferred`; default: `:Full`).
 - `Optim::Bool`: Whether to execute numerical desirability optimisation (default: `true`).
 
 # Returns

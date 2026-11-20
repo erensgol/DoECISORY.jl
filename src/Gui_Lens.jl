@@ -1,12 +1,16 @@
-module Gui_Lens
+"""
+    Gui_Lens
 
-# ==============================================================================
-# DOECISORY - GUI LENS (STATISTICAL ANALYSIS)
-# ==============================================================================
-# Description: Data analysis, model fitting (OLS), and high-fidelity 
-#              visualisation.
-# Module Tag:  LENS
-# ==============================================================================
+Interactive statistical analysis, multi-objective decision, and phase-evolution workspace for
+**DoECISORY.jl**. Manages workbook ingestion, kinetic decay correction, OLS modelling, Plotly
+inspection, 7-stage reporting, portfolio ZIP export, and the 3-step IPKT transition wizard.
+
+- **Tag:** `LENS`  |  **Coupling:** Isolated from `Gui_Deck` (bridged via `Sys_Flow`)
+- **Workspace UI:** Goal criteria table, leader pool, graph carousel, modals (`LENS_BuildLayout_DDEF`)
+- **Analytics & Decay:** Analysis pipeline, radioactive correction, report rendering (`LENS_RegisterCallbacks_DDEF`, `LENS_RenderAcademicReport_DDEF`)
+- **Portfolio & Evolution:** 145 mm SVG/PNG/TXT/XLSX ZIP export and 3-step IPKT wizard (`LENS_BuildLeadersTable_DDEF`)
+"""
+module Gui_Lens
 
 using Dash
 using DashBootstrapComponents
@@ -1105,7 +1109,7 @@ end
 
 """
     LENS_GetGraphMeta_DDEF(g::AbstractDict) -> Tuple{String, Int, Int}
-Extract structural metadata (Type, OutputIdx, SubIdx) from a serialized graph dictionary.
+Extract structural metadata (Type, OutputIdx, SubIdx) from a serialised graph dictionary.
 """
 function LENS_GetGraphMeta_DDEF(g::AbstractDict)::Tuple{String, Int, Int}
     return (string(get(g, "type", "")), Int(get(g, "out_idx", 0)), Int(get(g, "sub_idx", 0)))

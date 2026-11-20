@@ -89,7 +89,7 @@ begin
 
 # 5. Interphase Knowledge Transfer (IPKT = ACTA + ASTM)
 # Step A: ACTA domain contraction (c = 0.50 around leader)
-  acta_bounds = FLOW_CalcACTA_DDEF(opt_x[1], [60.0, 90.0, 120.0], 0.5, 0.0, 0.0)
+  acta_bounds = FLOW_CalcACTA_DDEF(opt_x[1], [60.0, 90.0, 120.0], 0.50; MinLimit=0.0)
   println("ACTA Phase 2 Contraction (Temp) : ", round.(acta_bounds; digits=2))
 
 # Step B: ASTM affine transformation and scaling (α = 0.9, β = 9.0)
@@ -100,7 +100,7 @@ end
 
 ### 1.3. Hybrid Laboratory Workflow (DataFrame Ingestion & Candidate Pool Search)
 
-In modern laboratories, researchers often combine the speed of tabular dataframes with the computational rigor of scripted multi-objective grid optimisation. The snippet below illustrates this end-to-end loop:
+In modern laboratories, researchers often combine the speed of tabular dataframes with the computational rigour of scripted multi-objective grid optimisation. The snippet below illustrates this end-to-end loop:
 
 ```julia
 using DoECISORY, DataFrames

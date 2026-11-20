@@ -1,15 +1,16 @@
-module Sys_Flow
+"""
+    Sys_Flow
 
-# ==============================================================================
-# DOECISORY - SYSTEM FLOW (PROCESS & STATE)
-# ==============================================================================
-# Description: Experimental phase management, transition logic, and state 
-#              synchronisation bus.
-# Framework:   Inter-Phase Knowledge Transfer (IPKT = ACTA + ASTM)
-#              - ACTA: Adaptive Contraction & Translation Algorithm (intra-space)
-#              - ASTM: Affine Space Transformation Model (cross-system)
-# Module Tag:  FLOW
-# ==============================================================================
+Sequential experimental phase orchestration and Inter-Phase Knowledge Transfer (IPKT) engine for
+**DoECISORY.jl**. Mediates all transitions between `Gui_Deck` and `Gui_Lens` via Excel workbooks
+and Dash Stores while enforcing the strict execution order invariant (ASTM before ACTA).
+
+- **Tag:** `FLOW`  |  **Pipeline:** `ASTM` (affine scale/shift) → `ACTA` (domain adaptation)
+- **Boundary Modes:** Contraction, automatic edge translation, boundary seeking (`FLOW_CalcACTA_DDEF`, `FLOW_ApplyACTA_DDEF`)
+- **Affine Mapping:** Equipment/scale projection and bounds validation (`FLOW_ApplyASTM_DDEF`, `FLOW_ValidateASTM_DDEF`)
+- **IPKT & Leaders:** Candidate extraction, transition commits, interval plots (`FLOW_GetCandidates_DDEF`, `FLOW_CommitIPKT_DDEF`, `FLOW_RenderIPKT_DDEF`)
+"""
+module Sys_Flow
 
 using JSON3
 using Base64
@@ -103,8 +104,15 @@ struct FLOW_PhaseCustom_DDES <: FLOW_AbstractPhase_DDET
 end
 
 """
-    FLOW_GetPhaseType_DDEF(Phase) -> FLOW_AbstractPhase_DDET
-Resolve string phase representation into a typed phase trait.
+    FLOW_GetPhaseType_DDEF(p::Union{AbstractString, FLOW_AbstractPhase_DDET}) -> FLOW_AbstractPhase_DDET
+Resolve a string phase identifier or trait instance into a typed `FLOW_AbstractPhase_DDET` phase descriptor.
+Enables trait-based multiple dispatch for phase progression across sequential experimental stages.
+
+# Arguments
+- `p::Union{AbstractString, FLOW_AbstractPhase_DDET}`: Phase label (e.g. `"Phase1"`, `"Phase2"`, `"Phase3"`) or existing phase trait struct.
+
+# Returns
+- `FLOW_AbstractPhase_DDET`: Concrete phase trait (`FLOW_PhasePrimary_DDES`, `FLOW_PhaseSecondary_DDES`, `FLOW_PhaseTertiary_DDES`, or `FLOW_PhaseCustom_DDES`).
 """
 function FLOW_GetPhaseType_DDEF(p::AbstractString)::FLOW_AbstractPhase_DDET
     clean_p = uppercase(replace(strip(p), " " => ""))
@@ -117,8 +125,15 @@ end
 FLOW_GetPhaseType_DDEF(p::FLOW_AbstractPhase_DDET) = p
 
 """
-    FLOW_AdvancePhase_DDEF(Phase) -> String
-Dispatch-driven calculation of the subsequent target phase identifier.
+    FLOW_AdvancePhase_DDEF(p::Union{AbstractString, FLOW_AbstractPhase_DDET}) -> String
+Compute the subsequent target experimental phase identifier using trait-based multiple dispatch.
+Advances sequentially from primary to secondary, tertiary, and higher custom phases.
+
+# Arguments
+- `p::Union{AbstractString, FLOW_AbstractPhase_DDET}`: Current phase name string or `FLOW_AbstractPhase_DDET` trait instance.
+
+# Returns
+- `String`: Identifier string for the next experimental phase (e.g. `"Phase2"`).
 """
 FLOW_AdvancePhase_DDEF(::FLOW_PhasePrimary_DDES)::String = "Phase2"
 FLOW_AdvancePhase_DDEF(::FLOW_PhaseSecondary_DDES)::String = "Phase3"
@@ -167,7 +182,7 @@ FLOW_IsFilled_DDEF(Str::AbstractString) = !isempty(Str)
 
 """
     FLOW_FormatStringDict_DDEF(Src) -> Dict{String, Any}
-Normalize dictionary keys to String and sanitize values for JSON/Dash Store transit via FAST_SanitiseJSON_DDEF.
+Normalise dictionary keys to String and sanitise values for JSON/Dash Store transit via `FAST_SanitiseJSON_DDEF`.
 """
 FLOW_FormatStringDict_DDEF(Src::AbstractDict)::Dict{String,Any} = Dict{String,Any}(FAST_SanitiseJSON_DDEF(Src))
 FLOW_FormatStringDict_DDEF(::Any)::Dict{String,Any}             = Dict{String,Any}()
@@ -232,8 +247,8 @@ FLOW_GetDirectionMap_DDEF(::CORE_AbstractDesignMethod_DDET, ::AbstractVector{<:A
 # ------------------------------------------------------------------------------
 
 """
-    FLOW_ClassifyBoundaryMode_DDEF(Val, Min, Max, MinLimit=-Inf, MaxLimit=Inf, ContractionOrSpan=0.5) -> FLOW_AbstractBoundaryMode_DDET
-Classify experimental factor coordinate adaptation mode into contraction, translation, or boundary seeking.
+    FLOW_ResolvePhysicalBounds_DDEF(MinRaw, MaxRaw) -> Tuple{Float64, Float64}
+Parse raw physical limit inputs into a finite/infinite `(min_limit, max_limit)` tuple, treating `[0.0, 0.0]` sentinels as unbounded.
 """
 function FLOW_ResolvePhysicalBounds_DDEF(MinRaw, MaxRaw)::Tuple{Float64, Float64}
     mn = FAST_SafeNum_DDEF(MinRaw)
@@ -247,6 +262,10 @@ function FLOW_ResolvePhysicalBounds_DDEF(MinRaw, MaxRaw)::Tuple{Float64, Float64
     return (mn_f, mx_f)
 end
 
+"""
+    FLOW_ClassifyBoundaryMode_DDEF(Val, Min, Max, MinLimit=-Inf, MaxLimit=Inf, Contraction=0.5; Alpha=1.0, TargetSpan=0.0) -> FLOW_AbstractBoundaryMode_DDET
+Classify experimental factor coordinate adaptation mode into contraction, translation, or boundary seeking.
+"""
 function FLOW_ClassifyBoundaryMode_DDEF(Val::Real, Min::Real, Max::Real, MinLimit::Real=-Inf, MaxLimit::Real=Inf, Contraction::Real=0.5; Alpha::Real=1.0, TargetSpan::Real=0.0)::FLOW_AbstractBoundaryMode_DDET
     val = Float64(Val)
     span_source = Float64(Max - Min)
@@ -303,15 +322,19 @@ function FLOW_ClassifyBoundaryMode_DDEF(Val::Real, Min::Real, Max::Real, MinLimi
 end
 
 """
-    FLOW_AuditLeader_DDEF(LeaderVal::Real, CurrentRange::Vector{Float64}, MinLimit::Real=-Inf, MaxLimit::Real=Inf) -> Tuple{Bool, String}
+    FLOW_AuditLeader_DDEF(LeaderVal::Real, CurrentRange::AbstractVector{<:Real}, MinLimit::Real=-Inf, MaxLimit::Real=Inf, TargetSpan::Real=0.0; Alpha::Real=1.0) -> Tuple{Bool, String}
 Evaluate whether a chosen leader factor coordinate is in proximity to boundary limits, detecting potential space clipping.
 Flags coordinates lying dangerously close to the lower or upper physical thresholds to protect subsequent phase search volumes.
 
 # Arguments
 - `LeaderVal::Real`: Candidate optimal factor coordinate.
-- `CurrentRange::Vector{Float64}`: Current factor domain range `[min, mid, max]`.
+- `CurrentRange::AbstractVector{<:Real}`: Current factor domain range `[min, mid, max]`.
 - `MinLimit::Real`: Minimum physical boundary threshold (default: `-Inf`).
 - `MaxLimit::Real`: Maximum physical boundary threshold (default: `Inf`).
+- `TargetSpan::Real`: Optional target domain width override when auditing post-adaptation bounds (default: `0.0`).
+
+# Keywords
+- `Alpha::Real`: Affine scaling multiplier applied to the source span before boundary classification (default: `1.0`).
 
 # Returns
 - `Tuple{Bool, String}`: `(is_safe, alert_message)`.
@@ -553,17 +576,7 @@ end
 
 """
     FLOW_ShiftWindow_DDEF(eff_mid::Real, Span::Real, MinLimit::Real, MaxLimit::Real) -> Vector{Float64}
-Shift search space window against physical limits without domain span collapse (window clamping / sliding).
-Preserves the full adapted span when candidate bounds exceed limits while the leader remains in non-seeking zones.
-
-# Arguments
-- `eff_mid::Real`: Effective centre coordinate value.
-- `Span::Real`: Target search space width `(L3 - L1)`.
-- `MinLimit::Real`: Minimum physical boundary threshold.
-- `MaxLimit::Real`: Maximum physical boundary threshold.
-
-# Returns
-- `Vector{Float64}`: 3-element vector containing window-shifted `[L1, L2, L3]` levels.
+Shift the adapted search window `[L1, L2, L3]` against physical limits without collapsing the target domain span.
 """
 function FLOW_ShiftWindow_DDEF(eff_mid::Real, Span::Real, MinLimit::Real, MaxLimit::Real)::Vector{Float64}
     span_val  = Float64(Span)
@@ -761,8 +774,27 @@ function FLOW_RoundLevelTriplet_DDEF(levels::AbstractVector{<:Real}, MinLimit::R
 end
 
 """
-    FLOW_CalcACTA_DDEF(Val, L_Old, Contraction=0.5; Translation=0.0, MinLimit=-Inf, MaxLimit=Inf, Alpha=1.0) -> Vector{Float64}
-Calculate adapted factor coordinate triplet [L1, L2, L3] by harmonising ASTM, ACTA, and SEEK guardrails.
+    FLOW_CalcACTA_DDEF(Val::Real, L_Old::AbstractVector{<:Real}, Contraction::Real=0.5; Translation::Real=0.0, MinLimit::Real=-Inf, MaxLimit::Real=Inf, Alpha::Real=1.0) -> Vector{Float64}
+    FLOW_CalcACTA_DDEF(Val::Real, L_Old::AbstractVector{<:Real}, Contraction::Real, Translation::Real, [MinLimit::Real], [MaxLimit::Real]; Alpha::Real=1.0) -> Vector{Float64}
+Calculate adapted factor coordinate triplet `[L1, L2, L3]` by harmonising ASTM affine scaling, ACTA contraction/translation, and boundary-seeking guardrails.
+Resolves physical safety limits, classifies the boundary regime relative to the leader coordinate, and returns a rounded level triplet for the subsequent experimental phase.
+
+# Arguments
+- `Val::Real`: Selected leader coordinate in the target scale.
+- `L_Old::AbstractVector{<:Real}`: Previous phase factor levels `[L1, L2, L3]` in the target scale.
+- `Contraction::Real`: Range contraction ratio bounded in `[0.05, 1.0]` (default: `0.5`).
+- `Translation::Real`: Optional positional translation factor for positional method variants (default: `0.0`).
+- `MinLimit::Real`: Minimum physical boundary limit (positional variant; default: `-Inf`).
+- `MaxLimit::Real`: Maximum physical boundary limit (positional variant; default: `Inf`).
+
+# Keywords
+- `Translation::Real`: Normalised coordinate shift applied prior to boundary classification (default: `0.0`).
+- `MinLimit::Real`: Minimum physical boundary limit (default: `-Inf`).
+- `MaxLimit::Real`: Maximum physical boundary limit (default: `Inf`).
+- `Alpha::Real`: Affine scale factor used to preserve ASTM-transformed span proportions (default: `1.0`).
+
+# Returns
+- `Vector{Float64}`: Adapted and rounded 3-element factor level vector `[L1, L2, L3]`.
 """
 function FLOW_CalcACTA_DDEF(
     Val::Real,

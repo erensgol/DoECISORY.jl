@@ -60,7 +60,7 @@ fig_surface = ARTS_RenderSurface_DDEF(
 
 **Diagnostic Interpretation:**
 * **Global Peak / Dome:** Signifies a well-behaved quadratic maximum lying within the search domain.
-* **Ridge / Rising Ridge:** Indicates that factors act cooperatively; the true physical summit may reside outside current boundaries, signaling the need for sequential translation (ACTA).
+* **Ridge / Rising Ridge:** Indicates that factors act cooperatively; the true physical summit may reside outside current boundaries, signalling the need for sequential translation (ACTA).
 * **Saddle Point (Minimax):** Represents antagonistic cross-term interaction ($x_1 x_2$), where moving in one direction increases response while moving orthogonally decreases it.
 
 ### 2.2. 2D Equipotential Contour Projections (`ARTS_RenderContour_DDEF`)
@@ -192,7 +192,7 @@ When balancing conflicting laboratory criteria (e.g. maximising yield while simu
 Rather than relying on a single arbitrary cutoff, DoECISORY.jl structures the multi-criteria decision space into three concentric operating tiers:
 
 1. **Feasible Space (`ARTS_RenderFeasibleSpace_DDEF`):**
-   Demarcates the broad permissible region where all individual response specifications are satisfied ($D_i \ge 0.05$). This forms the baseline regulatory compliance perimeter.
+   Demarcates the broad permissible region where unweighted composite desirability satisfies baseline feasibility ($D_{\text{unweighted}} \ge 0.05$, or $0.5 \cdot D_{\max}$ when $D_{\max} \le 0.05$). This forms the baseline regulatory compliance perimeter.
 2. **Optimal Zone (`ARTS_RenderOptimalZone_DDEF`):**
    Restricts the operating space to coordinates achieving at least $90\%$ of the maximum composite desirability ($D \ge 0.90 \times D_{\max}$). Serves as the primary operational territory for process engineering.
 3. **Sweet Spot (`ARTS_RenderSweetSpot_DDEF`):**
@@ -258,7 +258,7 @@ The IPKT transition chart visualises how factor domains shift, narrow, or transl
     ┆     │                    │                                                     │            │         ┆
     ┆     │                    60.0 [Phase 1 Lower]                120.0 [Phase 1 Upper]          │         ┆
     ┆     │                    ┌─────────────────────────────────────────────────────┐            │         ┆
-    ┆     │   Trace 1: Current │░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░│ (Dark Gray)│         ┆
+    ┆     │   Trace 1: Current │░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░│ (Dark Grey)│         ┆
     ┆     │                    └─────────────────────────────────────────────────────┘            │         ┆
     ┆     │                                                 ┌────────────────────────┐            │         ┆
     ┆     │   Trace 2: Target                               │█████████████●██████████│ (Gold Bar) │         ┆
@@ -275,13 +275,13 @@ The IPKT transition chart visualises how factor domains shift, narrow, or transl
 ```
 
 #### Canvas Components & Traces:
-* **Trace 1: Current Baseline (Dark Slate Gray, `COLOUR_DARLOW`):** Fixed horizontal bar of width 12 spanning exactly $[-1.0, +1.0]$, representing the normalised boundaries of the previous Phase 1 operational window $[L_{\text{old}}, U_{\text{old}}]$.
+* **Trace 1: Current Baseline (Dark Slate Grey, `COLOUR_DARLOW`):** Fixed horizontal bar of width 12 spanning exactly $[-1.0, +1.0]$, representing the normalised boundaries of the previous Phase 1 operational window $[L_{\text{old}}, U_{\text{old}}]$.
 * **Trace 2: Target Domain (Vibrant Gold, `COLOUR_HUEYEL`):** Dynamic horizontal bar of width 12 spanning $[n_{\text{new,min}}, n_{\text{new,max}}]$, indicating the proposed Phase 2 operational range.
 * **Trace 3: Target Centre (Emerald Green Circle, `COLOUR_TONGRE`):** Marker placed at $n_{\text{new,mid}}$, pinpointing the geometric centre (zero-level, $0$) of the proposed Phase 2 design.
 * **Trace 4: Optimal Leader Point (Magenta Circle, `COLOUR_SHAMAG`):** Marker placed at $n_{\text{leader}}$, indicating the exact physical coordinate of the champion formulation selected from Phase 1.
 * **Trace 5: Directional Axial Focus (Teal Circle, `COLOUR_TONCYA`):** Visible when using directional screening geometries (such as `DF14`), highlighting the primary exploratory axial direction (Lower $-1$ or Upper $+1$).
 * **Dual Numeric Level Annotations:**
-  - **Top Labels ($y + 0.35$):** Low-contrast gray numerals positioned at $-1.0$ and $+1.0$ displaying the previous Phase 1 physical boundaries.
+  - **Top Labels ($y + 0.35$):** Low-contrast grey numerals positioned at $-1.0$ and $+1.0$ displaying the previous Phase 1 physical boundaries.
   - **Bottom Labels ($y - 0.35$):** High-contrast bold numerals positioned at $n_{\text{new,min}}$ and $n_{\text{new,max}}$ displaying the adapted Phase 2 physical boundaries.
 * **Exploration Safety Fences (Red Dashed Vertical Lines at $\pm 2.0$):** Demarcate the maximum allowable extrapolation range; any target boundary approaching $\pm 2.0$ triggers a visual boundary warning.
 
@@ -294,18 +294,18 @@ The ACTA function dynamically selects an adaptation strategy based on the spatia
 ```
    ┌────────────────────────────────────────────────────────────────────────────────────────┐
    │                                ACTA Decision Topology                                  │
-   ├───────────────────────┬───────────────────────────────┬────────────────────────────────┤
-   │ Leader Position (p_i) │ Boundary Trait                │ Recommended Adaptation         │
-   ├───────────────────────┼───────────────────────────────┼────────────────────────────────┤
-   │ 0.25 ≤ p_i ≤ 0.75     │ FLOW_BoundarySafe_DDES        │ Contraction (c ∈ (0.0, 1.0])   │
-   │ p_i < 0.25            │ FLOW_BoundaryLower_DDES       │ Translation Downward (δ < 0.0) │
-   │ p_i > 0.75            │ FLOW_BoundaryUpper_DDES       │ Translation Upward (δ > 0.0)   │
-   │ Dist(x*, Limit) < 5%  │ FLOW_BoundarySeekLower/Upper  │ Boundary Seeking (Lock ≥ 10%)  │
-   └───────────────────────┴───────────────────────────────┴────────────────────────────────┘
+   ├─────────────────────────┬──────────────────────────────┬───────────────────────────────┤
+   │ Leader Position (p_i)   │ Boundary Trait               │ Recommended Adaptation        │
+   ├─────────────────────────┼──────────────────────────────┼───────────────────────────────┤
+   │ 0.05 ≤ p_i ≤ 0.95       │ FLOW_ModeContract_DDES       │ Contraction (c ∈ [0.05, 1.0]) │
+   │ p_i < 0.05              │ FLOW_ModeTranslateLower_DDES │ Lower Edge Translation        │
+   │ p_i > 0.95              │ FLOW_ModeTranslateUpper_DDES │ Upper Edge Translation        │
+   │ Candidate Hits [L, U]   │ FLOW_ModeSeekLower/Upper     │ Boundary Seeking (Lock ≥ 10%) │
+   └─────────────────────────┴──────────────────────────────┴───────────────────────────────┘
 ```
 
-#### 1. Internal Centering & Contraction (`FLOW_BoundarySafe_DDES`)
-* **Mathematical Condition:** The leader point lies comfortably inside the central inter-quartile range ($0.25 \le p_i \le 0.75$).
+#### 1. Internal Centring & Contraction (`FLOW_ModeContract_DDES`)
+* **Mathematical Condition:** The leader point lies safely inside the interior domain ($0.05 \le p_i \le 0.95$, outside the $5\%$ boundary margin).
 * **Adaptation Mechanism:** The search span is contracted symmetrically around the leader:
   ```math
   \Delta x_{\text{new}} = c \cdot \Delta x_{\text{old}}, \quad x_{\text{mid}} = x^*
@@ -314,24 +314,24 @@ The ACTA function dynamically selects an adaptation strategy based on the spatia
   L_{\text{new}} = x_{\text{mid}} - \frac{\Delta x_{\text{new}}}{2}, \quad U_{\text{new}} = x_{\text{mid}} + \frac{\Delta x_{\text{new}}}{2}
   ```
   *(Default contraction factor $c = 0.50$, focusing variance on the optimum).*
-* **Visual Signature:** The gold target bar is narrower than the gray baseline bar and rests entirely inside $[-1.0, +1.0]$. The magenta leader dot and green centre dot align at the midpoint of the gold bar.
+* **Visual Signature:** The gold target bar is narrower than the grey baseline bar and rests entirely inside $[-1.0, +1.0]$. The magenta leader dot and green centre dot align at the midpoint of the gold bar.
 
-#### 2. Boundary Proximity & Directional Translation (`FLOW_BoundaryLower_DDES` / `Upper_DDES`)
-* **Mathematical Condition:** The leader point is located in the outer quartiles ($p_i < 0.25$ or $p_i > 0.75$), indicating that the true optimum lies outside the current exploration space.
-* **Adaptation Mechanism:** Contraction is **suspended** ($\Delta x_{\text{new}} = \Delta x_{\text{old}}$) to prevent premature narrowing in an uncharted region. Instead, the entire domain is translated along the response gradient by translation factor $\delta \in [-1.0, 1.0]$:
+#### 2. Boundary Proximity & Directional Translation (`FLOW_ModeTranslateLower_DDES` / `FLOW_ModeTranslateUpper_DDES`)
+* **Mathematical Condition:** The leader point falls within the $5\%$ outer edge margin ($p_i < 0.05$ or $p_i > 0.95$), indicating that the true optimum may reside near or outside the current exploration space.
+* **Adaptation Mechanism:** Rather than enforcing full contraction, ACTA linearly interpolates the adapted span between $c \cdot \Delta x_{\text{target}}$ at the $5\%$ edge threshold and full $\Delta x_{\text{target}}$ at $\pm 0.50 \cdot \Delta x_{\text{source}}$ beyond the prior bounds, anchoring the inner edge to preserve overlap. Programmatic callers can additionally supply a normalised translation offset $\delta$ (`Translation`):
   ```math
-  x_{\text{mid}} = x^* + \delta \cdot \frac{\Delta x_{\text{new}}}{2}
+  x_{\text{eff}} = x^* + \delta \cdot \frac{c \cdot \Delta x_{\text{target}}}{2}
   ```
-* **Visual Signature:** The gold bar shifts into the outer quadrants ($[-2.0, -1.0]$ or $[+1.0, +2.0]$). The magenta leader dot sits near the boundary edge, visually demonstrating that Phase 2 will explore new physical territory.
+* **Visual Signature:** The gold bar extends towards or into the outer quadrants ($[-2.0, -1.0]$ or $[+1.0, +2.0]$). The magenta leader dot sits near the boundary edge, visually demonstrating that Phase 2 will explore new physical territory.
 
-#### 3. Boundary Seeking
-* **Mathematical Condition:** The candidate optimum approaches immutable physical or equipment boundaries (e.g. solvent boiling point $T \le 90^\circ\text{C}$, non-negative concentrations $C \ge 0.0$, or pump limits) within a $5\%$ tolerance window.
+#### 3. Boundary Seeking (`FLOW_ModeSeekLower_DDES` / `FLOW_ModeSeekUpper_DDES`)
+* **Mathematical Condition:** Candidate bounds or the leader coordinate encounter immutable physical or equipment boundaries (e.g. solvent boiling point $T \le 90^\circ\text{C}$, non-negative concentrations $C \ge 0.0$, or pump limits).
 * **Adaptation Mechanism:** Rather than collapsing the factor span into a degenerate point, ACTA enforces boundary seeking (`FLOW_SeekFloor_DDEF` / `FLOW_SeekCeiling_DDEF`):
-  - The domain span $(U_{\text{new}} - L_{\text{new}})$ is locked to at least $10\%$ of the physical range $(U^{\text{abs}} - L^{\text{abs}})$.
-  - The leader is pinned precisely to the boundary edge ($L_1$ floor or $L_3$ ceiling), preventing design matrix singularity while ensuring valid experimental operating volumes.
-* **Visual Signature:** The gold target bar anchors reliably to the boundary threshold with a preserved $10\%$ span. The bottom numeric label reflects the boundary alignment rather than an unconstrained mathematical projection.
+  - The domain span $(U_{\text{new}} - L_{\text{new}})$ is locked to at least $10\%$ of the target span ($\Delta x_{\text{target}}$).
+  - The active endpoint is pinned to the boundary threshold ($L_1$ floor or $L_3$ ceiling), preventing design matrix singularity while ensuring valid experimental operating volumes.
+* **Visual Signature:** The gold target bar anchors reliably to the boundary threshold with a preserved $\ge 10\%$ span. The bottom numeric label reflects the boundary alignment rather than an unconstrained mathematical projection.
 
-#### 4. Variable Replacement
+#### 4. Variable Replacement (`FLOW_ModeReplaced_DDES`)
 * **Mathematical Condition:** When transitioning from a coarse screening phase to a fine response surface phase, an uninfluential factor (flat response slope) is dropped and replaced with a newly identified critical process parameter.
 * **Visual Signature:** When `is_replaced = true`, the baseline numeric labels display `—` (em-dash), and the target bar renders a fresh $[-1.0, +1.0]$ domain for the incoming factor.
 
@@ -388,10 +388,10 @@ Prior to clicking **Commit Phase 2** in the Graphical Interface (`Gui_Deck`) or 
 
 | Diagnostic Feature | Visual Cue | Verification Rule | Action Required if Unmet |
 | :--- | :--- | :--- | :--- |
-| **Centering Check** | Green Dot vs Gold Bar | The green circle must sit at the exact midpoint of the gold target bar. | If off-centre, check whether an intentional translation factor ($\delta \ne 0$) was entered. |
-| **Boundary Margin** | Magenta Dot vs Gray Edges | Verify whether the magenta dot lies within the central 90% of the dark gray bar. | If touching or near $-1.0$ or $+1.0$, activate Translation ($\delta$) to shift search space into unchartered domain. |
+| **Centring Check** | Green Dot vs Gold Bar | The green circle must sit at the exact midpoint of the gold target bar. | If off-centre, check whether boundary seeking or a programmatic translation offset ($\delta \ne 0$) occurred. |
+| **Boundary Margin** | Magenta Dot vs Grey Edges | Verify whether the magenta dot lies within the central $90\%$ of the dark grey bar ($0.05 \le p_i \le 0.95$). | If touching or outside the $5\%$ margin, verify that the adapted target range expands smoothly towards new territory. |
 | **Boundary Seeking Verification** | Bar End vs Physical Cap | Confirm that gold bars preserve minimum span and anchor cleanly to physical thresholds. | If seeking engaged, verify that the experimental design respects process set-points. |
-| **Extrapolation Fence** | Gold Bar vs Red Lines ($\pm 2.0$) | No portion of the gold bar should cross beyond the red dashed fences at $\pm 2.0$. | If breaching $\pm 2.0$, reduce translation step $\delta$ to prevent dangerous extrapolation away from verified data. |
+| **Extrapolation Fence** | Gold Bar vs Red Lines ($\pm 2.0$) | No portion of the gold bar should cross beyond the red dashed fences at $\pm 2.0$. | If breaching $\pm 2.0$, widen physical limits, moderate ASTM shift $\beta$, or verify the selected leader coordinate. |
 | **Factor Continuity** | Top vs Bottom Variable Names | Ensure all active factors match intended designations; screened variables should show `—`. | Verify sheet configuration if factor roles or names have inadvertently swapped. |
 
 ---
@@ -423,7 +423,7 @@ write("PLATE11_Diagnostics_Yield.svg", svg_plate)
 ```
 
 Each composite plate features:
-* Standardised 8 pt bold panel labels (`(a)`, `(b)`, etc.) for direct manuscript citation,
+* Standardised 8 pt bold uppercase panel labels (`A`, `B`, `C`, ...) for direct manuscript citation,
 * Strict physical scaling calibrated to standard two-column page widths without text distortion.
 
 ### 6.2. Direct PlotlyJS Single-Plot Export
@@ -446,8 +446,8 @@ PlotlyJS.savefig(fig_surface, "Supplementary_3D_Surface.html")
 
 ### 6.3. Automated Portfolio ZIP Archive
 
-Through the `Gui_Lens` interface, researchers can download the entire analytical output in a single step via **Download Portfolio (.zip)**:
-* `PLATE11.svg` to `PLATE60.svg`: All 12 composite vector plates at 145 mm width stored directly in the archive root for immediate document insertion,
-* `REPORT.txt`: The complete 7-stage interpreted scientific report,
-* `ANALYTICS.xlsx`: Raw regression coefficients, ANOVA tables, and candidate coordinates,
-* `PNGPLOTS/`: High-resolution standalone raster plots ($960 \times 1080\,\text{px}$).
+Through the `Gui_Lens` interface, researchers can download the entire analytical output in a single step via **Export Portfolio** (`*PORTFOLIO*.zip`), named via `FAST_GenSmartName_DDEF`:
+* `*PLATE11*.svg` to `*PLATE60*.svg`: Composite 145 mm vector plates (up to 12 plates for a 3-response portfolio) stored directly in the archive root,
+* `*REPORT*.txt`: The complete 7-stage interpreted scientific report,
+* `*ANALYTICS*.xlsx`: Raw regression coefficients, ANOVA tables, and candidate coordinates,
+* `*PNGPLOTS*/`: High-resolution standalone raster plots ($960 \times 1080\,\text{px}$, generated at $480 \times 540$ with `scale = 2`).

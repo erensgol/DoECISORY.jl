@@ -1,12 +1,16 @@
-module Gui_Deck
+"""
+    Gui_Deck
 
-# ==============================================================================
-# DOECISORY - GUI DECK (EXPERIMENTAL DESIGN)
-# ==============================================================================
-# Description: Experimental design workspace, matrix generation, and protocol 
-#              export.
-# Module Tag:  DECK
-# ==============================================================================
+Interactive experimental design and formulation workspace for **DoECISORY.jl**. Manages 3-factor
+domain configuration, stoichiometric recipe setup, feasibility and matrix diagnostics, JSON protocol
+templates, and formatted Excel workbook export without direct coupling to `Gui_Lens`.
+
+- **Tag:** `DECK`  |  **Coupling:** Isolated from `Gui_Lens` (bridged via `Sys_Flow`)
+- **Workspace UI:** Formulation grid, component half-life & stoichiometry modals (`DECK_BuildLayout_DDEF`)
+- **Protocol Manager:** Validation, matrix synthesis, and `.xlsx` export (`DECK_GenProtocol_DDEF`)
+- **Callbacks:** Template save/load, feasibility audit, and design generation (`DECK_RegisterCallbacks_DDEF`)
+"""
+module Gui_Deck
 
 using Dash
 using DashBootstrapComponents

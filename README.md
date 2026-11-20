@@ -27,20 +27,20 @@ In radiopharmaceutical formulation and time-sensitive chemical synthesis, short-
 * **Information Optimality Metrics**: Evaluation of D-, A-, G-, and I-efficiencies and design matrix condition numbers.
 * **Stoichiometry and Mass Balance**: Automated mass balance audits, excipient balancing, molar ratios, and concentration consistency checks.
 * **Decay Adjustments**: Pre-reaction preparation decay normalisation and post-reaction measurement restoration back to End of Synthesis (EOS).
-* **Multi-Objective Optimisation and DCYP**: Derringer-Suich desirability profiling with continuous and categorical criteria:
+* **Multi-Objective Optimisation and DCYP**: Derringer-Suich desirability profiling across continuous target criteria (`Maximise`, `Minimise`, and `Nominal`):
   - **Decay-Coupled Yield Penalty (DCYP)**: In-reaction kinetic trade-off arbitration penalising prolonged duration against exponential isotope decay.
   - **Gaussian Neighbour-Weighting Regularisation**: Smoothens multi-objective landscape ridges for stable metaheuristic and grid convergence.
 * **Candidate Pool Formulation**: Generates a tiered portfolio of viable formulations rather than a single point:
   - *Absolute Leaders (`TOP-XX`)*: Highest unconstrained composite desirability.
   - *Input Minimisation (`INP-<Factor>`)*: Cost-saving formulations achieving $\ge 90\%$ desirability with minimal reagent consumption or thermal stress.
   - *Output Specialisation (`OUT-<Response>`)*: Solutions prioritising critical quality attributes like minimal impurity or specific activity.
-* **Sequential Interphase Transfer (ACTA and ASTM)**: Bridges successive experimental phases through:
-  - *ACTA (Adaptive Contraction & Translation Algorithm)*: Evaluates relative position ($p_i$) to contract search boundaries ($c$) around the leader or translate them ($\delta$) upon boundary contact.
-  - *ASTM (Affine Space Transformation Model)*: Applies affine scaling ($x_{\text{new}} = \alpha \cdot x_{\text{old}} + \beta$) coupled with admissible physical limit preservation and boundary seeking.
+* **Sequential Interphase Transfer (IPKT: ASTM + ACTA)**: Bridges successive experimental phases through:
+  - *ASTM (Affine Space Transformation Model)*: First projects historical bounds and leader coordinates into the target scale or equipment domain ($x_{\text{new}} = \alpha \cdot x_{\text{old}} + \beta$) with physical limit validation.
+  - *ACTA (Adaptive Contraction & Translation Algorithm)*: Evaluates the leader's relative position ($p_i$) within the mapped domain to contract interior search boundaries ($c$), automatically translate/expand bounds near or beyond the $5\%$ margins, or lock onto physical limits via boundary seeking.
 * **Statistical Diagnostics**: Seven-stage scientific analysis report featuring OLS linear and quadratic regression, ANOVA, Lack-of-Fit tests, cross-validated $Q^2$ (overfitting protection), and VIF multicollinearity screening.
 * **Visualisation and Publication Plates**: PlotlyJS 3D response surfaces, equipotential 2D contour maps with fixed-factor slicing, IPKT interval shift charts, and 3-tier concentric decision space exploration.
-  - **145 mm Composite Vector Plates**: Automated assembly of composite SVG plates for double-column journal formats with standardized 8 pt Helvetica Bold labels.
-  - **Single-Click Portfolio Export**: Direct ZIP export placing the composite SVG plates, `ANALYTICS.xlsx`, and `REPORT.txt` in the root, with individual high-resolution PNG plots in `PNGPLOTS/`.
+  - **145 mm Composite Vector Plates**: Automated assembly of composite SVG plates for double-column journal formats with standardised 8 pt bold uppercase panel labels (`A`, `B`, `C`, ...).
+  - **Single-Click Portfolio Export**: Direct ZIP export placing the smart-named composite SVG plates, `*ANALYTICS*.xlsx` workbook, and `*REPORT*.txt` in the root, with individual high-resolution PNG plots in `*PNGPLOTS*/`.
 * **Spreadsheet Data Exchange (Excel)**: Multi-sheet protocol workbooks (`.xlsx`) with formatting standards, formula preservation, and zero data loss.
 
 ---
@@ -56,7 +56,7 @@ DoECISORY.jl separates functional interfaces from sequential experimental phases
 
 ### Sequential Experimental Workflow
 1. **Phase 1**: Formulate in `Gui_Deck` → execute laboratory runs → analyse and generate candidate pool in `Gui_Lens`.
-2. **Interphase Knowledge Transfer (IPKT = ACTA + ASTM)**: Select a candidate leader from the pool in `Gui_Lens` → apply ACTA contraction/translation ($c$, $\delta$) → apply ASTM affine space projection ($x_{\text{new}} = \alpha \cdot x_{\text{old}} + \beta$) with boundary seeking and anti-degeneracy protection via `Sys_Flow`.
+2. **Interphase Knowledge Transfer (IPKT = ASTM + ACTA)**: Select a candidate leader from the pool in `Gui_Lens` → apply optional ASTM affine scale/shift ($x_{\text{new}} = \alpha \cdot x_{\text{old}} + \beta$) into the target system → execute ACTA boundary adaptation ($c$, with automatic edge translation and boundary seeking) via `Sys_Flow`.
 3. **Phase 2**: Automatically load adapted boundaries into `Gui_Deck` → generate Phase 2 protocol matrix preserving the relative design geometry within the adapted space → execute subsequent experimental runs and evaluate in `Gui_Lens`.
 
 The end-to-end sequential workflow and interactive decision surfaces are showcased below across the primary application workspaces:
@@ -186,7 +186,7 @@ begin
   (opt_x, opt_score) = CORE_OptimiseDesirability_DDEF(models, goals, box; MaxTime=0.4, ModifiersDCYP=dcyp)
   opt_preds          = [round(VISE_Predict_DDEF(m, reshape(opt_x, 1, 3))[1]; digits=1) for m in models]
   sensitivities      = VISE_AnalyseSensitivity_DDEF(models[1], opt_x, X)
-  acta_bounds        = FLOW_CalcACTA_DDEF(opt_x[1], [60.0, 90.0, 120.0], 0.5, 0.0, 0.0)
+  acta_bounds        = FLOW_CalcACTA_DDEF(opt_x[1], [60.0, 90.0, 120.0], 0.50; MinLimit=0.0)
   phase2_levels      = [FLOW_ApplyASTM_DDEF(x, 0.9, 9.0) for x in acta_bounds]
   println("Multi-Desirability Score        : ", round(opt_score; digits=4))
   println("Optimum (Temp, Time, Precursor) : ", round.(opt_x; digits=2))

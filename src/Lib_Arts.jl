@@ -1,12 +1,16 @@
-module Lib_Arts
+"""
+    Lib_Arts
 
-# ==============================================================================
-# DOECISORY - LIB ARTS (VISUALISATION)
-# ==============================================================================
-# Description: Visualisation and graphics module for academic data 
-#              representation and response surface mapping.
-# Module Tag:  ARTS
-# ==============================================================================
+Scientific visualisation and decision analytics subsystem for **DoECISORY.jl**. Built upon
+`PlotlyJS` with perceptually uniform Viridis colour mapping and publication typography, rendering
+response manifolds, statistical diagnostics, and 3D desirability operating spaces.
+
+- **Tag:** `ARTS`  |  **Palette:** Viridis scale & bipolar interaction theme (`ARTS_Theme_DDEC`)
+- **Response Topography:** 3D surfaces, 2D contours, slices, trends (`ARTS_RenderSurface_DDEF`, `ARTS_RenderContour_DDEF`, `ARTS_RenderSlice_DDEF`)
+- **Model Diagnostics:** Pareto, fit, Q-Q, residuals, sensitivity, heatmaps (`ARTS_RenderPareto_DDEF`, `ARTS_RenderInteractionMatrix_DDEF`)
+- **Decision Spaces:** Feasible space, optimal zone, sweet spot, candidates (`ARTS_Render_DDEF`, `ARTS_RenderCandidates_DDEF`)
+"""
+module Lib_Arts
 
 using Base.Threads
 using PlotlyJS
@@ -582,7 +586,7 @@ end
 
 """
     ARTS_HexToRGBA_DDEF(hex, alpha) -> String
-    Converts hex colour strings to RGBA format for Plotly transparency support.
+Convert hex colour strings to RGBA format for Plotly transparency support.
 """
 function ARTS_HexToRGBA_DDEF(hex::AbstractString, alpha::AbstractFloat)
     h = replace(hex, "#" => "")
@@ -594,7 +598,7 @@ end
 
 """
     ARTS_GenAlphaViridis_DDEF(thresh) -> Vector
-Generates a custom Viridis colorscale with a smooth alpha-gradient at the threshold.
+Generates a custom Viridis colour scale with a smooth alpha-gradient at the threshold.
 Eliminates aliasing by using fragment-level transparency instead of mesh-level NaN clipping.
 """
 function ARTS_GenAlphaViridis_DDEF(thresh::AbstractFloat)
@@ -782,7 +786,7 @@ end
 """
     ARTS_RenderFit_DDEF(Y_Real::AbstractVector{Float64}, Y_Pred::AbstractVector{Float64}, OutName::AbstractString) -> PlotlyJS.Plot
 Render a scatter plot comparing experimental response observations against model-predicted values.
-Overlays a diagonal 45-degree dashed reference line to visualize regression accuracy and prediction dispersion.
+Overlays a diagonal 45-degree dashed reference line to visualise regression accuracy and prediction dispersion.
 
 # Arguments
 - `Y_Real::AbstractVector{Float64}`: Observed experimental response measurements.
@@ -914,7 +918,7 @@ Holds unselected factors constant at their domain midpoint while evaluating curv
 - `OutName::AbstractString`: Name of the plotted response variable.
 
 # Returns
-- `PlotlyJS.Plot`: Interactive 3D Plotly surface visualization.
+- `PlotlyJS.Plot`: Interactive 3D Plotly surface visualisation.
 """
 function ARTS_RenderSurface_DDEF(Model::AbstractDict, X::AbstractMatrix{Float64}, Idx::AbstractVector{<:Integer}, Lbls::AbstractVector{<:AbstractString}, OutName::AbstractString)
     return ARTS_Draw_DDEF(ARTS_PlotSurface_DDES(), Model, X, Idx, Lbls, OutName)
@@ -1144,7 +1148,7 @@ end
 # ------------------------------------------------------------------------------
 
 """
-    ARTS_RenderDesignSpace_DDEF(Models, Goals, X::AbstractMatrix{Float64}, Idx::AbstractVector{<:Integer}, Lbls::AbstractVector{<:AbstractString}, Leaders_DF::AbstractDataFrame=DataFrame()) -> PlotlyJS.Plot
+    ARTS_RenderDesignSpace_DDEF(Models, Goals, X::AbstractMatrix{Float64}, Idx::AbstractVector{<:Integer}, Lbls::AbstractVector{<:AbstractString}, Leaders_DF::AbstractDataFrame=DataFrame(); ModifiersDCYP::Vector{CORE_ModifierDCYP_DDES}=CORE_ModifierDCYP_DDES[]) -> PlotlyJS.Plot
 Render multi-slice 3D desirability space surfaces representing composite multi-criteria optimisation feasibility.
 Displays simultaneous horizontal planar slices through the third factor dimension with optional leader formulation markers.
 
@@ -1156,6 +1160,9 @@ Displays simultaneous horizontal planar slices through the third factor dimensio
 - `Lbls::AbstractVector{<:AbstractString}`: Factor axis labels.
 - `Leaders_DF::AbstractDataFrame`: Formulations table containing candidate leader runs (default: empty).
 
+# Keywords
+- `ModifiersDCYP::Vector{CORE_ModifierDCYP_DDES}`: Optional radiochemical decay penalty modifiers applied to composite desirability (default: empty).
+
 # Returns
 - `PlotlyJS.Plot`: 3D multi-surface desirability exploration figure.
 """
@@ -1164,6 +1171,25 @@ function ARTS_RenderDesignSpace_DDEF(Models, Goals, X::AbstractMatrix{Float64}, 
     return ARTS_Draw_DDEF(ARTS_PlotDesignSpace_DDES(), Models, Goals, X, Idx, Lbls, Leaders_DF; ModifiersDCYP=ModifiersDCYP)
 end
 
+"""
+    ARTS_RenderCandidates_DDEF(Models, Goals, X::AbstractMatrix{Float64}, Idx::Union{AbstractVector{<:Integer}, Tuple{Integer, Integer}}, Lbls::AbstractVector{<:AbstractString}, Leaders_DF::AbstractDataFrame=DataFrame(); ModifiersDCYP::Vector{CORE_ModifierDCYP_DDES}=CORE_ModifierDCYP_DDES[]) -> Tuple{PlotlyJS.Plot, String}
+Render threshold-masked 3D candidate space slices highlighting factor regions that satisfy minimum composite desirability criteria.
+Applies smooth alpha-gradient fragment masking and overlays leader formulation markers across horizontal planar slices.
+
+# Arguments
+- `Models`: Vector of active regression model dictionaries.
+- `Goals`: Multi-response optimisation goal specifications.
+- `X::AbstractMatrix{Float64}`: Experimental factor coordinate matrix.
+- `Idx::Union{AbstractVector{<:Integer}, Tuple{Integer, Integer}}`: Pair of column indices for x and y planar projection.
+- `Lbls::AbstractVector{<:AbstractString}`: Factor axis labels.
+- `Leaders_DF::AbstractDataFrame`: Formulations table containing candidate leader runs (default: empty).
+
+# Keywords
+- `ModifiersDCYP::Vector{CORE_ModifierDCYP_DDES}`: Optional radiochemical decay penalty modifiers applied to composite desirability (default: empty).
+
+# Returns
+- `Tuple{PlotlyJS.Plot, String}`: Pair containing the 3D candidate space figure and the formatted volume occupancy percentage string.
+"""
 function ARTS_RenderCandidates_DDEF(Models, Goals, X::AbstractMatrix{Float64}, Idx::Union{AbstractVector{<:Integer}, Tuple{Integer, Integer}}, Lbls::AbstractVector{<:AbstractString}, Leaders_DF::AbstractDataFrame=DataFrame();
     ModifiersDCYP::Vector{CORE_ModifierDCYP_DDES}=CORE_ModifierDCYP_DDES[])
     return ARTS_Draw_DDEF(ARTS_PlotCandidates_DDES(), Models, Goals, X, Idx, Lbls, Leaders_DF; ModifiersDCYP=ModifiersDCYP)
@@ -1340,7 +1366,7 @@ end
 # ------------------------------------------------------------------------------
 
 """
-    ARTS_RenderFeasibleSpace_DDEF(Models, Goals, X::AbstractMatrix{Float64}, InNames::AbstractVector{<:AbstractString}, Leaders_DF::AbstractDataFrame=DataFrame()) -> Tuple{PlotlyJS.Plot, String}
+    ARTS_RenderFeasibleSpace_DDEF(Models, Goals, X::AbstractMatrix{Float64}, InNames::AbstractVector{<:AbstractString}, Leaders_DF::AbstractDataFrame=DataFrame(); ModifiersDCYP::Vector{CORE_ModifierDCYP_DDES}=CORE_ModifierDCYP_DDES[]) -> Tuple{PlotlyJS.Plot, String}
 Render a 3D volumetric shell enclosing factor regions that simultaneously satisfy all unweighted response specification limits.
 Discretises the experimental bounding box into a 3D coordinate lattice to delineate the unconstrained feasible operating domain.
 
@@ -1351,6 +1377,9 @@ Discretises the experimental bounding box into a 3D coordinate lattice to deline
 - `InNames::AbstractVector{<:AbstractString}`: Factor dimension names.
 - `Leaders_DF::AbstractDataFrame`: Formulations table containing candidate leader runs (default: empty).
 
+# Keywords
+- `ModifiersDCYP::Vector{CORE_ModifierDCYP_DDES}`: Optional radiochemical decay penalty modifiers applied to composite desirability (default: empty).
+
 # Returns
 - `Tuple{PlotlyJS.Plot, String}`: Pair containing the 3D volume figure and the feasible space volume occupancy percentage string.
 """
@@ -1360,7 +1389,7 @@ function ARTS_RenderFeasibleSpace_DDEF(Models, Goals, X::AbstractMatrix{Float64}
 end
 
 """
-    ARTS_RenderOptimalZone_DDEF(Models, Goals, X::AbstractMatrix{Float64}, InNames::AbstractVector{<:AbstractString}, Leaders_DF::AbstractDataFrame=DataFrame()) -> Tuple{PlotlyJS.Plot, String}
+    ARTS_RenderOptimalZone_DDEF(Models, Goals, X::AbstractMatrix{Float64}, InNames::AbstractVector{<:AbstractString}, Leaders_DF::AbstractDataFrame=DataFrame(); ModifiersDCYP::Vector{CORE_ModifierDCYP_DDES}=CORE_ModifierDCYP_DDES[]) -> Tuple{PlotlyJS.Plot, String}
 Render a 3D volumetric iso-surface enclosing factor regions meeting composite multi-criteria desirability thresholds.
 Discretises the experimental factor space into a 3D coordinate lattice and identifies contiguous high-desirability zones evaluating weighted multi-response trade-offs.
 
@@ -1371,6 +1400,9 @@ Discretises the experimental factor space into a 3D coordinate lattice and ident
 - `InNames::AbstractVector{<:AbstractString}`: Factor dimension names.
 - `Leaders_DF::AbstractDataFrame`: Formulations table containing candidate leader runs (default: empty).
 
+# Keywords
+- `ModifiersDCYP::Vector{CORE_ModifierDCYP_DDES}`: Optional radiochemical decay penalty modifiers applied to composite desirability (default: empty).
+
 # Returns
 - `Tuple{PlotlyJS.Plot, String}`: Pair containing the 3D volume figure and the optimal zone volume occupancy percentage string.
 """
@@ -1380,7 +1412,7 @@ function ARTS_RenderOptimalZone_DDEF(Models, Goals, X::AbstractMatrix{Float64}, 
 end
 
 """
-    ARTS_RenderSweetSpot_DDEF(Models, Goals, X::AbstractMatrix{Float64}, InNames::AbstractVector{<:AbstractString}, Leaders_DF::AbstractDataFrame=DataFrame()) -> Tuple{PlotlyJS.Plot, String}
+    ARTS_RenderSweetSpot_DDEF(Models, Goals, X::AbstractMatrix{Float64}, InNames::AbstractVector{<:AbstractString}, Leaders_DF::AbstractDataFrame=DataFrame(); ModifiersDCYP::Vector{CORE_ModifierDCYP_DDES}=CORE_ModifierDCYP_DDES[]) -> Tuple{PlotlyJS.Plot, String}
 Render a 3D volumetric sweet spot representing the 95% threshold of peak composite desirability.
 Isolates the ultra-optimal core factor space where multi-response trade-offs attain elite desirability performance.
 
@@ -1390,6 +1422,9 @@ Isolates the ultra-optimal core factor space where multi-response trade-offs att
 - `X::AbstractMatrix{Float64}`: Experimental factor coordinate matrix.
 - `InNames::AbstractVector{<:AbstractString}`: Factor dimension names.
 - `Leaders_DF::AbstractDataFrame`: Formulations table containing candidate leader runs (default: empty).
+
+# Keywords
+- `ModifiersDCYP::Vector{CORE_ModifierDCYP_DDES}`: Optional radiochemical decay penalty modifiers applied to composite desirability (default: empty).
 
 # Returns
 - `Tuple{PlotlyJS.Plot, String}`: Pair containing the 3D volume figure and the sweet spot volume occupancy percentage string.
@@ -1490,7 +1525,7 @@ end
 # ------------------------------------------------------------------------------
 
 """
-    ARTS_RenderInteractionMatrix_DDEF(Model::AbstractDict, InNames::AbstractVector{<:AbstractString}, OutName::AbstractString) -> PlotlyJS.Plot
+    ARTS_RenderInteractionMatrix_DDEF(Model::AbstractDict, InNames::AbstractVector{<:AbstractString}, OutName::AbstractString, X::Union{AbstractMatrix{Float64}, Nothing}=nothing) -> PlotlyJS.Plot
 Render an interaction coefficient heatmap displaying pairwise synergy and antagonism between experimental factors.
 Extracts off-diagonal second-order model coefficients and normalises them to evaluate relative coupling magnitude.
 
@@ -1498,6 +1533,7 @@ Extracts off-diagonal second-order model coefficients and normalises them to eva
 - `Model::AbstractDict`: Fitted quadratic regression model dictionary.
 - `InNames::AbstractVector{<:AbstractString}`: Factor component labels.
 - `OutName::AbstractString`: Response variable name.
+- `X::Union{AbstractMatrix{Float64}, Nothing}`: Optional experimental factor matrix used to scale physical coefficients by factor half-spans for unit invariance (default: `nothing`).
 
 # Returns
 - `PlotlyJS.Plot`: Heatmap figure indicating interaction magnitudes and directions.

@@ -12,16 +12,16 @@
 * **Information Optimality Metrics**: Evaluation of D-, A-, G-, and I-efficiencies and design matrix condition numbers.
 * **Stoichiometry and Mass Balance**: Automated mass balance audits, excipient balancing, molar ratios, and concentration consistency checks (`Lib_Mole`).
 * **Temporal Kinetic Adjustments**: Pre-reaction ingredient degradation normalisation (e.g. stock holding delay, radionuclide decay, or labile precursor degradation) and post-reaction analytical latency restoration back to reference state (e.g. End of Synthesis - EOS) via `VISE_ApplyFRDecay_DDEF` and `MOLE_CalcRadioDecay_DDEF`.
-* **Multi-Objective Optimisation and Kinetic Penalties (DCYP)**: Derringer-Suich desirability profiling with continuous and categorical criteria:
+* **Multi-Objective Optimisation and Kinetic Penalties (DCYP)**: Derringer-Suich desirability profiling across continuous target criteria (`Maximise`, `Minimise`, and `Nominal`):
   - **Decay-Coupled Yield Penalty (DCYP)**: Universal kinetic trade-off arbitration penalising excessive reaction duration against exponential half-life decay ($t_{1/2}$, e.g. radionuclide decay or labile compound degradation).
   - **Gaussian Neighbour-Weighting Regularisation**: Smoothens multi-objective landscape ridges for stable metaheuristic and grid convergence.
 * **Candidate Pool Formulation**: Generates a tiered portfolio of viable formulations rather than a single point:
   - *Absolute Leaders (`TOP-XX`)*: Highest unconstrained composite desirability.
   - *Input Minimisation (`INP-<Factor>`)*: Green chemistry and cost-saving formulations achieving $\ge 90\%$ desirability with minimal reagent consumption, reduced heating load, or shortest residence time.
   - *Output Specialisation (`OUT-<Response>`)*: Solutions prioritising critical quality attributes like minimal impurity, high purity, or specific activity.
-* **Sequential Interphase Transfer (ACTA and ASTM)**: Bridges successive experimental phases through:
-  - *ACTA (Adaptive Contraction & Translation Algorithm)*: Evaluates relative position ($p_i$) to contract search boundaries ($c$) around the leader or translate them ($\delta$) upon boundary contact.
-  - *ASTM (Affine Space Transformation Model)*: Applies affine scaling ($x_{\text{new}} = \alpha \cdot x_{\text{old}} + \beta$) coupled with physical limits preservation and boundary seeking.
+* **Sequential Interphase Transfer (IPKT: ASTM + ACTA)**: Bridges successive experimental phases through:
+  - *ASTM (Affine Space Transformation Model)*: First maps historical bounds and leader coordinates into the target equipment/scale space ($x_{\text{new}} = \alpha \cdot x_{\text{old}} + \beta$) with physical limits validation.
+  - *ACTA (Adaptive Contraction & Translation Algorithm)*: Evaluates the leader's relative position ($p_i$) to contract interior search boundaries ($c$), automatically translate/expand bounds at the $5\%$ outer margins, or engage boundary seeking on hard limits.
 * **Statistical Diagnostics**: Seven-stage scientific analysis report featuring OLS linear and quadratic regression, ANOVA, Lack-of-Fit tests, cross-validated $Q^2$ (overfitting protection), and VIF multicollinearity screening.
 * **Visualisation**: PlotlyJS 3D response surfaces, equipotential 2D contour maps with fixed-factor slicing, and IPKT interval shift charts (`Lib_Arts`).
 * **Spreadsheet Data Exchange (Excel)**: Multi-sheet protocol workbooks (`.xlsx`) with formatting standards, formula preservation, and zero data loss (`Sys_Fast`).
@@ -91,7 +91,7 @@ begin
 
 # 5. Interphase Knowledge Transfer (IPKT = ACTA + ASTM)
 # Step A: ACTA domain contraction (c = 0.50 around centre 90.0)
-  acta_levels = FLOW_CalcACTA_DDEF(90.0, [60.0, 90.0, 120.0], 0.50, 0.0, 0.0)
+  acta_levels = FLOW_CalcACTA_DDEF(90.0, [60.0, 90.0, 120.0], 0.50; MinLimit=0.0)
 
 # Step B: ASTM affine transformation and coordinate scaling (α = 0.9, β = 9.0)
   phase2_levels = [FLOW_ApplyASTM_DDEF(x, 0.9, 9.0) for x in acta_levels]

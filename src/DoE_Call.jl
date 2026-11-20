@@ -12,15 +12,11 @@ const C = FAST_Data_DDEC
 
 # ---------------------
 """
-    CALL_ResolvePort_DDEF(port::Int) -> Int
-Direct passthrough dispatch when an explicit port integer is provided.
+    CALL_ResolvePort_DDEF(port::Union{Int, Nothing}=nothing) -> Int
+Resolve target HTTP listening port directly from an explicit integer, `ENV["PORT"]`, cloud `SPACE_ID`, or fallback `8060`.
 """
 CALL_ResolvePort_DDEF(port::Int)::Int = port
 
-"""
-    CALL_ResolvePort_DDEF(::Nothing=nothing) -> Int
-Resolve target HTTP listening port from environment overrides (ENV["PORT"]), cloud identifiers (SPACE_ID), or fallback to 8060.
-"""
 function CALL_ResolvePort_DDEF(::Nothing=nothing)::Int
     haskey(ENV, "PORT")     && return parse(Int, ENV["PORT"])
     haskey(ENV, "SPACE_ID") && return 7860
@@ -28,7 +24,7 @@ function CALL_ResolvePort_DDEF(::Nothing=nothing)::Int
 end
 
 """
-    launch(; host="0.0.0.0", port=nothing, debug=false, open_browser=true, wait=false, start_server=true) -> Union{Nothing, Task, Dash.DashApp}
+    launch(; host="0.0.0.0", port=nothing, debug=false, open_browser=true, wait=false, start_server=true, SuppressBanner=false) -> Union{Nothing, Task, Dash.DashApp}
 
 Launch the DoECISORY interactive web application in-process within the active Julia session.
 Initialises the experimental design formulation workspace (Deck) alongside the response surface analysis suite (Lens).
@@ -40,6 +36,7 @@ Initialises the experimental design formulation workspace (Deck) alongside the r
 - `open_browser::Bool`: Automatically launches the default web browser upon startup (default: `true`).
 - `wait::Bool`: Blocks the calling process until the web server is terminated (default: `false`).
 - `start_server::Bool`: Whether to bind and launch the HTTP server (default: `true`). When `false`, returns the configured `DashApp` instance without opening sockets.
+- `SuppressBanner::Bool`: Suppresses the ASCII startup banner in console output (default: `false`).
 
 # Returns
 - `Nothing` when `wait=true`, the background server `Task` when `wait=false`, or `DashApp` when `start_server=false`.
@@ -182,7 +179,7 @@ end
 """
     design(method::Symbol=:bb15; factors=nothing, levels=nothing, limits=nothing, direction=[-1, -1, -1]) -> CALL_Design_DDES
 
-Construct an experimental design plan for response surface methodology, screening, or directional optimization.
+Construct an experimental design plan for response surface methodology, screening, or directional optimisation.
 Translates dimensionless coded coordinates into physical laboratory formulations via piecewise linear interpolation.
 
 # Arguments

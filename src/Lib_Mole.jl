@@ -1,12 +1,16 @@
-module Lib_Mole
+"""
+    Lib_Mole
 
-# ==============================================================================
-# DOECISORY - LIB MOLE (STOICHIOMETRY)
-# ==============================================================================
-# Description: Module for stoichiometry, unit-aware mass calculations, and 
-#              chemical auditing processes.
-# Module Tag:  MOLE
-# ==============================================================================
+Stoichiometric mass balance, physical unit verification, and first-order kinetic decay subsystem
+for **DoECISORY.jl**. Parses formulation components, reconciles gravimetric mass and molar budgets,
+and compensates for pre-reaction degradation and post-reaction analyte holding latency.
+
+- **Tag:** `MOLE`  |  **Roles:** `Variable`, `Fixed`, `Filler` (`MOLE_ParseTable_DDEF`)
+- **Mass & Feasibility:** Gravimetric solver & batch audits (`MOLE_CalcMass_DDEF`, `MOLE_AuditQuick_DDEF`, `MOLE_AuditBatch_DDEF`)
+- **Unit Validation:** Physical dimension checks via `Unitful` (`MOLE_ValidatePhysicalUnit_DDEF`)
+- **Decay Kinetics:** Forward depletion & EOS restoration (`MOLE_CalcRadioDecay_DDEF`)
+"""
+module Lib_Mole
 
 using DataFrames
 using Printf
@@ -193,7 +197,7 @@ MOLE_ApproxEq_DDEF(a::Real, b::Real; atol::Float64=MOLE_StoicTolerance_DDEC) = i
 
 """
     MOLE_ParseTable_DDEF(TableData::AbstractVector) -> Dict{String, Any}
-Parse tabular formulation records from the UI DataTable into categorized operational arrays.
+Parse tabular formulation records from the UI DataTable into categorised operational arrays.
 Extracts component identifiers, functional roles, discrete level bounds, and molecular weights into indexed dictionaries.
 
 # Arguments

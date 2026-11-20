@@ -1,12 +1,16 @@
-module Lib_Core
+"""
+    Lib_Core
 
-# ==============================================================================
-# DOECISORY - LIB CORE (CORE MATRICES)
-# ==============================================================================
-# Description: Module for experimental design generation, coordinate mapping, 
-#              and adaptive search algorithms.
-# Module Tag:  CORE
-# ==============================================================================
+Experimental design, information optimality, and multi-objective desirability engine for
+**DoECISORY.jl**. Generates 3-factor coded matrices, maps physical levels, evaluates D/A/G/I
+efficiencies, and solves regularised Derringer-Suich landscapes with DCYP kinetic penalties.
+
+- **Tag:** `CORE`  |  **Invariant:** Strict 3-factor architecture (`k = 3`)
+- **Design Matrices:** `BB15`, `CD17`, `TL09`, `DF14` (`CORE_GenDesign_DDEF`, `CORE_MapLevels_DDEF`)
+- **Optimality:** D, A, G, I efficiencies and matrix checks (`CORE_CalcDesignMetrics_DDEF`, `CORE_CalcCriterion_DDEF`)
+- **Optimisation:** Global desirability & DCYP modifiers (`CORE_OptimiseDesirability_DDEF`, `CORE_ApplyDCYP_DDEF`)
+"""
+module Lib_Core
 
 using Random
 using LinearAlgebra
@@ -512,6 +516,7 @@ Evaluates geometric-mean composite objective functions across all active respons
 
 # Keywords
 - `MaxTime::Float64`: Maximum optimisation time budget in seconds (default: `1.0`).
+- `MaxSteps::Union{Int, Nothing}`: Optional maximum iteration limit for the global optimiser (default: `nothing`).
 - `PenaltyFn::Union{Function,Nothing}`: Optional boundary constraint penalty function.
 - `ModifiersDCYP::Vector{CORE_ModifierDCYP_DDES}`: Optional radiochemical decay penalty modifiers.
 
